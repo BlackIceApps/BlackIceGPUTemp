@@ -669,7 +669,7 @@ namespace TinyTemp.Diagnostics
                                  {
                                      IntPtr gpuListVtable = Marshal.ReadIntPtr(adlxGPUList);
                                      IntPtr sizePtr = Marshal.ReadIntPtr(gpuListVtable, 3 * IntPtr.Size);
-                                     IntPtr atPtr = Marshal.ReadIntPtr(gpuListVtable, 7 * IntPtr.Size);
+                                     IntPtr atPtr = Marshal.ReadIntPtr(gpuListVtable, 11 * IntPtr.Size);
 
                                      var getListSize = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPUList_Size>(sizePtr);
                                      gpuCount = getListSize(adlxGPUList);
