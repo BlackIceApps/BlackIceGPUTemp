@@ -1,0 +1,31 @@
+name: Bootstrap Lockfiles
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: windows-2025
+
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    - name: Restore and generate lockfiles
+      run: |
+        dotnet restore TinyTemp.sln --force
+
+    - name: Commit lockfiles
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add **/packages.lock.json
+        git commit -m "chore: regenerate packages.lock.json lockfiles" || echo "No changes to commit"
+        git push

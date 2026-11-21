@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    - name: Display .NET and MSBuild info
+      run: |
+        dotnet --info
+        dotnet --version
+        msbuild -version
+
+    - name: Restore dependencies (locked mode)
+      run: dotnet restore TinyTemp.sln --locked-mode
+
+    - name: Build Solution (Release)
+      run: dotnet build TinyTemp.sln --configuration Release --no-restore
+
+    - name: Run Tests
+      run: dotnet test TinyTemp.sln --configuration Release --no-build --verbosity normal
+
+    - name: Verify Single EXE Staging
+      run: |
+        $stagingDir = "$env:GITHUB_WORKSPACE\staging"
+        New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+        Copy-Item "$env:GITHUB_WORKSPACE\src\TinyTemp\bin\Release\net48\TinyTemp.exe" $stagingDir
+        
+        $files = Get-ChildItem -Path $stagingDir -Recurse
+        Write-Host "Files in staging directory:"
+        $files | ForEach-Object { Write-Host $_.FullName }
+        
+        $count = ($files | Where-Object { $_.PSIsContainer -eq $false }).Count
+        if ($count -ne 1) {
+          Write-Error "Staging validation failed: expected exactly 1 file, found $count."
+          exit 1
+        }
+        Write-Host "Staging validation passed: exactly 1 file (TinyTemp.exe)."
+
+    - name: Upload Diagnostics and Staging Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: TinyTemp-Artifacts-win-x64
+        path: |
+          src/TinyTemp/bin/Release/net48/TinyTemp.exe
+          diagnostics/TinyTemp.Diagnostics/bin/Release/net48/TinyTemp.Diagnostics.exe
