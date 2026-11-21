@@ -11,10 +11,10 @@ jobs:
     runs-on: windows-2025
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         global-json-file: global.json
 
@@ -85,7 +85,7 @@ jobs:
         }
 
     - name: Upload Diagnostics and Staging Artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: TinyTemp-Artifacts-win-x64
         path: artifact/*
