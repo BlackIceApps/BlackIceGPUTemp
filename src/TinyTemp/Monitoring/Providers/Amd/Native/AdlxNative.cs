@@ -212,6 +212,26 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return hr;
     }
 
+    public int GetGpuUniqueId(IntPtr gpu, out int uniqueId)
+    {
+        uniqueId = 0;
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(AdlxNative));
+        }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized.");
+        }
+        if (gpu == IntPtr.Zero)
+        {
+            throw new ArgumentException("GPU pointer cannot be zero.", nameof(gpu));
+        }
+
+        var del = GetVtableDelegate<GpuUniqueIdDelegate>(gpu, 18);
+        return del(gpu, out uniqueId);
+    }
+
     public int GetPerformanceMonitoringServices(IntPtr system, out IntPtr services)
     {
         services = IntPtr.Zero;
@@ -347,6 +367,9 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetGpuNameDelegate(IntPtr pThis, out IntPtr ppName);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int GpuUniqueIdDelegate(IntPtr pThis, out int pUniqueId);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetPerfServicesDelegate(IntPtr pThis, out IntPtr ppPerfMonitoringServices);
