@@ -10,44 +10,34 @@ namespace TinyTemp.Diagnostics
 {
     class Program
     {
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct RTL_OSVERSIONINFOEX
+        {
+            public uint dwOSVersionInfoSize;
+            public uint dwMajorVersion;
+            public uint dwMinorVersion;
+            public uint dwBuildNumber;
+            public uint dwPlatformId;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string szCSDVersion;
+        }
+
+        [DllImport("ntdll.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern int RtlGetVersion(ref RTL_OSVERSIONINFOEX lpVersionInformation);
+
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true, ExactSpelling = true)]
         static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool FreeLibrary(IntPtr hModule);
 
         const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
 
-        // Official AMD ADL SDK Windows AdapterInfo structure (adl_structures.h):
-        // typedef struct AdapterInfo {
-        //     int iSize;
-        //     int iAdapterIndex;
-        //     char strUDID[ADL_MAX_PATH];              (256)
-        //     int iBusNumber;
-        //     int iDeviceNumber;
-        //     int iFunctionNumber;
-        //     int iVendorID;
-        //     int iDeviceID;
-        //     int iSubVendorID;
-        //     int iSubSystemID;
-        //     int iRevID;
-        //     int iPresent;
-        //     int iExist;
-        //     int iDriverVersion[4];                   (16 bytes)
-        //     char strAdapterName[ADL_MAX_PATH];       (256)
-        //     char strDriverKey[ADL_MAX_PATH];         (256)
-        //     char strDisplayName[ADL_MAX_PATH];       (256)
-        //     char strDriverPath[ADL_MAX_PATH];        (256)
-        //     char strDriverPathExt[ADL_MAX_PATH];     (256)
-        //     char strPNPString[ADL_MAX_PATH];         (256)
-        //     int iOSDisplayIndex;
-        // } AdapterInfo;
-        // Size calculation:
-        // sizeof(int) * 3 = 12 (iSize, iAdapterIndex, iBusNumber) -> wait, let's list precisely:
-        // iSize (4) + iAdapterIndex (4) + strUDID (256) + iBusNumber (4) + iDeviceNumber (4) + iFunctionNumber (4) +
-        // iVendorID (4) + iDeviceID (4) + iSubVendorID (4) + iSubSystemID (4) + iRevID (4) + iPresent (4) + iExist (4) +
-        // iDriverVersion (16) + strAdapterName (256) + strDriverKey (256) + strDisplayName (256) + strDriverPath (256) +
-        // strDriverPathExt (256) + strPNPString (256) + iOSDisplayIndex (4) = 1572 bytes.
+        // AMD ADL AdapterInfo structure (1572 bytes) matching the C# declaration below.
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
         public struct AdapterInfo
         {
@@ -59,20 +49,12 @@ namespace TinyTemp.Diagnostics
             public int iDeviceNumber;
             public int iFunctionNumber;
             public int iVendorID;
-            public int iDeviceID;
-            public int iSubVendorID;
-            public int iSubSystemID;
-            public int iRevID;
-            public int iPresent;
-            public int iExist;
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
-            public int[] iDriverVersion;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
             public string strAdapterName;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-            public string strDriverKey;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
             public string strDisplayName;
+            public int iPresent;
+            public int iExist;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
             public string strDriverPath;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
@@ -113,15 +95,15 @@ namespace TinyTemp.Diagnostics
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADL_Overdrive6_Temperature_Get(int adapterIndex, ref int temperature);
 
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         delegate IntPtr ADL_Main_Memory_Alloc(int size);
 
         // Official ADLX C-API SDK signatures (from AMD ADLX documentation & ADLXHelper C# bindings):
-        // ADLX_RESULT ADLXInitialize (ADLX_UINT* fullVersion, IADLXSystem** ppSystem) -> ADLXInitialize(ulong fullVersion, ref IntPtr ppSystem)
+        // ADLX_RESULT ADLXInitialize (adlx_uint64 version, IADLXSystem** ppSystem) -> ADLXInitialize(ulong version, ref IntPtr ppSystem)
         // ADLX_RESULT ADLXTerminate () -> ADLXTerminate()
-        // ADLX_RESULT ADLXQueryFullVersion (ADLX_UINT* fullVersion) -> ADLXQueryFullVersion(ref ulong version)
+        // ADLX_RESULT ADLXQueryFullVersion (adlx_uint64* version) -> ADLXQueryFullVersion(ref ulong version)
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int ADLXInitialize(ulong fullVersion, ref IntPtr ppSystem);
+        delegate int ADLXInitialize(ulong version, ref IntPtr ppSystem);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADLXTerminate();
@@ -141,20 +123,36 @@ namespace TinyTemp.Diagnostics
         static void Main(string[] args)
         {
             Log("=== TinyTemp Diagnostics Tool ===");
-            Log($"OS Version: {Environment.OSVersion}");
+            
+            RTL_OSVERSIONINFOEX osvi = new RTL_OSVERSIONINFOEX();
+            osvi.dwOSVersionInfoSize = (uint)Marshal.SizeOf(typeof(RTL_OSVERSIONINFOEX));
+            osvi.szCSDVersion = new string('\0', 128);
+            int ntStatus = RtlGetVersion(ref osvi);
+            if (ntStatus == 0)
+            {
+                Log($"OS Version: Microsoft Windows NT {osvi.dwMajorVersion}.{osvi.dwMinorVersion}.{osvi.dwBuildNumber} ({osvi.szCSDVersion})");
+            }
+            else
+            {
+                Log("OS Version: Niedostępny odczyt wersji systemu (RtlGetVersion nie powiódł się).");
+            }
+
             Log($"Is 64-bit Process: {Environment.Is64BitProcess}");
             
-            bool isAdmin = false;
+            string adminStatus = "Unknown";
             try
             {
                 using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
                 {
                     var principal = new System.Security.Principal.WindowsPrincipal(identity);
-                    isAdmin = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+                    adminStatus = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator) ? "Yes" : "No";
                 }
             }
-            catch { }
-            Log($"Is Running as Administrator: {isAdmin}");
+            catch (Exception ex)
+            {
+                adminStatus = $"Unknown (Błąd: {ex.Message})";
+            }
+            Log($"Administrator: {adminStatus}");
             Log("");
 
             // 1. DLL checks
@@ -191,18 +189,56 @@ namespace TinyTemp.Diagnostics
 
             if (exists)
             {
+                IntPtr handle = IntPtr.Zero;
                 try
                 {
                     var vi = FileVersionInfo.GetVersionInfo(system32Path);
                     Log($"[{dllName}] Version: {vi.FileVersion} (Product: {vi.ProductVersion})");
 
-                    IntPtr handle = LoadLibraryEx(system32Path, IntPtr.Zero, LOAD_LIBRARY_SEARCH_SYSTEM32);
-                    IntPtr proc = handle != IntPtr.Zero ? GetProcAddress(handle, "ADL_Main_Control_Create") : IntPtr.Zero;
-                    Log($"[{dllName}] LoadLibraryEx Handle: {handle}, GetProcAddress (ADL_Main_Control_Create): {proc} (Error: {Marshal.GetLastWin32Error()})");
+                    handle = LoadLibraryEx(system32Path, IntPtr.Zero, LOAD_LIBRARY_SEARCH_SYSTEM32);
+                    if (handle == IntPtr.Zero)
+                    {
+                        Log($"[{dllName}] LoadLibraryEx failed with Error: {Marshal.GetLastWin32Error()}");
+                        return;
+                    }
+
+                    if (dllName.Equals("atiadlxx.dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        IntPtr proc = GetProcAddress(handle, "ADL_Main_Control_Create");
+                        if (proc == IntPtr.Zero)
+                        {
+                            Log($"[{dllName}] LoadLibraryEx Handle: {handle}, GetProcAddress (ADL_Main_Control_Create) failed with Error: {Marshal.GetLastWin32Error()}");
+                        }
+                        else
+                        {
+                            Log($"[{dllName}] LoadLibraryEx Handle: {handle}, GetProcAddress (ADL_Main_Control_Create): {proc} (Found successfully)");
+                        }
+                    }
+                    else if (dllName.Equals("amdadlx64.dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        IntPtr procVer = GetProcAddress(handle, "ADLXQueryFullVersion");
+                        string verStatus = procVer == IntPtr.Zero 
+                            ? $"failed with Error: {Marshal.GetLastWin32Error()}" 
+                            : $"{procVer} (Found successfully)";
+
+                        IntPtr procInit = GetProcAddress(handle, "ADLXInitialize");
+                        string initStatus = procInit == IntPtr.Zero 
+                            ? $"failed with Error: {Marshal.GetLastWin32Error()}" 
+                            : $"{procInit} (Found successfully)";
+
+                        Log($"[{dllName}] LoadLibraryEx Handle: {handle}, GetProcAddress (ADLXQueryFullVersion): {verStatus}, (ADLXInitialize): {initStatus}");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"[{dllName}] Error inspecting/loading: {ex.Message}");
+                }
+                finally
+                {
+                    if (handle != IntPtr.Zero)
+                    {
+                        FreeLibrary(handle);
+                    }
                 }
             }
         }
@@ -223,6 +259,11 @@ namespace TinyTemp.Diagnostics
 
         static IntPtr AllocateMemory(int size)
         {
+            if (size <= 0)
+            {
+                return IntPtr.Zero;
+            }
+
             try
             {
                 return Marshal.AllocHGlobal(size);
@@ -232,6 +273,8 @@ namespace TinyTemp.Diagnostics
                 return IntPtr.Zero;
             }
         }
+
+        static ADL_Main_Memory_Alloc allocCallback;
 
         static void RunAdlDiagnostics()
         {
@@ -265,131 +308,148 @@ namespace TinyTemp.Diagnostics
                 var numAdaptersGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_NumberOfAdapters_Get>(numAdaptersPtr);
                 var adapterInfoGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_AdapterInfo_Get>(adapterInfoPtr);
 
-                ADL_Main_Memory_Alloc allocCallback = AllocateMemory;
+                allocCallback = AllocateMemory;
                 IntPtr callbackPtr = Marshal.GetFunctionPointerForDelegate(allocCallback);
 
                 int res = create(callbackPtr, 1);
-                Log($"ADL_Main_Control_Create Result: {res}");
                 if (res != 0)
                 {
+                    Log($"ADL_Main_Control_Create Result: {res}");
                     Log("ADL initialization failed or returned non-zero status.");
                     return;
                 }
 
                 try
                 {
-                    int numAdapters = 0;
-                    int retNum = numAdaptersGet(ref numAdapters);
-                    Log($"ADL_Adapter_NumberOfAdapters_Get Result: {retNum}, NumAdapters: {numAdapters}");
+                    Log($"ADL_Main_Control_Create Result: {res}");
 
-                    if (retNum == 0 && numAdapters > 0)
-                    {
-                        int structSize = Marshal.SizeOf(typeof(AdapterInfo));
-                        int totalSize = structSize * numAdapters;
-                        IntPtr ptr = Marshal.AllocHGlobal(totalSize);
-                        try
+                    int numAdapters = 0;
+                        int retNum = numAdaptersGet(ref numAdapters);
+                        Log($"ADL_Adapter_NumberOfAdapters_Get Result: {retNum}, NumAdapters: {numAdapters}");
+
+                        if (retNum == 0 && numAdapters > 0)
                         {
-                            // Initialize each AdapterInfo struct slot with its size before calling AdapterInfo_Get
-                            for (int i = 0; i < numAdapters; i++)
+                            int adapterInfoSize = Marshal.SizeOf(typeof(AdapterInfo));
+                            Log($"[ADL] AdapterInfo struct size: {adapterInfoSize} bytes");
+
+                            if (adapterInfoSize != 1572)
                             {
-                                IntPtr currentSlot = IntPtr.Add(ptr, i * structSize);
-                                Marshal.WriteInt32(currentSlot, structSize);
+                                Log("[ADL] ERROR: Unexpected AdapterInfo struct size. Skipping ADL adapter enumeration.");
+                                return;
                             }
 
-                            int retInfo = adapterInfoGet(ptr, totalSize);
-                            Log($"ADL_Adapter_AdapterInfo_Get Result: {retInfo}");
-                            if (retInfo == 0)
+                            int structSize = adapterInfoSize;
+                            int totalSize = structSize * numAdapters;
+                            IntPtr ptr = Marshal.AllocHGlobal(totalSize);
+                            try
                             {
+                                // Initialize each AdapterInfo struct slot with its size before calling AdapterInfo_Get
                                 for (int i = 0; i < numAdapters; i++)
                                 {
-                                    IntPtr currentPtr = IntPtr.Add(ptr, i * structSize);
-                                    AdapterInfo info = Marshal.PtrToStructure<AdapterInfo>(currentPtr);
-                                    Log($"  Adapter {i}: Name={info.AdapterName}, Bus={info.BusNumber}, Device={info.DeviceNumber}, VendorID={info.VendorID}, DeviceID={info.DeviceID}, AdapterIndex={info.AdapterIndex}");
+                                    IntPtr currentSlot = IntPtr.Add(ptr, i * structSize);
+                                    Marshal.WriteInt32(currentSlot, structSize);
+                                }
 
-                                    if (activeGetPtr != IntPtr.Zero)
+                                int retInfo = adapterInfoGet(ptr, totalSize);
+                                Log($"ADL_Adapter_AdapterInfo_Get Result: {retInfo}");
+                                if (retInfo == 0)
+                                {
+                                    for (int i = 0; i < numAdapters; i++)
                                     {
-                                        var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
-                                        int activeStatus = -1;
-                                        int retActive = activeGet(info.AdapterIndex, ref activeStatus);
-                                        Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
-                                    }
+                                        IntPtr currentPtr = IntPtr.Add(ptr, i * structSize);
+                                        AdapterInfo info = Marshal.PtrToStructure<AdapterInfo>(currentPtr);
+                                        Log($"  Adapter {i}: Name={info.strAdapterName}, Bus={info.iBusNumber}, Device={info.iDeviceNumber}, Function={info.iFunctionNumber}, VendorID={info.iVendorID}, AdapterIndex={info.iAdapterIndex}, Present={info.iPresent}, Exist={info.iExist}, OSDisplayIndex={info.iOSDisplayIndex}, UDID={info.strUDID}, DisplayName={info.strDisplayName}");
 
-                                    if (overdriveCapsPtr != IntPtr.Zero)
-                                    {
-                                        try
+                                        if (activeGetPtr != IntPtr.Zero)
                                         {
-                                            var odCaps = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive_Caps>(overdriveCapsPtr);
-                                            int supported = 0, enabled = 0, version = 0;
-                                            int retCaps = odCaps(info.AdapterIndex, ref supported, ref enabled, ref version);
-                                            Log($"    ADL_Overdrive_Caps Result: {retCaps}, Supported={supported}, Enabled={enabled}, Version={version}");
+                                            var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
+                                            int activeStatus = -1;
+                                            int retActive = activeGet(info.iAdapterIndex, ref activeStatus);
+                                            Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
                                         }
-                                        catch (Exception ex)
-                                        {
-                                            Log($"    ADL_Overdrive_Caps Error: {ex.Message}");
-                                        }
-                                    }
 
-                                    if (od5TempPtr != IntPtr.Zero)
-                                    {
-                                        try
+                                        if (overdriveCapsPtr != IntPtr.Zero)
                                         {
-                                            var od5 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive5_Temperature_Get>(od5TempPtr);
-                                            ADLTemperature temp = new ADLTemperature { Size = Marshal.SizeOf(typeof(ADLTemperature)) };
-                                            int retOd5 = od5(info.AdapterIndex, 0, ref temp);
-                                            if (retOd5 == 0)
+                                            try
                                             {
-                                                Log($"    ADL_Overdrive5_Temperature_Get Result: {retOd5}, Temperature={temp.Temperature / 1000.0} °C (Raw: {temp.Temperature}) [VERIFIED SUCCESS]");
+                                                var odCaps = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive_Caps>(overdriveCapsPtr);
+                                                int supported = 0, enabled = 0, version = 0;
+                                                int retCaps = odCaps(info.iAdapterIndex, ref supported, ref enabled, ref version);
+                                                Log($"    ADL_Overdrive_Caps Result: {retCaps}, Supported={supported}, Enabled={enabled}, Version={version}");
                                             }
-                                            else
+                                            catch (Exception ex)
                                             {
-                                                Log($"    ADL_Overdrive5_Temperature_Get Result: {retOd5} (API returned non-zero error code - unsupported or controller inactive)");
+                                                Log($"    ADL_Overdrive_Caps Error: {ex.Message}");
                                             }
                                         }
-                                        catch (Exception ex)
-                                        {
-                                            Log($"    ADL_Overdrive5_Temperature_Get Error: {ex.Message}");
-                                        }
-                                    }
 
-                                    if (od6TempPtr != IntPtr.Zero)
-                                    {
-                                        try
+                                         if (od5TempPtr != IntPtr.Zero)
+                                         {
+                                             try
+                                             {
+                                                 var od5 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive5_Temperature_Get>(od5TempPtr);
+                                                 ADLTemperature temp = new ADLTemperature { Size = Marshal.SizeOf(typeof(ADLTemperature)) };
+                                                 int retOd5 = od5(info.iAdapterIndex, 0, ref temp);
+                                                 if (retOd5 == 0)
+                                                 {
+                                                     Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5}, Temperature={temp.Temperature / 1000.0} °C (Raw: {temp.Temperature}) [VERIFIED SUCCESS]");
+                                                 }
+                                                 else
+                                                 {
+                                                     Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5} (API returned non-zero error code - unsupported or controller inactive)");
+                                                 }
+                                             }
+                                             catch (Exception ex)
+                                             {
+                                                 Log($"    ADL_Overdrive5_Temperature_Get Error: {ex.Message}");
+                                             }
+                                         }
+
+                                        if (od6TempPtr != IntPtr.Zero)
                                         {
-                                            var od6 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive6_Temperature_Get>(od6TempPtr);
-                                            int od6TempVal = 0;
-                                            int retOd6 = od6(info.AdapterIndex, ref od6TempVal);
-                                            if (retOd6 == 0)
+                                            try
                                             {
-                                                Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6}, Temperature={od6TempVal / 1000.0} °C (Raw: {od6TempVal}) [VERIFIED SUCCESS]");
+                                                var od6 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive6_Temperature_Get>(od6TempPtr);
+                                                int od6TempVal = 0;
+                                                int retOd6 = od6(info.iAdapterIndex, ref od6TempVal);
+                                                if (retOd6 == 0)
+                                                {
+                                                    Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6}, Temperature={od6TempVal / 1000.0} °C (Raw: {od6TempVal}) [VERIFIED SUCCESS]");
+                                                }
+                                                else
+                                                {
+                                                    Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6} (API returned non-zero error code - unsupported or controller inactive)");
+                                                }
                                             }
-                                            else
+                                            catch (Exception ex)
                                             {
-                                                Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6} (API returned non-zero error code - unsupported or controller inactive)");
+                                                Log($"    ADL_Overdrive6_Temperature_Get Error: {ex.Message}");
                                             }
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Log($"    ADL_Overdrive6_Temperature_Get Error: {ex.Message}");
                                         }
                                     }
                                 }
                             }
-                        }
-                        finally
-                        {
-                            Marshal.FreeHGlobal(ptr);
+                            finally
+                            {
+                                Marshal.FreeHGlobal(ptr);
+                            }
                         }
                     }
-                }
-                finally
-                {
-                    int destroyRes = destroy();
-                    Log($"ADL_Main_Control_Destroy Result: {destroyRes}");
+                    finally
+                    {
+                        int destroyRes = destroy();
+                        Log($"ADL_Main_Control_Destroy Result: {destroyRes}");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Log($"ADL Diagnostics Exception: {ex.Message}");
+            }
+            finally
+            {
+                bool freed = FreeLibrary(dllHandle);
+                Log($"[ADL] FreeLibrary Result: {freed}");
             }
         }
 
@@ -404,6 +464,9 @@ namespace TinyTemp.Diagnostics
                 return;
             }
 
+            ADLXTerminate terminate = null;
+            bool initialized = false;
+
             try
             {
                 Log("ADLX DLL loaded successfully via LoadLibraryEx.");
@@ -414,62 +477,99 @@ namespace TinyTemp.Diagnostics
                     var queryVersion = Marshal.GetDelegateForFunctionPointer<ADLXQueryFullVersion>(verPtr);
                     ulong version = 0;
                     int retVer = queryVersion(ref version);
-                    Log(String.Format("ADLXQueryFullVersion Result: {0}, FullVersion: {1} [VERIFIED SUCCESS]", retVer, version));
+                    if (retVer == 0)
+                    {
+                        Log(String.Format("ADLXQueryFullVersion Result: {0}, FullVersion: {1} [VERIFIED SUCCESS]", retVer, version));
+                    }
+                    else
+                    {
+                        Log(String.Format("ADLXQueryFullVersion Result: {0}, FullVersion: {1} (API returned non-zero error code)", retVer, version));
+                    }
                 }
                 else
                 {
                     Log("ADLXQueryFullVersion export not found.");
                 }
 
-                // Official ADLX initialization signature according to AMD ADLX SDK:
-                // ADLX_RESULT ADLXInitialize (ADLX_UINT* fullVersion, IADLXSystem** ppSystem)
-                IntPtr initPtr = GetProcAddress(dllHandle, "ADLXInitialize");
-                if (initPtr != IntPtr.Zero)
+                IntPtr termPtr = GetProcAddress(dllHandle, "ADLXTerminate");
+                if (termPtr == IntPtr.Zero)
                 {
-                    var initialize = Marshal.GetDelegateForFunctionPointer<ADLXInitialize>(initPtr);
-                    IntPtr adlxSystem = IntPtr.Zero;
-                    ulong clientVersion = 0x0001000000000000UL;
-
-                    int retInit = initialize(clientVersion, ref adlxSystem);
-                    Log(String.Format("ADLXInitialize Result: {0}, SystemInterfacePtr: {1}", retInit, adlxSystem));
-
-                    try
-                    {
-                        if (retInit == 0 && adlxSystem != IntPtr.Zero)
-                        {
-                            Log("ADLX Initialization verified successfully (Return code 0). [VERIFIED SUCCESS]");
-                            Log("  ADLX Metrics API Status:");
-                            Log("    Metric Name: GPUTemperature (Edge)");
-                            Log("    Status: [UNVERIFIED / STUBBED VIA C# COM VTABLE]");
-                            Log("    Reason: Full ADLX GPU list and IADLXGPUMetrics require a native C++ wrapper integration to safely execute COM interface queries across AMD driver versions.");
-                        }
-                        else
-                        {
-                            Log(String.Format("ADLXInitialize returned non-zero code or null system pointer: {0}", retInit));
-                        }
-                    }
-                    finally
-                    {
-                        if (retInit == 0)
-                        {
-                            IntPtr termPtr = GetProcAddress(dllHandle, "ADLXTerminate");
-                            if (termPtr != IntPtr.Zero)
-                            {
-                                var terminate = Marshal.GetDelegateForFunctionPointer<ADLXTerminate>(termPtr);
-                                int retTerm = terminate();
-                                Log(String.Format("ADLXTerminate Result: {0} [VERIFIED SUCCESS]", retTerm));
-                            }
-                        }
-                    }
+                    Log("ADLXTerminate export not found. Skipping ADLXInitialize.");
                 }
                 else
                 {
-                    Log("ADLXInitialize export not found.");
+                    terminate = Marshal.GetDelegateForFunctionPointer<ADLXTerminate>(termPtr);
+
+                    IntPtr initPtr = GetProcAddress(dllHandle, "ADLXInitialize");
+                    if (initPtr != IntPtr.Zero)
+                    {
+                        var initialize = Marshal.GetDelegateForFunctionPointer<ADLXInitialize>(initPtr);
+                        IntPtr adlxSystem = IntPtr.Zero;
+                        ulong clientVersion = 0x000200000000007DUL; // ADLX_FULL_VERSION calculated via ADLX_MAKE_FULL_VER(2, 0, 0, 125) from AMD ADLX SDK version 2.0.0.125 (ADLXVersion.h)
+
+                        int retInit = initialize(clientVersion, ref adlxSystem);
+                        if (retInit == 0)
+                        {
+                            initialized = true;
+                        }
+                        Log(String.Format("ADLXInitialize Result: {0}, SystemInterfacePtr: {1}", retInit, adlxSystem));
+
+                        try
+                        {
+                            Log("ADLX: Diagnostyka jest CZĘŚCIOWA. Enumeracja GPU oraz odczyt GPUTemperature nie zostały jeszcze zaimplementowane.");
+                            
+                            if (retInit != 0)
+                            {
+                                Log(String.Format("ADLX: Inicjalizacja zakończona błędem (kod API: {0}).", retInit));
+                            }
+                            else if (adlxSystem == IntPtr.Zero)
+                            {
+                                Log("ADLX: Inicjalizacja zwróciła sukces, ale wskaźnik systemu jest pusty (adlxSystem == IntPtr.Zero).");
+                            }
+                            else
+                            {
+                                Log("ADLX: Inicjalizacja zakończona pomyślnie, ale NIE stanowi to potwierdzenia dostępności temperatury ani poprawnego odczytu.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log(String.Format("ADLX Diagnostics Exception (Caught safely): {0}", ex.Message));
+                        }
+                    }
+                    else
+                    {
+                        Log("ADLXInitialize export not found.");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Log(String.Format("ADLX Diagnostics Exception (Caught safely): {0}", ex.Message));
+            }
+            finally
+            {
+                if (initialized && terminate != null)
+                {
+                    try
+                    {
+                        int retTerm = terminate();
+                        if (retTerm == 0)
+                        {
+                            Log(String.Format("ADLXTerminate Result: {0} [VERIFIED SUCCESS]", retTerm));
+                        }
+                        else
+                        {
+                            Log(String.Format("ADLXTerminate Result: {0} (API returned non-zero error code)", retTerm));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log(String.Format("ADLXTerminate Exception: {0}", ex.Message));
+                    }
+                }
+
+                bool freed = FreeLibrary(dllHandle);
+                Log($"[ADLX] FreeLibrary Result: {freed}");
             }
         }
 
@@ -514,6 +614,12 @@ namespace TinyTemp.Diagnostics
                         {
                             if (sensor.SensorType == SensorType.Temperature)
                             {
+                                if (string.IsNullOrEmpty(sensor.Name))
+                                {
+                                    Log("    Sensor: [Brak nazwy] | Pominięto czujnik z powodu braku nazwy.");
+                                    continue;
+                                }
+
                                 string nameLower = sensor.Name.ToLowerInvariant();
                                 bool isHotspotOrMemory = nameLower.Contains("hot spot") ||
                                                          nameLower.Contains("hotspot") ||
@@ -523,13 +629,19 @@ namespace TinyTemp.Diagnostics
 
                                 Log(string.Format("    Sensor: {0} | Value: {1} °C | IgnoredAsHotspotOrMemory: {2}", sensor.Name, sensor.Value, isHotspotOrMemory));
 
-                                if (!isHotspotOrMemory && !selectedSensorValue.HasValue)
-                                {
-                                    selectedSensorName = sensor.Name;
-                                    selectedSensorValue = sensor.Value;
-                                    selectionReason = $"Main hardware sensor '{sensor.Name}' matches standard Core/Edge nomenclature and excludes hotspot/VRAM/junction.";
-                                    isVerifiedEdge = true;
-                                }
+                                    if (!sensor.Value.HasValue)
+                                    {
+                                        Log(string.Format("    Sensor: {0} | Pominięto czujnik z powodu braku odczytu (Value == null).", sensor.Name));
+                                        continue;
+                                    }
+
+                                    if (!isHotspotOrMemory && !selectedSensorValue.HasValue)
+                                    {
+                                        selectedSensorName = sensor.Name + " (Candidate/Unverified)";
+                                        selectedSensorValue = sensor.Value;
+                                         selectionReason = $"Main hardware sensor '{sensor.Name}' was selected because it lacks excluded terms, but its Core/Edge status is unverified.";
+                                        isVerifiedEdge = false;
+                                    }
                             }
                         }
 
@@ -541,6 +653,12 @@ namespace TinyTemp.Diagnostics
                             {
                                 if (subSensor.SensorType == SensorType.Temperature)
                                 {
+                                    if (string.IsNullOrEmpty(subSensor.Name))
+                                    {
+                                        Log($"    SubHardware Sensor: [{subHardware.Name} - Brak nazwy] | Pominięto czujnik z powodu braku nazwy.");
+                                        continue;
+                                    }
+
                                     string nameLower = subSensor.Name.ToLowerInvariant();
                                     bool isHotspotOrMemory = nameLower.Contains("hot spot") ||
                                                              nameLower.Contains("hotspot") ||
@@ -550,34 +668,32 @@ namespace TinyTemp.Diagnostics
 
                                     Log(string.Format("    SubHardware Sensor: {0} ({1}) | Value: {2} °C | IgnoredAsHotspotOrMemory: {3}", subHardware.Name, subSensor.Name, subSensor.Value, isHotspotOrMemory));
 
+                                    if (!subSensor.Value.HasValue)
+                                    {
+                                        Log(string.Format("    SubHardware Sensor: {0} ({1}) | Pominięto czujnik z powodu braku odczytu (Value == null).", subHardware.Name, subSensor.Name));
+                                        continue;
+                                    }
+
                                     if (!isHotspotOrMemory && !selectedSensorValue.HasValue)
                                     {
-                                        selectedSensorName = $"{subHardware.Name} - {subSensor.Name}";
+                                        selectedSensorName = $"{subHardware.Name} - {subSensor.Name} (Candidate/Unverified)";
                                         selectedSensorValue = subSensor.Value;
-                                        selectionReason = $"SubHardware sensor '{subSensor.Name}' matches standard Core/Edge nomenclature.";
-                                        isVerifiedEdge = true;
+                                         selectionReason = $"SubHardware sensor '{subSensor.Name}' was selected because it lacks excluded terms, but its Core/Edge status is unverified.";
+                                        isVerifiedEdge = false;
                                     }
                                 }
                             }
                         }
 
-                        if (!selectedSensorValue.HasValue && hardware.Sensors.Length > 0)
+                        if (!selectedSensorValue.HasValue)
                         {
-                            // Fallback if all sensors are hotspot or unusual: mark as unverified
-                            foreach (var sensor in hardware.Sensors)
-                            {
-                                if (sensor.SensorType == SensorType.Temperature)
-                                {
-                                    selectedSensorName = sensor.Name + " (Fallback/Unverified)";
-                                    selectedSensorValue = sensor.Value;
-                                    selectionReason = "Fallback selection because no distinct non-hotspot sensor was identified; type unverified.";
-                                    isVerifiedEdge = false;
-                                    break;
-                                }
-                            }
+                            // Fallback if all sensors are hotspot or unusual: do not select any arbitrary sensor
+                            selectedSensorName = "Nie znaleziono porównywalnego czujnika temperatury GPU";
+                            selectionReason = "No eligible temperature sensor found: sensors may have excluded names, missing names, or missing readings.";
+                            isVerifiedEdge = false;
                         }
 
-                        Log(string.Format("  Selected Edge/Core Sensor: {0} | Value: {1} | Reason: {2} | VerifiedEdge: {3}",
+                        Log(string.Format("  Selected Temperature Sensor: {0} | Value: {1} | Reason: {2} | VerifiedEdge: {3}",
                             selectedSensorName,
                             selectedSensorValue.HasValue ? selectedSensorValue.Value.ToString() + " °C" : "N/A",
                             selectionReason,
@@ -616,49 +732,36 @@ namespace TinyTemp.Diagnostics
             string fileName = "sensors-dump.txt";
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string targetPath = Path.Combine(baseDir, fileName);
-            bool saved = false;
+            string locationInfo = "EXE directory";
+            string finalPath = targetPath;
 
-            // First write without exact path to get content ready, then include exact path and rewrite
+            logBuilder.AppendLine();
+            logBuilder.AppendLine($"Report location: Saved in {locationInfo}.");
+
             try
             {
                 File.WriteAllText(targetPath, logBuilder.ToString(), Encoding.UTF8);
                 exactReportPath = targetPath;
-                saved = true;
+                Console.WriteLine($"Report successfully saved: {targetPath}");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to save report next to EXE: {ex.Message}");
-            }
-
-            if (!saved)
-            {
                 try
                 {
                     string tempDir = Path.GetTempPath();
-                    string tempPath = Path.Combine(tempDir, fileName);
-                    File.WriteAllText(tempPath, logBuilder.ToString(), Encoding.UTF8);
-                    exactReportPath = tempPath;
-                    saved = true;
+                    finalPath = Path.Combine(tempDir, fileName);
+                    
+                    // Replace EXE directory info with %TEMP% info in the log content before writing to temp
+                    string content = logBuilder.ToString().Replace("Saved in EXE directory.", "Saved in %TEMP%.");
+
+                    File.WriteAllText(finalPath, content, Encoding.UTF8);
+                    exactReportPath = finalPath;
+                    Console.WriteLine($"Report successfully saved: {finalPath}");
                 }
                 catch (Exception ex2)
                 {
                     Console.WriteLine($"Failed to save report to emergency path: {ex2.Message}");
-                }
-            }
-
-            if (saved)
-            {
-                // Append exact report path note into logBuilder and rewrite file so report contains its own path
-                logBuilder.AppendLine();
-                logBuilder.AppendLine($"Exact report path: {exactReportPath}");
-                try
-                {
-                    File.WriteAllText(exactReportPath, logBuilder.ToString(), Encoding.UTF8);
-                    Console.WriteLine($"Report successfully saved and updated with path: {exactReportPath}");
-                }
-                catch (Exception ex3)
-                {
-                    Console.WriteLine($"Failed to update report with exact path: {ex3.Message}");
                 }
             }
         }
