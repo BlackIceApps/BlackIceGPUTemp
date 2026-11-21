@@ -29,7 +29,7 @@ namespace TinyTemp.Monitoring.Abstractions
 
             Celsius = celsius;
             SensorName = sensorName;
-            TimestampUtc = timestampUtc;
+            TimestampUtc = timestampUtc.ToUniversalTime();
         }
 
         /// <summary>

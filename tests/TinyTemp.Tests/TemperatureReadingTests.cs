@@ -17,6 +17,16 @@ namespace TinyTemp.Tests
             Assert.Equal(timestamp, reading.TimestampUtc);
         }
 
+        [Fact]
+        public void Constructor_NonUtcTimestamp_ConvertsToUtc()
+        {
+            var localTime = new DateTimeOffset(2026, 11, 21, 12, 0, 0, TimeSpan.FromHours(2));
+            var reading = new TemperatureReading(70.0, "GPU Core", localTime);
+
+            Assert.Equal(TimeSpan.Zero, reading.TimestampUtc.Offset);
+            Assert.Equal(localTime, reading.TimestampUtc);
+        }
+
         [Theory]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
