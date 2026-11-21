@@ -33,22 +33,35 @@ jobs:
     - name: Run Tests
       run: dotnet test TinyTemp.sln --configuration Release --no-build --verbosity normal
 
+
     - name: Verify Single EXE Staging
+      shell: pwsh
       run: |
         $stagingDir = "$env:GITHUB_WORKSPACE\staging"
         New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
-        Copy-Item "$env:GITHUB_WORKSPACE\src\TinyTemp\bin\Release\net48\TinyTemp.exe" $stagingDir
-        
-        $files = Get-ChildItem -Path $stagingDir -Recurse
-        Write-Host "Files in staging directory:"
-        $files | ForEach-Object { Write-Host $_.FullName }
-        
-        $count = ($files | Where-Object { $_.PSIsContainer -eq $false }).Count
-        if ($count -ne 1) {
-          Write-Error "Staging validation failed: expected exactly 1 file, found $count."
+
+        $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\src\TinyTemp\bin" -Filter "TinyTemp.exe" -Recurse -File | Select-Object -First 1
+
+        if (-not $exe) {
+          Write-Error "TinyTemp.exe was not found anywhere under src/TinyTemp/bin."
+          Get-ChildItem "$env:GITHUB_WORKSPACE\src\TinyTemp\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
           exit 1
         }
+
+        Write-Host "Found EXE: $($exe.FullName)"
+        Copy-Item $exe.FullName $stagingDir
+
+        $files = Get-ChildItem -Path $stagingDir -Recurse -File
+        Write-Host "Files in staging directory:"
+        $files | ForEach-Object { Write-Host $_.FullName }
+
+        if ($files.Count -ne 1) {
+          Write-Error "Staging validation failed: expected exactly 1 file, found $($files.Count)."
+          exit 1
+        }
+
         Write-Host "Staging validation passed: exactly 1 file (TinyTemp.exe)."
+
 
     - name: Upload Diagnostics and Staging Artifacts
       uses: actions/upload-artifact@v4
