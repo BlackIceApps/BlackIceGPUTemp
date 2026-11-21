@@ -362,7 +362,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     private delegate int AtGpuListDelegate(IntPtr pThis, int location, out IntPtr ppGPU);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int GetGpuNameDelegate(IntPtr pThis, out IntPtr ppName);
+    private delegate int GpuNameDelegate(IntPtr pThis, out IntPtr ppName);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GpuUniqueIdDelegate(IntPtr pThis, out int pUniqueId);
@@ -380,7 +380,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     private delegate int IsSupportedTempDelegate(IntPtr pThis, out byte pIsSupported);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int GetGpuTempDelegate(IntPtr pThis, out double pTemperature);
+    private delegate int GpuTempDelegate(IntPtr pThis, out double pTemperature);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int ReleaseDelegate(IntPtr pThis);

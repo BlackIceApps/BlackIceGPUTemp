@@ -169,7 +169,7 @@ namespace TinyTemp.Monitoring.Providers.Amd
                             continue;
                         }
 
-                        if (native.GetUniqueIdAndName(native, system, gpu, out int uniqueId, out string? name))
+                        if (native.GetUniqueIdAndName(system, gpu, out int uniqueId, out string? name))
                         {
                             if (uniqueId <= 0 || string.IsNullOrWhiteSpace(name))
                             {
@@ -181,7 +181,7 @@ namespace TinyTemp.Monitoring.Providers.Amd
                                 if (seenUniqueIds.Add(uniqueId))
                                 {
                                     string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
-                                    devices.Add(new AmdAdlxDevice(this, deviceId, name, uniqueId));
+                                    devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId));
                                 }
                             }
                         }
