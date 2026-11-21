@@ -61,12 +61,29 @@ jobs:
 
         Write-Host "Staging validation passed: exactly 1 file (TinyTemp.exe)."
 
+
+    - name: Prepare Artifact Directory
+      shell: pwsh
+      run: |
+        $artifactDir = "$env:GITHUB_WORKSPACE\artifact"
+        New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+        Copy-Item "$env:GITHUB_WORKSPACE\staging\TinyTemp.exe" $artifactDir
+
+        $diagnosticsExe = Get-ChildItem "$env:GITHUB_WORKSPACE\diagnostics\TinyTemp.Diagnostics\bin" -Filter "TinyTemp.Diagnostics.exe" -Recurse -File | Select-Object -First 1
+
+        if (-not $diagnosticsExe) {
+          Write-Error "TinyTemp.Diagnostics.exe was not found."
+          exit 1
+        }
+
+        Copy-Item $diagnosticsExe.FullName $artifactDir
+
     - name: Upload Diagnostics and Staging Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: TinyTemp-Artifacts-win-x64
-        path: |
-          staging/TinyTemp.exe
-          diagnostics/TinyTemp.Diagnostics/bin/**/TinyTemp.Diagnostics.exe
+        path: artifact/*
         if-no-files-found: error
+
 
