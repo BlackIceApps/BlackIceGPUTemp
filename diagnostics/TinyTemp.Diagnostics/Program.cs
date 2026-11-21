@@ -120,6 +120,38 @@ namespace TinyTemp.Diagnostics
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADLXQueryFullVersion(ref ulong version);
 
+        // ADLX COM Interface Vtable Delegates for GPU Enumeration (Step 1) and Performance Monitoring (Step 2)
+        // Based on official AMD ADLX C-API SDK headers (ISystem.h, ICollections.h, IGPU.h, IPerformanceMonitoringServices.h, IPerformanceMonitoring.h, IGPUMetrics.h, IInterface.h):
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXSystem_GetGPUs(IntPtr adlxSystem, ref IntPtr ppGPUList);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate uint ADLX_IADLXGPUList_Size(IntPtr adlxGPUList);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXGPUList_At(IntPtr adlxGPUList, uint location, ref IntPtr ppGPU);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXGPU_Name(IntPtr adlxGPU, ref IntPtr ppName);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXSystem_GetPerformanceMonitoringServices(IntPtr adlxSystem, ref IntPtr ppPerfMonitoringServices);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXPerformanceMonitoringServices_GetCurrentGPUMetrics(IntPtr adlxPerfServices, IntPtr pGPU, ref IntPtr ppGPUMetrics);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXPerformanceMonitoringServices_GetSupportedGPUMetrics(IntPtr adlxPerfServices, IntPtr pGPU, ref IntPtr ppMetricsSupport);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXGPUMetricsSupport_IsSupportedGPUTemperature(IntPtr adlxMetricsSupport, ref byte supported);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXGPUMetrics_GPUTemperature(IntPtr adlxGPUMetrics, ref double temperature);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        delegate int ADLX_IADLXInterface_Release(IntPtr adlxInterface);
+
         static StringBuilder logBuilder = new StringBuilder();
         static string exactReportPath = string.Empty;
 
@@ -593,26 +625,336 @@ namespace TinyTemp.Diagnostics
                         }
                         Log(String.Format("ADLXInitialize Result: {0}, SystemInterfacePtr: {1}", retInit, adlxSystem));
 
+                        IntPtr adlxGPUList = IntPtr.Zero;
+                        IntPtr adlxPerfServices = IntPtr.Zero;
+                        int retGetGPUs = -1;
+                        int retGetPerfServices = -1;
+                        uint gpuCount = 0;
+
                         try
                         {
-                            Log("ADLX: Diagnostyka jest CZĘŚCIOWA. Enumeracja GPU oraz odczyt GPUTemperature nie zostały jeszcze zaimplementowane.");
-                            
-                            if (retInit != 0)
+                            if (retInit == 0 && adlxSystem != IntPtr.Zero)
                             {
-                                Log(String.Format("ADLX: Inicjalizacja zakończona błędem (kod API: {0}).", retInit));
-                            }
-                            else if (adlxSystem == IntPtr.Zero)
-                            {
-                                Log("ADLX: Inicjalizacja zwróciła sukces, ale wskaźnik systemu jest pusty (adlxSystem == IntPtr.Zero).");
-                            }
-                            else
-                            {
-                                Log("ADLX: Inicjalizacja zakończona pomyślnie, ale NIE stanowi to potwierdzenia dostępności temperatury ani poprawnego odczytu.");
+                                 // 1. Pobierz IADLXPerformanceMonitoringServices z IADLXSystem
+                                 // IADLXSystem::GetPerformanceMonitoringServices is at vtable index 9 (ISystem.h)
+                                 IntPtr systemVtable = Marshal.ReadIntPtr(adlxSystem);
+                                 IntPtr getGPUsPtr = Marshal.ReadIntPtr(systemVtable, 1 * IntPtr.Size);
+                                 IntPtr getPerfServicesPtr = Marshal.ReadIntPtr(systemVtable, 9 * IntPtr.Size);
+
+                                 var getGPUs = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXSystem_GetGPUs>(getGPUsPtr);
+                                 retGetGPUs = getGPUs(adlxSystem, ref adlxGPUList);
+                                 Log(String.Format("ADLX IADLXSystem::GetGPUs Result: {0}, GPUListPtr: {1}", retGetGPUs, adlxGPUList));
+
+                                 if (getPerfServicesPtr != IntPtr.Zero)
+                                 {
+                                     var getPerfServices = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXSystem_GetPerformanceMonitoringServices>(getPerfServicesPtr);
+                                     retGetPerfServices = getPerfServices(adlxSystem, ref adlxPerfServices);
+                                     Log(String.Format("ADLX IADLXSystem::GetPerformanceMonitoringServices Result: {0}, PerfServicesPtr: {1}", retGetPerfServices, adlxPerfServices));
+
+                                     if (retGetPerfServices != 0)
+                                     {
+                                         Log(String.Format("    ADLX GetPerformanceMonitoringServices failed with error code: {0}", retGetPerfServices));
+                                     }
+                                     else if (adlxPerfServices == IntPtr.Zero)
+                                     {
+                                         Log("    ADLX GetPerformanceMonitoringServices returned success but performance monitoring services interface pointer is null (IntPtr.Zero).");
+                                     }
+                                 }
+                                 else
+                                 {
+                                     Log("ADLX IADLXSystem::GetPerformanceMonitoringServices function pointer is IntPtr.Zero");
+                                 }
+
+                                 if (retGetGPUs == 0 && adlxGPUList != IntPtr.Zero)
+                                 {
+                                     IntPtr gpuListVtable = Marshal.ReadIntPtr(adlxGPUList);
+                                     IntPtr sizePtr = Marshal.ReadIntPtr(gpuListVtable, 3 * IntPtr.Size);
+                                     IntPtr atPtr = Marshal.ReadIntPtr(gpuListVtable, 7 * IntPtr.Size);
+
+                                     var getListSize = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPUList_Size>(sizePtr);
+                                     gpuCount = getListSize(adlxGPUList);
+                                     Log(String.Format("ADLX IADLXGPUList::Size Count: {0}", gpuCount));
+                                     Log(String.Format("Liczba znalezionych GPU przez ADLX: {0}", gpuCount));
+
+                                      var getAt = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPUList_At>(atPtr);
+                                      for (uint i = 0; i < gpuCount; i++)
+                                      {
+                                          IntPtr adlxGPU = IntPtr.Zero;
+                                          int retAt = getAt(adlxGPUList, i, ref adlxGPU);
+                                          Log(String.Format("  ADLX IADLXGPUList::At[{0}] Result: {1}, GPUPtr: {2}", i, retAt, adlxGPU));
+
+                                          if (adlxGPU != IntPtr.Zero)
+                                          {
+                                              try
+                                              {
+                                                  if (retAt == 0)
+                                                  {
+                                                      string gpuName = "Unknown GPU";
+                                                      int retName = -1;
+                                                      try
+                                                      {
+                                                          IntPtr gpuVtable = Marshal.ReadIntPtr(adlxGPU);
+                                                          IntPtr namePtrFunc = Marshal.ReadIntPtr(gpuVtable, 7 * IntPtr.Size);
+                                                          if (namePtrFunc != IntPtr.Zero)
+                                                          {
+                                                              var getName = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPU_Name>(namePtrFunc);
+                                                              IntPtr ansiStrPtr = IntPtr.Zero;
+                                                              retName = getName(adlxGPU, ref ansiStrPtr);
+                                                              Log(String.Format("    ADLX IADLXGPU::Name Result: {0}, StringPtr: {1}", retName, ansiStrPtr));
+
+                                                              if (retName == 0 && ansiStrPtr != IntPtr.Zero)
+                                                              {
+                                                                  gpuName = Marshal.PtrToStringAnsi(ansiStrPtr) ?? "Unknown GPU";
+                                                              }
+                                                          }
+                                                      }
+                                                      catch (Exception exName)
+                                                      {
+                                                          gpuName = $"Error reading name: {exName.Message}";
+                                                          Log($"    ADLX IADLXGPU::Name Exception: {exName.Message}");
+                                                      }
+                                                      finally
+                                                      {
+                                                          Log($"  Karta GPU {i}: {gpuName}");
+                                                      }
+
+                                                      // 2. Sprawdź obsługę metryk, pobierz metryki i odczytaj GPUTemperature dla tej karty GPU
+                                                      IntPtr adlxMetricsSupport = IntPtr.Zero;
+                                                      IntPtr adlxGPUMetrics = IntPtr.Zero;
+                                                      int retGetMetricsSupport = -1;
+                                                      int retGetMetrics = -1;
+                                                      int retIsSupported = -1;
+                                                      byte isSupportedTemp = 0;
+
+                                                      try
+                                                      {
+                                                          if (retGetPerfServices == 0 && adlxPerfServices != IntPtr.Zero)
+                                                          {
+                                                              IntPtr perfServicesVtable = Marshal.ReadIntPtr(adlxPerfServices);
+                                                              // IADLXPerformanceMonitoringServices vtable indices:
+                                                              // - GetSupportedGPUMetrics: index 21 (IPerformanceMonitoringServices.h)
+                                                              // - GetCurrentGPUMetrics: index 18 (IPerformanceMonitoringServices.h)
+                                                              IntPtr getSupportedGPUMetricsPtr = Marshal.ReadIntPtr(perfServicesVtable, 21 * IntPtr.Size);
+                                                              IntPtr getCurrentGPUMetricsPtr = Marshal.ReadIntPtr(perfServicesVtable, 18 * IntPtr.Size);
+
+                                                              // A. Sprawdź obsługę metryki GPUTemperature
+                                                              if (getSupportedGPUMetricsPtr == IntPtr.Zero)
+                                                              {
+                                                                  Log("    ADLX IADLXPerformanceMonitoringServices::GetSupportedGPUMetrics function pointer is IntPtr.Zero (brak wskaźnika GetSupportedGPUMetrics)");
+                                                              }
+                                                              else
+                                                              {
+                                                                  var getSupportedGPUMetrics = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXPerformanceMonitoringServices_GetSupportedGPUMetrics>(getSupportedGPUMetricsPtr);
+                                                                  retGetMetricsSupport = getSupportedGPUMetrics(adlxPerfServices, adlxGPU, ref adlxMetricsSupport);
+                                                                  Log(String.Format("    ADLX IADLXPerformanceMonitoringServices::GetSupportedGPUMetrics Result: {0}, MetricsSupportPtr: {1}", retGetMetricsSupport, adlxMetricsSupport));
+
+                                                                  if (retGetMetricsSupport != 0)
+                                                                  {
+                                                                      Log(String.Format("    ADLX GetSupportedGPUMetrics failed with error code: {0}", retGetMetricsSupport));
+                                                                  }
+                                                                  else if (adlxMetricsSupport == IntPtr.Zero)
+                                                                  {
+                                                                      Log("    ADLX GetSupportedGPUMetrics returned success but metrics support interface pointer is null (IntPtr.Zero).");
+                                                                  }
+                                                                  else
+                                                                  {
+                                                                      IntPtr supportVtable = Marshal.ReadIntPtr(adlxMetricsSupport);
+                                                                      // IADLXGPUMetricsSupport::IsSupportedGPUTemperature is at vtable index 6 (IPerformanceMonitoring.h)
+                                                                      IntPtr isSupportedTempPtr = Marshal.ReadIntPtr(supportVtable, 6 * IntPtr.Size);
+                                                                      if (isSupportedTempPtr == IntPtr.Zero)
+                                                                      {
+                                                                          Log("    ADLX IADLXGPUMetricsSupport::IsSupportedGPUTemperature function pointer is IntPtr.Zero (brak wskaźnika funkcji IsSupportedGPUTemperature)");
+                                                                      }
+                                                                      else
+                                                                      {
+                                                                          var isSupportedGpuTemp = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPUMetricsSupport_IsSupportedGPUTemperature>(isSupportedTempPtr);
+                                                                          retIsSupported = isSupportedGpuTemp(adlxMetricsSupport, ref isSupportedTemp);
+                                                                          Log(String.Format("    ADLX IADLXGPUMetricsSupport::IsSupportedGPUTemperature Result: {0}, Supported: {1}", retIsSupported, isSupportedTemp));
+
+                                                                          if (retIsSupported != 0)
+                                                                          {
+                                                                              Log(String.Format("    ADLX IsSupportedGPUTemperature failed with error code: {0}", retIsSupported));
+                                                                          }
+                                                                      }
+                                                                  }
+                                                              }
+
+                                                              // B. Pobierz bieżące metryki i odczytaj temperaturę, jeśli obsługiwana i sprawdzona pomyślnie
+                                                              if (retGetMetricsSupport == 0 && adlxMetricsSupport != IntPtr.Zero && retIsSupported == 0 && isSupportedTemp != 0 && getCurrentGPUMetricsPtr != IntPtr.Zero)
+                                                              {
+                                                                  var getCurrentGPUMetrics = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXPerformanceMonitoringServices_GetCurrentGPUMetrics>(getCurrentGPUMetricsPtr);
+                                                                  retGetMetrics = getCurrentGPUMetrics(adlxPerfServices, adlxGPU, ref adlxGPUMetrics);
+                                                                  Log(String.Format("    ADLX IADLXPerformanceMonitoringServices::GetCurrentGPUMetrics Result: {0}, GPUMetricsPtr: {1}", retGetMetrics, adlxGPUMetrics));
+
+                                                                  if (retGetMetrics == 0 && adlxGPUMetrics != IntPtr.Zero)
+                                                                  {
+                                                                      IntPtr metricsVtable = Marshal.ReadIntPtr(adlxGPUMetrics);
+                                                                      // IADLXGPUMetrics::GPUTemperature is at vtable index 7 (IGPUMetrics.h)
+                                                                      IntPtr gpuTempPtr = Marshal.ReadIntPtr(metricsVtable, 7 * IntPtr.Size);
+                                                                      if (gpuTempPtr != IntPtr.Zero)
+                                                                      {
+                                                                          var getGpuTemp = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXGPUMetrics_GPUTemperature>(gpuTempPtr);
+                                                                          double temperature = 0.0;
+                                                                          int retTemp = getGpuTemp(adlxGPUMetrics, ref temperature);
+                                                                          Log(String.Format("    ADLX IADLXGPUMetrics::GPUTemperature Result: {0}", retTemp));
+
+                                                                          if (retTemp == 0)
+                                                                          {
+                                                                              Log(string.Format("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Value: {0} °C", temperature));
+                                                                          }
+                                                                          else
+                                                                          {
+                                                                              Log(string.Format("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Błąd odczytu (kod: {0})", retTemp));
+                                                                          }
+                                                                      }
+                                                                      else
+                                                                      {
+                                                                          Log("    ADLX IADLXGPUMetrics::GPUTemperature function pointer is IntPtr.Zero");
+                                                                      }
+                                                                  }
+                                                                  else
+                                                                  {
+                                                                      Log(string.Format("    ADLX GetCurrentGPUMetrics failed or returned null (Result: {0}, Ptr: {1})", retGetMetrics, adlxGPUMetrics));
+                                                                  }
+                                                              }
+                                                              else
+                                                              {
+                                                                  if (getSupportedGPUMetricsPtr == IntPtr.Zero)
+                                                                  {
+                                                                      Log("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Brak wskaźnika GetSupportedGPUMetrics");
+                                                                  }
+                                                                  else if (retGetMetricsSupport != 0)
+                                                                  {
+                                                                      Log(string.Format("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Błąd GetSupportedGPUMetrics (kod: {0})", retGetMetricsSupport));
+                                                                  }
+                                                                  else if (adlxMetricsSupport == IntPtr.Zero)
+                                                                  {
+                                                                      Log("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Brak interfejsu IADLXGPUMetricsSupport");
+                                                                  }
+                                                                  else if (retIsSupported != 0)
+                                                                  {
+                                                                      Log(string.Format("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Błąd IsSupportedGPUTemperature (kod: {0})", retIsSupported));
+                                                                  }
+                                                                  else if (isSupportedTemp == 0)
+                                                                  {
+                                                                      Log("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Metryka nie jest obsługiwana");
+                                                                  }
+                                                                  else if (getCurrentGPUMetricsPtr == IntPtr.Zero)
+                                                                  {
+                                                                      Log("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Brak wskaźnika GetCurrentGPUMetrics");
+                                                                  }
+                                                                  else
+                                                                  {
+                                                                      Log("    Metric: GPUTemperature\n    Semantic: Edge Temperature\n    Unit: Celsius\n    Status: Nieznany błąd lub niespełniony warunek odczytu");
+                                                                  }
+                                                              }
+                                                          }
+                                                          else
+                                                          {
+                                                              Log("    ADLX PerformanceMonitoringServices is not available (Pointer is Zero or GetPerformanceMonitoringServices failed).");
+                                                          }
+                                                      }
+                                                      catch (Exception exMetrics)
+                                                      {
+                                                          Log(String.Format("    ADLX Metrics Exception: {0}", exMetrics.Message));
+                                                      }
+                                                      finally
+                                                      {
+                                                          // Zwalnianie interfejsu IADLXGPUMetricsSupport
+                                                          if (adlxMetricsSupport != IntPtr.Zero)
+                                                          {
+                                                              try
+                                                              {
+                                                                  IntPtr supportVtable = Marshal.ReadIntPtr(adlxMetricsSupport);
+                                                                  IntPtr releasePtr = Marshal.ReadIntPtr(supportVtable, 1 * IntPtr.Size);
+                                                                  var release = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXInterface_Release>(releasePtr);
+                                                                  int refCount = release(adlxMetricsSupport);
+                                                                  Log(String.Format("    ADLX IADLXGPUMetricsSupport Released. Remaining RefCount: {0}", refCount));
+                                                              }
+                                                              catch (Exception exSupportRel)
+                                                              {
+                                                                  Log(String.Format("    ADLX IADLXGPUMetricsSupport Release Exception: {0}", exSupportRel.Message));
+                                                              }
+                                                          }
+
+                                                          // Zwalnianie interfejsu IADLXGPUMetrics
+                                                          if (adlxGPUMetrics != IntPtr.Zero)
+                                                          {
+                                                              try
+                                                              {
+                                                                  IntPtr metricsVtable = Marshal.ReadIntPtr(adlxGPUMetrics);
+                                                                  IntPtr releasePtr = Marshal.ReadIntPtr(metricsVtable, 1 * IntPtr.Size);
+                                                                  var release = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXInterface_Release>(releasePtr);
+                                                                  int refCount = release(adlxGPUMetrics);
+                                                                  Log(String.Format("    ADLX IADLXGPUMetrics Released. Remaining RefCount: {0}", refCount));
+                                                              }
+                                                              catch (Exception exMetricsRel)
+                                                              {
+                                                                  Log(String.Format("    ADLX IADLXGPUMetrics Release Exception: {0}", exMetricsRel.Message));
+                                                              }
+                                                          }
+                                                      }
+                                                  }
+                                              }
+                                              finally
+                                              {
+                                                  // Zwalnianie interfejsu IADLXGPU
+                                                  try
+                                                  {
+                                                      IntPtr gpuVtable = Marshal.ReadIntPtr(adlxGPU);
+                                                      IntPtr releasePtr = Marshal.ReadIntPtr(gpuVtable, 1 * IntPtr.Size);
+                                                      var release = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXInterface_Release>(releasePtr);
+                                                      int refCount = release(adlxGPU);
+                                                      Log(String.Format("  ADLX IADLXGPU[{0}] Released. Remaining RefCount: {1}", i, refCount));
+                                                  }
+                                                  catch (Exception exRel)
+                                                  {
+                                                      Log($"  Błąd zwalniania IADLXGPU {i}: {exRel.Message}");
+                                                  }
+                                              }
+                                          }
+                                      }
+                                }
                             }
                         }
-                        catch (Exception ex)
+                        catch (Exception exEnum)
                         {
-                            Log(String.Format("ADLX Diagnostics Exception (Caught safely): {0}", ex.Message));
+                            Log(String.Format("ADLX GPU Enumeration / Metrics Exception: {0}", exEnum.Message));
+                        }
+                        finally
+                        {
+                            // 3. Zwalnianie IADLXGPUList oraz IADLXPerformanceMonitoringServices przed zakończeniem ADLX
+                            if (adlxGPUList != IntPtr.Zero)
+                            {
+                                try
+                                {
+                                    IntPtr gpuListVtable = Marshal.ReadIntPtr(adlxGPUList);
+                                    IntPtr releasePtr = Marshal.ReadIntPtr(gpuListVtable, 1 * IntPtr.Size);
+                                    var release = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXInterface_Release>(releasePtr);
+                                    int refCount = release(adlxGPUList);
+                                    Log(String.Format("ADLX IADLXGPUList Released. Remaining RefCount: {0}", refCount));
+                                }
+                                catch (Exception exListRel)
+                                {
+                                    Log(String.Format("ADLX IADLXGPUList Release Exception: {0}", exListRel.Message));
+                                }
+                            }
+
+                            if (adlxPerfServices != IntPtr.Zero)
+                            {
+                                try
+                                {
+                                    IntPtr perfServicesVtable = Marshal.ReadIntPtr(adlxPerfServices);
+                                    IntPtr releasePtr = Marshal.ReadIntPtr(perfServicesVtable, 1 * IntPtr.Size);
+                                    var release = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXInterface_Release>(releasePtr);
+                                    int refCount = release(adlxPerfServices);
+                                    Log(String.Format("ADLX IADLXPerformanceMonitoringServices Released. Remaining RefCount: {0}", refCount));
+                                }
+                                catch (Exception exPerfRel)
+                                {
+                                    Log(String.Format("ADLX IADLXPerformanceMonitoringServices Release Exception: {0}", exPerfRel.Message));
+                                }
+                            }
                         }
                     }
                     else
