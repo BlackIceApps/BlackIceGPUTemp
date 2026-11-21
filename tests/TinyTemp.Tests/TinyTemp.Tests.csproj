@@ -15,6 +15,6 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TinyTemp\TinyTemp.csproj" />
+    <ProjectReference Include="..\..\src\TinyTemp\TinyTemp.csproj" />
   </ItemGroup>
 </Project>
