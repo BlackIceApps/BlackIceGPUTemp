@@ -324,122 +324,121 @@ namespace TinyTemp.Diagnostics
                     Log($"ADL_Main_Control_Create Result: {res}");
 
                     int numAdapters = 0;
-                        int retNum = numAdaptersGet(ref numAdapters);
-                        Log($"ADL_Adapter_NumberOfAdapters_Get Result: {retNum}, NumAdapters: {numAdapters}");
+                    int retNum = numAdaptersGet(ref numAdapters);
+                    Log($"ADL_Adapter_NumberOfAdapters_Get Result: {retNum}, NumAdapters: {numAdapters}");
 
-                        if (retNum == 0 && numAdapters > 0)
+                    if (retNum == 0 && numAdapters > 0)
+                    {
+                        int adapterInfoSize = Marshal.SizeOf(typeof(AdapterInfo));
+                        Log($"[ADL] AdapterInfo struct size: {adapterInfoSize} bytes");
+
+                        if (adapterInfoSize != 1572)
                         {
-                            int adapterInfoSize = Marshal.SizeOf(typeof(AdapterInfo));
-                            Log($"[ADL] AdapterInfo struct size: {adapterInfoSize} bytes");
+                            Log("[ADL] ERROR: Unexpected AdapterInfo struct size. Skipping ADL adapter enumeration.");
+                            return;
+                        }
 
-                            if (adapterInfoSize != 1572)
+                        int structSize = adapterInfoSize;
+                        int totalSize = structSize * numAdapters;
+                        IntPtr ptr = Marshal.AllocHGlobal(totalSize);
+                        try
+                        {
+                            // Initialize each AdapterInfo struct slot with its size before calling AdapterInfo_Get
+                            for (int i = 0; i < numAdapters; i++)
                             {
-                                Log("[ADL] ERROR: Unexpected AdapterInfo struct size. Skipping ADL adapter enumeration.");
-                                return;
+                                IntPtr currentSlot = IntPtr.Add(ptr, i * structSize);
+                                Marshal.WriteInt32(currentSlot, structSize);
                             }
 
-                            int structSize = adapterInfoSize;
-                            int totalSize = structSize * numAdapters;
-                            IntPtr ptr = Marshal.AllocHGlobal(totalSize);
-                            try
+                            int retInfo = adapterInfoGet(ptr, totalSize);
+                            Log($"ADL_Adapter_AdapterInfo_Get Result: {retInfo}");
+                            if (retInfo == 0)
                             {
-                                // Initialize each AdapterInfo struct slot with its size before calling AdapterInfo_Get
                                 for (int i = 0; i < numAdapters; i++)
                                 {
-                                    IntPtr currentSlot = IntPtr.Add(ptr, i * structSize);
-                                    Marshal.WriteInt32(currentSlot, structSize);
-                                }
+                                    IntPtr currentPtr = IntPtr.Add(ptr, i * structSize);
+                                    AdapterInfo info = Marshal.PtrToStructure<AdapterInfo>(currentPtr);
+                                    Log($"  Adapter {i}: Name={info.strAdapterName}, Bus={info.iBusNumber}, Device={info.iDeviceNumber}, Function={info.iFunctionNumber}, VendorID={info.iVendorID}, AdapterIndex={info.iAdapterIndex}, Present={info.iPresent}, Exist={info.iExist}, OSDisplayIndex={info.iOSDisplayIndex}, UDID={info.strUDID}, DisplayName={info.strDisplayName}");
 
-                                int retInfo = adapterInfoGet(ptr, totalSize);
-                                Log($"ADL_Adapter_AdapterInfo_Get Result: {retInfo}");
-                                if (retInfo == 0)
-                                {
-                                    for (int i = 0; i < numAdapters; i++)
+                                    if (activeGetPtr != IntPtr.Zero)
                                     {
-                                        IntPtr currentPtr = IntPtr.Add(ptr, i * structSize);
-                                        AdapterInfo info = Marshal.PtrToStructure<AdapterInfo>(currentPtr);
-                                        Log($"  Adapter {i}: Name={info.strAdapterName}, Bus={info.iBusNumber}, Device={info.iDeviceNumber}, Function={info.iFunctionNumber}, VendorID={info.iVendorID}, AdapterIndex={info.iAdapterIndex}, Present={info.iPresent}, Exist={info.iExist}, OSDisplayIndex={info.iOSDisplayIndex}, UDID={info.strUDID}, DisplayName={info.strDisplayName}");
+                                        var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
+                                        int activeStatus = -1;
+                                        int retActive = activeGet(info.iAdapterIndex, ref activeStatus);
+                                        Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
+                                    }
 
-                                        if (activeGetPtr != IntPtr.Zero)
+                                    if (overdriveCapsPtr != IntPtr.Zero)
+                                    {
+                                        try
                                         {
-                                            var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
-                                            int activeStatus = -1;
-                                            int retActive = activeGet(info.iAdapterIndex, ref activeStatus);
-                                            Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
+                                            var odCaps = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive_Caps>(overdriveCapsPtr);
+                                            int supported = 0, enabled = 0, version = 0;
+                                            int retCaps = odCaps(info.iAdapterIndex, ref supported, ref enabled, ref version);
+                                            Log($"    ADL_Overdrive_Caps Result: {retCaps}, Supported={supported}, Enabled={enabled}, Version={version}");
                                         }
-
-                                        if (overdriveCapsPtr != IntPtr.Zero)
+                                        catch (Exception ex)
                                         {
-                                            try
+                                            Log($"    ADL_Overdrive_Caps Error: {ex.Message}");
+                                        }
+                                    }
+
+                                    if (od5TempPtr != IntPtr.Zero)
+                                    {
+                                        try
+                                        {
+                                            var od5 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive5_Temperature_Get>(od5TempPtr);
+                                            ADLTemperature temp = new ADLTemperature { Size = Marshal.SizeOf(typeof(ADLTemperature)) };
+                                            int retOd5 = od5(info.iAdapterIndex, 0, ref temp);
+                                            if (retOd5 == 0)
                                             {
-                                                var odCaps = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive_Caps>(overdriveCapsPtr);
-                                                int supported = 0, enabled = 0, version = 0;
-                                                int retCaps = odCaps(info.iAdapterIndex, ref supported, ref enabled, ref version);
-                                                Log($"    ADL_Overdrive_Caps Result: {retCaps}, Supported={supported}, Enabled={enabled}, Version={version}");
+                                                Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5}, Temperature={temp.Temperature / 1000.0} °C (Raw: {temp.Temperature}) [VERIFIED SUCCESS]");
                                             }
-                                            catch (Exception ex)
+                                            else
                                             {
-                                                Log($"    ADL_Overdrive_Caps Error: {ex.Message}");
+                                                Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5} (API returned non-zero error code - unsupported or controller inactive)");
                                             }
                                         }
-
-                                         if (od5TempPtr != IntPtr.Zero)
-                                         {
-                                             try
-                                             {
-                                                 var od5 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive5_Temperature_Get>(od5TempPtr);
-                                                 ADLTemperature temp = new ADLTemperature { Size = Marshal.SizeOf(typeof(ADLTemperature)) };
-                                                 int retOd5 = od5(info.iAdapterIndex, 0, ref temp);
-                                                 if (retOd5 == 0)
-                                                 {
-                                                     Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5}, Temperature={temp.Temperature / 1000.0} °C (Raw: {temp.Temperature}) [VERIFIED SUCCESS]");
-                                                 }
-                                                 else
-                                                 {
-                                                     Log($"    ADL_Overdrive5_Temperature_Get (Diagnostic check with index 0) Result: {retOd5} (API returned non-zero error code - unsupported or controller inactive)");
-                                                 }
-                                             }
-                                             catch (Exception ex)
-                                             {
-                                                 Log($"    ADL_Overdrive5_Temperature_Get Error: {ex.Message}");
-                                             }
-                                         }
-
-                                        if (od6TempPtr != IntPtr.Zero)
+                                        catch (Exception ex)
                                         {
-                                            try
+                                            Log($"    ADL_Overdrive5_Temperature_Get Error: {ex.Message}");
+                                        }
+                                    }
+
+                                    if (od6TempPtr != IntPtr.Zero)
+                                    {
+                                        try
+                                        {
+                                            var od6 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive6_Temperature_Get>(od6TempPtr);
+                                            int od6TempVal = 0;
+                                            int retOd6 = od6(info.iAdapterIndex, ref od6TempVal);
+                                            if (retOd6 == 0)
                                             {
-                                                var od6 = Marshal.GetDelegateForFunctionPointer<ADL_Overdrive6_Temperature_Get>(od6TempPtr);
-                                                int od6TempVal = 0;
-                                                int retOd6 = od6(info.iAdapterIndex, ref od6TempVal);
-                                                if (retOd6 == 0)
-                                                {
-                                                    Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6}, Temperature={od6TempVal / 1000.0} °C (Raw: {od6TempVal}) [VERIFIED SUCCESS]");
-                                                }
-                                                else
-                                                {
-                                                    Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6} (API returned non-zero error code - unsupported or controller inactive)");
-                                                }
+                                                Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6}, Temperature={od6TempVal / 1000.0} °C (Raw: {od6TempVal}) [VERIFIED SUCCESS]");
                                             }
-                                            catch (Exception ex)
+                                            else
                                             {
-                                                Log($"    ADL_Overdrive6_Temperature_Get Error: {ex.Message}");
+                                                Log($"    ADL_Overdrive6_Temperature_Get Result: {retOd6} (API returned non-zero error code - unsupported or controller inactive)");
                                             }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Log($"    ADL_Overdrive6_Temperature_Get Error: {ex.Message}");
                                         }
                                     }
                                 }
                             }
-                            finally
-                            {
-                                Marshal.FreeHGlobal(ptr);
-                            }
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(ptr);
                         }
                     }
-                    finally
-                    {
-                        int destroyRes = destroy();
-                        Log($"ADL_Main_Control_Destroy Result: {destroyRes}");
-                    }
+                }
+                finally
+                {
+                    int destroyRes = destroy();
+                    Log($"ADL_Main_Control_Destroy Result: {destroyRes}");
                 }
             }
             catch (Exception ex)
