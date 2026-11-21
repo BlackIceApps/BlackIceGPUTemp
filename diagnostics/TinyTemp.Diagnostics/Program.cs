@@ -274,7 +274,7 @@ namespace TinyTemp.Diagnostics
             }
         }
 
-        static ADL_Main_Memory_Alloc allocCallback;
+        static readonly ADL_Main_Memory_Alloc allocCallback = AllocateMemory;
 
         static void RunAdlDiagnostics()
         {
@@ -308,7 +308,6 @@ namespace TinyTemp.Diagnostics
                 var numAdaptersGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_NumberOfAdapters_Get>(numAdaptersPtr);
                 var adapterInfoGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_AdapterInfo_Get>(adapterInfoPtr);
 
-                allocCallback = AllocateMemory;
                 IntPtr callbackPtr = Marshal.GetFunctionPointerForDelegate(allocCallback);
 
                 int res = create(callbackPtr, 1);
@@ -463,7 +462,7 @@ namespace TinyTemp.Diagnostics
                 return;
             }
 
-            ADLXTerminate terminate = null;
+            ADLXTerminate? terminate = null;
             bool initialized = false;
 
             try
@@ -575,7 +574,7 @@ namespace TinyTemp.Diagnostics
         static void RunLhmDiagnostics()
         {
             Log("=== LibreHardwareMonitor Diagnostics (GPU Only) ===");
-            Computer computer = null;
+            Computer? computer = null;
             try
             {
                 computer = new Computer
