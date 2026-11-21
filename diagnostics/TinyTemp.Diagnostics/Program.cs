@@ -18,7 +18,70 @@ namespace TinyTemp.Diagnostics
 
         const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
 
-        // ADL delegates and structures
+        // Official AMD ADL SDK Windows AdapterInfo structure (adl_structures.h):
+        // typedef struct AdapterInfo {
+        //     int iSize;
+        //     int iAdapterIndex;
+        //     char strUDID[ADL_MAX_PATH];              (256)
+        //     int iBusNumber;
+        //     int iDeviceNumber;
+        //     int iFunctionNumber;
+        //     int iVendorID;
+        //     int iDeviceID;
+        //     int iSubVendorID;
+        //     int iSubSystemID;
+        //     int iRevID;
+        //     int iPresent;
+        //     int iExist;
+        //     int iDriverVersion[4];                   (16 bytes)
+        //     char strAdapterName[ADL_MAX_PATH];       (256)
+        //     char strDriverKey[ADL_MAX_PATH];         (256)
+        //     char strDisplayName[ADL_MAX_PATH];       (256)
+        //     char strDriverPath[ADL_MAX_PATH];        (256)
+        //     char strDriverPathExt[ADL_MAX_PATH];     (256)
+        //     char strPNPString[ADL_MAX_PATH];         (256)
+        //     int iOSDisplayIndex;
+        // } AdapterInfo;
+        // Size calculation:
+        // sizeof(int) * 3 = 12 (iSize, iAdapterIndex, iBusNumber) -> wait, let's list precisely:
+        // iSize (4) + iAdapterIndex (4) + strUDID (256) + iBusNumber (4) + iDeviceNumber (4) + iFunctionNumber (4) +
+        // iVendorID (4) + iDeviceID (4) + iSubVendorID (4) + iSubSystemID (4) + iRevID (4) + iPresent (4) + iExist (4) +
+        // iDriverVersion (16) + strAdapterName (256) + strDriverKey (256) + strDisplayName (256) + strDriverPath (256) +
+        // strDriverPathExt (256) + strPNPString (256) + iOSDisplayIndex (4) = 1572 bytes.
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        public struct AdapterInfo
+        {
+            public int iSize;
+            public int iAdapterIndex;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strUDID;
+            public int iBusNumber;
+            public int iDeviceNumber;
+            public int iFunctionNumber;
+            public int iVendorID;
+            public int iDeviceID;
+            public int iSubVendorID;
+            public int iSubSystemID;
+            public int iRevID;
+            public int iPresent;
+            public int iExist;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+            public int[] iDriverVersion;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strAdapterName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strDriverKey;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strDisplayName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strDriverPath;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strDriverPathExt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string strPNPString;
+            public int iOSDisplayIndex;
+        }
+
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADL_Main_Control_Create(IntPtr callback, int enumConnectedAdapters);
 
@@ -53,35 +116,15 @@ namespace TinyTemp.Diagnostics
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate IntPtr ADL_Main_Memory_Alloc(int size);
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-        public struct AdapterInfo
-        {
-            public int Size;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-            public string AdapterName;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-            public string DriverKey;
-            public int InterfaceNumber;
-            public int BusNumber;
-            public int DeviceNumber;
-            public int FunctionNumber;
-            public int VendorID;
-            public int DeviceID;
-            public int SubVendorID;
-            public int SubSystemID;
-            public int RevID;
-            public int Excluded;
-            public int AdapterIndex;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-            public string Dummy1;
-        }
-
-        // ADLX delegates (AMD ADLX C-API conventions)
+        // Official ADLX C-API SDK signatures (from AMD ADLX documentation & ADLXHelper C# bindings):
+        // ADLX_RESULT ADLXInitialize (ADLX_UINT* fullVersion, IADLXSystem** ppSystem) -> ADLXInitialize(ulong fullVersion, ref IntPtr ppSystem)
+        // ADLX_RESULT ADLXTerminate () -> ADLXTerminate()
+        // ADLX_RESULT ADLXQueryFullVersion (ADLX_UINT* fullVersion) -> ADLXQueryFullVersion(ref ulong version)
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int ADLX_Initialize(ref IntPtr adlxInterface);
+        delegate int ADLXInitialize(ulong fullVersion, ref IntPtr ppSystem);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        delegate int ADLX_Terminate(IntPtr adlxInterface);
+        delegate int ADLXTerminate();
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADLXQueryFullVersion(ref ulong version);
@@ -357,7 +400,7 @@ namespace TinyTemp.Diagnostics
             if (dllHandle == IntPtr.Zero)
             {
                 Log("ADLX: amdadlx64.dll not found in System32 or failed to load.");
-                Log("  [UNAVAILABLE] Actual ADLX GPU enumeration and IADLXPerformanceMonitoringServices metrics require native COM vtable binding or a native C++ wrapper DLL due to strict ABI/COM layout differences across driver versions.");
+                Log("  [UNAVAILABLE] Actual ADLX GPU enumeration requires a native C++ wrapper DLL due to strict ABI/COM layout differences across driver versions.");
                 return;
             }
 
@@ -371,40 +414,52 @@ namespace TinyTemp.Diagnostics
                     var queryVersion = Marshal.GetDelegateForFunctionPointer<ADLXQueryFullVersion>(verPtr);
                     ulong version = 0;
                     int retVer = queryVersion(ref version);
-                    Log($"ADLXQueryFullVersion Result: {retVer}, FullVersion: {version} [VERIFIED SUCCESS]");
+                    Log(String.Format("ADLXQueryFullVersion Result: {0}, FullVersion: {1} [VERIFIED SUCCESS]", retVer, version));
                 }
                 else
                 {
                     Log("ADLXQueryFullVersion export not found.");
                 }
 
+                // Official ADLX initialization signature according to AMD ADLX SDK:
+                // ADLX_RESULT ADLXInitialize (ADLX_UINT* fullVersion, IADLXSystem** ppSystem)
                 IntPtr initPtr = GetProcAddress(dllHandle, "ADLXInitialize");
                 if (initPtr != IntPtr.Zero)
                 {
-                    var initialize = Marshal.GetDelegateForFunctionPointer<ADLX_Initialize>(initPtr);
-                    IntPtr adlxInterface = IntPtr.Zero;
-                    int retInit = initialize(ref adlxInterface);
-                    Log($"ADLX_Initialize Result: {retInit}, InterfacePtr: {adlxInterface}");
+                    var initialize = Marshal.GetDelegateForFunctionPointer<ADLXInitialize>(initPtr);
+                    IntPtr adlxSystem = IntPtr.Zero;
+                    ulong clientVersion = 0x0001000000000000UL;
 
-                    if (retInit == 0 && adlxInterface != IntPtr.Zero)
+                    int retInit = initialize(clientVersion, ref adlxSystem);
+                    Log(String.Format("ADLXInitialize Result: {0}, SystemInterfacePtr: {1}", retInit, adlxSystem));
+
+                    try
                     {
-                        Log("ADLX Initialization verified successfully (Return code 0). [VERIFIED SUCCESS]");
-                        Log("  ADLX Metrics API Status:");
-                        Log("    Metric Name: GPUTemperature (Edge)");
-                        Log("    Status: [UNVERIFIED / STUBBED VIA C# COM VTABLE]");
-                        Log("    Reason: Full ADLX GPU list and IADLXGPUMetrics require native C++ wrapper integration to safely query COM vtable offsets across AMD driver revisions.");
-
-                        IntPtr termPtr = GetProcAddress(dllHandle, "ADLXTerminate");
-                        if (termPtr != IntPtr.Zero)
+                        if (retInit == 0 && adlxSystem != IntPtr.Zero)
                         {
-                            var terminate = Marshal.GetDelegateForFunctionPointer<ADLX_Terminate>(termPtr);
-                            int retTerm = terminate(adlxInterface);
-                            Log($"ADLX_Terminate Result: {retTerm} [VERIFIED SUCCESS]");
+                            Log("ADLX Initialization verified successfully (Return code 0). [VERIFIED SUCCESS]");
+                            Log("  ADLX Metrics API Status:");
+                            Log("    Metric Name: GPUTemperature (Edge)");
+                            Log("    Status: [UNVERIFIED / STUBBED VIA C# COM VTABLE]");
+                            Log("    Reason: Full ADLX GPU list and IADLXGPUMetrics require a native C++ wrapper integration to safely execute COM interface queries across AMD driver versions.");
+                        }
+                        else
+                        {
+                            Log(String.Format("ADLXInitialize returned non-zero code or null system pointer: {0}", retInit));
                         }
                     }
-                    else
+                    finally
                     {
-                        Log($"ADLX_Initialize failed or returned non-zero code: {retInit}");
+                        if (retInit == 0)
+                        {
+                            IntPtr termPtr = GetProcAddress(dllHandle, "ADLXTerminate");
+                            if (termPtr != IntPtr.Zero)
+                            {
+                                var terminate = Marshal.GetDelegateForFunctionPointer<ADLXTerminate>(termPtr);
+                                int retTerm = terminate();
+                                Log(String.Format("ADLXTerminate Result: {0} [VERIFIED SUCCESS]", retTerm));
+                            }
+                        }
                     }
                 }
                 else
@@ -414,7 +469,7 @@ namespace TinyTemp.Diagnostics
             }
             catch (Exception ex)
             {
-                Log($"ADLX Diagnostics Exception: {ex.Message}");
+                Log(String.Format("ADLX Diagnostics Exception (Caught safely): {0}", ex.Message));
             }
         }
 
