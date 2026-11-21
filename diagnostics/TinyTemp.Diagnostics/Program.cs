@@ -95,6 +95,15 @@ namespace TinyTemp.Diagnostics
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate int ADL_Overdrive6_Temperature_Get(int adapterIndex, ref int temperature);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int ADL2_Main_Control_Create(IntPtr callback, int enumConnectedAdapters, ref IntPtr context);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int ADL2_Main_Control_Destroy(IntPtr context);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int ADL2_OverdriveN_Temperature_Get(IntPtr context, int adapterIndex, int temperatureType, ref int temperature);
+
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         delegate IntPtr ADL_Main_Memory_Alloc(int size);
 
@@ -296,6 +305,9 @@ namespace TinyTemp.Diagnostics
                 IntPtr overdriveCapsPtr = GetProcAddress(dllHandle, "ADL_Overdrive_Caps");
                 IntPtr od5TempPtr = GetProcAddress(dllHandle, "ADL_Overdrive5_Temperature_Get");
                 IntPtr od6TempPtr = GetProcAddress(dllHandle, "ADL_Overdrive6_Temperature_Get");
+                IntPtr adl2CreatePtr = GetProcAddress(dllHandle, "ADL2_Main_Control_Create");
+                IntPtr adl2DestroyPtr = GetProcAddress(dllHandle, "ADL2_Main_Control_Destroy");
+                IntPtr odnTempPtr = GetProcAddress(dllHandle, "ADL2_OverdriveN_Temperature_Get");
 
                 if (createPtr == IntPtr.Zero || destroyPtr == IntPtr.Zero || numAdaptersPtr == IntPtr.Zero || adapterInfoPtr == IntPtr.Zero)
                 {
@@ -423,6 +435,75 @@ namespace TinyTemp.Diagnostics
                                         catch (Exception ex)
                                         {
                                             Log($"    ADL_Overdrive6_Temperature_Get Error: {ex.Message}");
+                                        }
+                                    }
+
+                                    if (info.iVendorID == 1002 && activeStatus == 1)
+                                    {
+                                        if (adl2CreatePtr == IntPtr.Zero || adl2DestroyPtr == IntPtr.Zero || odnTempPtr == IntPtr.Zero)
+                                        {
+                                            Log("    ADL2_OverdriveN_Temperature_Get: Eksport funkcji ADL2 Create/Destroy lub OverdriveN nie istnieje w atiadlxx.dll.");
+                                        }
+                                        else
+                                        {
+                                            IntPtr adl2Context = IntPtr.Zero;
+                                            bool adl2Created = false;
+                                            try
+                                            {
+                                                var adl2Create = Marshal.GetDelegateForFunctionPointer<ADL2_Main_Control_Create>(adl2CreatePtr);
+                                                int resAdl2 = adl2Create(callbackPtr, 1, ref adl2Context);
+                                                if (resAdl2 != 0)
+                                                {
+                                                    Log($"    ADL2_Main_Control_Create Result: {resAdl2} (Kontekst ADL2 nie został utworzony)");
+                                                }
+                                                else if (adl2Context == IntPtr.Zero)
+                                                {
+                                                    Log("    ADL2_Main_Control_Create zwrócił sukces, ale wskaźnik kontekstu jest pusty (IntPtr.Zero).");
+                                                }
+                                                else
+                                                {
+                                                    adl2Created = true;
+                                                    try
+                                                    {
+                                                        var odn = Marshal.GetDelegateForFunctionPointer<ADL2_OverdriveN_Temperature_Get>(odnTempPtr);
+                                                        int rawTemp = 0;
+                                                        int retOdn = odn(adl2Context, info.iAdapterIndex, 1, ref rawTemp);
+                                                        if (retOdn == 0)
+                                                        {
+                                                            double tempC = rawTemp / 1000.0;
+                                                            Log($"    ADL2_OverdriveN_Temperature_Get (AdapterIndex: {info.iAdapterIndex}, GPU: {info.strAdapterName}, ExportFound: True, ResultCode: {retOdn}, RawValue: {rawTemp}, TemperatureC: {tempC} °C, Status: SUCCESS)");
+                                                        }
+                                                        else
+                                                        {
+                                                            Log($"    ADL2_OverdriveN_Temperature_Get (AdapterIndex: {info.iAdapterIndex}, GPU: {info.strAdapterName}, ExportFound: True, ResultCode: {retOdn}, RawValue: {rawTemp}, TemperatureC: N/A, Status: ERROR)");
+                                                        }
+                                                    }
+                                                    catch (Exception ex)
+                                                    {
+                                                        Log($"    ADL2_OverdriveN_Temperature_Get Error: {ex.Message}");
+                                                    }
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Log($"    ADL2_OverdriveN_Temperature_Get / Context Error: {ex.Message}");
+                                            }
+                                            finally
+                                            {
+                                                if (adl2Created && adl2Context != IntPtr.Zero)
+                                                {
+                                                    try
+                                                    {
+                                                        var adl2Destroy = Marshal.GetDelegateForFunctionPointer<ADL2_Main_Control_Destroy>(adl2DestroyPtr);
+                                                        int destroyRes2 = adl2Destroy(adl2Context);
+                                                        Log($"    ADL2_Main_Control_Destroy Result: {destroyRes2}");
+                                                    }
+                                                    catch (Exception ex)
+                                                    {
+                                                        Log(String.Format("    ADL2_Main_Control_Destroy Exception: {0}", ex.Message));
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
