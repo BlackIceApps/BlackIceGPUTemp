@@ -1,1 +1,4 @@
 /PLAN*.md
+
+# Local build artifacts downloaded from GitHub Actions
+/artifacts/

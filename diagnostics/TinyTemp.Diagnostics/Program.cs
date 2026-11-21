@@ -371,13 +371,13 @@ namespace TinyTemp.Diagnostics
                                     AdapterInfo info = Marshal.PtrToStructure<AdapterInfo>(currentPtr);
                                     Log($"  Adapter {i}: Name={info.strAdapterName}, Bus={info.iBusNumber}, Device={info.iDeviceNumber}, Function={info.iFunctionNumber}, VendorID={info.iVendorID}, AdapterIndex={info.iAdapterIndex}, Present={info.iPresent}, Exist={info.iExist}, OSDisplayIndex={info.iOSDisplayIndex}, UDID={info.strUDID}, DisplayName={info.strDisplayName}");
 
-                                    if (activeGetPtr != IntPtr.Zero)
-                                    {
-                                        var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
-                                        int activeStatus = -1;
-                                        int retActive = activeGet(info.iAdapterIndex, ref activeStatus);
-                                        Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
-                                    }
+                                     int activeStatus = -1;
+                                     if (activeGetPtr != IntPtr.Zero)
+                                     {
+                                         var activeGet = Marshal.GetDelegateForFunctionPointer<ADL_Adapter_Active_Get>(activeGetPtr);
+                                         int retActive = activeGet(info.iAdapterIndex, ref activeStatus);
+                                         Log($"    ADL_Adapter_Active_Get Result: {retActive}, Active: {activeStatus}");
+                                     }
 
                                     if (overdriveCapsPtr != IntPtr.Zero)
                                     {
