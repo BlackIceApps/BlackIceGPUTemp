@@ -70,7 +70,7 @@ jobs:
 
         Copy-Item "$env:GITHUB_WORKSPACE\staging\TinyTemp.exe" $artifactDir
 
-        $diagnosticsDir = "$env:GITHUB_WORKSPACE\diagnostics\TinyTemp.Diagnostics\bin\Release\net48"
+        $diagnosticsDir = "$env:GITHUB_WORKSPACE\diagnostics\TinyTemp.Diagnostics\bin\x64\Release\net48"
 
         if (-not (Test-Path -LiteralPath "$diagnosticsDir\TinyTemp.Diagnostics.exe")) {
           Write-Error "TinyTemp.Diagnostics.exe was not found in $diagnosticsDir."
