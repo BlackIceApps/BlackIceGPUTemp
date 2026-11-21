@@ -33,7 +33,6 @@ jobs:
     - name: Run Tests
       run: dotnet test TinyTemp.sln --configuration Release --no-build --verbosity normal
 
-
     - name: Verify Single EXE Staging
       shell: pwsh
       run: |
@@ -62,11 +61,12 @@ jobs:
 
         Write-Host "Staging validation passed: exactly 1 file (TinyTemp.exe)."
 
-
     - name: Upload Diagnostics and Staging Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: TinyTemp-Artifacts-win-x64
         path: |
-          src/TinyTemp/bin/Release/net48/TinyTemp.exe
-          diagnostics/TinyTemp.Diagnostics/bin/Release/net48/TinyTemp.Diagnostics.exe
+          staging/TinyTemp.exe
+          diagnostics/TinyTemp.Diagnostics/bin/**/TinyTemp.Diagnostics.exe
+        if-no-files-found: error
+
