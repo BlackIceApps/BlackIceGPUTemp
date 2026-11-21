@@ -20,7 +20,7 @@ jobs:
 
     - name: Restore and generate lockfiles
       run: |
-        dotnet restore TinyTemp.sln --force
+        dotnet restore TinyTemp.sln --force-evaluate
 
     - name: Commit lockfiles
       shell: pwsh
