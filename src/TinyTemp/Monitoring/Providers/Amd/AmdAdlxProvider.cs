@@ -32,11 +32,14 @@ namespace TinyTemp.Monitoring.Providers.Amd
                 disposableNative = native as IDisposable;
 
                 int initResult = native.Initialize(out system);
-                if (initResult != 0 || system == IntPtr.Zero)
+                if (initResult == 0)
+                {
+                    initialized = true;
+                }
+                if (system == IntPtr.Zero || initResult != 0)
                 {
                     return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
                 }
-                initialized = true;
 
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
@@ -132,11 +135,14 @@ namespace TinyTemp.Monitoring.Providers.Amd
                 disposableNative = native as IDisposable;
 
                 int initResult = native.Initialize(out system);
-                if (initResult != 0 || system == IntPtr.Zero)
+                if (initResult == 0)
+                {
+                    initialized = true;
+                }
+                if (system == IntPtr.Zero || initResult != 0)
                 {
                     return devices;
                 }
-                initialized = true;
 
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
@@ -228,12 +234,15 @@ namespace TinyTemp.Monitoring.Providers.Amd
                 disposableNative = native as IDisposable;
 
                 int initResult = native.Initialize(out system);
-                if (initResult != 0 || system == IntPtr.Zero)
+                if (initResult == 0)
+                {
+                    initialized = true;
+                }
+                if (system == IntPtr.Zero || initResult != 0)
                 {
                     error = $"Failed to initialize ADLX. Result code: {initResult}";
                     return false;
                 }
-                initialized = true;
 
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)

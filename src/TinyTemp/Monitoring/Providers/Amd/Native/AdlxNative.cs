@@ -89,10 +89,6 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         if (result == 0)
         {
             _isInitialized = true;
-            if (system == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("ADLX returned ADLX_OK but system pointer is zero.");
-            }
         }
         else
         {
