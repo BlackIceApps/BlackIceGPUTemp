@@ -22,7 +22,7 @@ jobs:
       run: |
         dotnet --info
         dotnet --version
-        msbuild -version
+        dotnet msbuild -version
 
     - name: Restore dependencies (locked mode)
       run: dotnet restore TinyTemp.sln --locked-mode
