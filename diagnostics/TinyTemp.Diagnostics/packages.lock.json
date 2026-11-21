@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "dependencies": {
+    ".NETFramework,Version=v4.8": {
+      "LibreHardwareMonitorLib": {
+        "type": "Direct",
+        "requested": "[0.9.3, )",
+        "resolved": "0.9.3",
+        "contentHash": "ruMkk48T0j4bX55iAlM5qvT37klYXBTrDVBFaz/RZkX3/72+wcioSKGfjSNX8UN6t0cjq8FW+sR5eNU9mpL3RA==",
+        "dependencies": {
+          "HidSharp": "2.1.0",
+          "System.Management": "8.0.0"
+        }
+      },
+      "HidSharp": {
+        "type": "Transitive",
+        "resolved": "2.1.0",
+        "contentHash": "UTdxWvbgp2xzT1Ajaa2va+Qi3oNHJPasYmVhbKI2VVdu1VYP6yUG+RikhsHvpD7iM0S8e8UYb5Qm/LTWxx9QAA=="
+      },
+      "System.CodeDom": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "WTlRjL6KWIMr/pAaq3rYqh0TJlzpouaQ/W1eelssHgtlwHAH25jXTkUphTYx9HaIIf7XA6qs/0+YhtLEQRkJ+Q=="
+      },
+      "System.Management": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "jrK22i5LRzxZCfGb+tGmke2VH7oE0DvcDlJ1HAKYU8cPmD8XnpUT0bYn2Gy98GEhGjtfbR/sxKTVb+dE770pfA==",
+        "dependencies": {
+          "System.CodeDom": "8.0.0"
+        }
+      }
+    },
+    ".NETFramework,Version=v4.8/win-x64": {}
+  }
+}
