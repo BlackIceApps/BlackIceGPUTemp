@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TinyTemp.Monitoring;
 using TinyTemp.Monitoring.Providers.Amd;
@@ -15,6 +16,9 @@ namespace TinyTemp.Tray
         private readonly string? _deviceId;
         private readonly string _deviceName;
         private Icon? _currentIcon;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
 
         public TinyTempApplicationContext()
         {
@@ -121,6 +125,7 @@ namespace TinyTemp.Tray
         {
             const int size = 32;
             var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            IntPtr hIcon = IntPtr.Zero;
 
             try
             {
@@ -129,7 +134,8 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    using (var font = new Font("Segoe UI", 16f, FontStyle.Bold, GraphicsUnit.Pixel))
+                    float fontSize = text.Length >= 3 ? 13f : 16f;
+                    using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
                     using (var shadowBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
                     {
@@ -142,15 +148,26 @@ namespace TinyTemp.Tray
                     }
                 }
 
-                return Icon.FromHandle(bitmap.GetHicon());
+                hIcon = bitmap.GetHicon();
+                if (hIcon == IntPtr.Zero)
+                {
+                    return null;
+                }
+
+                var icon = Icon.FromHandle(hIcon);
+                var clonedIcon = (Icon)icon.Clone();
+                return clonedIcon;
             }
             catch
             {
-                bitmap.Dispose();
                 return null;
             }
             finally
             {
+                if (hIcon != IntPtr.Zero)
+                {
+                    DestroyIcon(hIcon);
+                }
                 bitmap.Dispose();
             }
         }
