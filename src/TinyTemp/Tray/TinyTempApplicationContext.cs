@@ -334,6 +334,7 @@ namespace TinyTemp.Tray
         private static Icon? CreateTemperatureIcon(string text)
         {
             const int size = 16;
+            const float fontSize = 12f; // Adjust this value to change text size (in pixels)
             var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             IntPtr hIcon = IntPtr.Zero;
 
@@ -344,7 +345,6 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    const float fontSize = 14f;
                     using (var fontFamily = new FontFamily("Segoe UI"))
                     using (var brush = new SolidBrush(Color.White))
                     using (var path = new System.Drawing.Drawing2D.GraphicsPath())
@@ -357,18 +357,12 @@ namespace TinyTemp.Tray
                             return null;
                         }
 
-                        const float maxScaledSize = 14f;
-                        float scaleX = maxScaledSize / bounds.Width;
-                        float scaleY = maxScaledSize / bounds.Height;
-                        float scale = Math.Min(scaleX, scaleY);
-
                         float centerX = size / 2f;
                         float centerY = size / 2f;
 
                         using (var matrix = new System.Drawing.Drawing2D.Matrix())
                         {
                             matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f, System.Drawing.Drawing2D.MatrixOrder.Append);
-                            matrix.Scale(scale, scale, System.Drawing.Drawing2D.MatrixOrder.Append);
                             matrix.Translate(centerX, centerY, System.Drawing.Drawing2D.MatrixOrder.Append);
                             path.Transform(matrix);
                         }
