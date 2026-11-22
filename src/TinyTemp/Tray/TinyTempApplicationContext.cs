@@ -13,11 +13,11 @@ namespace TinyTemp.Tray
     internal sealed class TinyTempApplicationContext : ApplicationContext
     {
         private readonly NotifyIcon _notifyIcon;
-        private readonly Timer? _timer;
+        private readonly Timer _timer;
         private HardwareMonitorService? _monitorService;
         private string? _providerId;
         private string? _deviceId;
-        private string _deviceName;
+        private string _deviceName = "Starting...";
         private Icon? _currentIcon;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly Control _uiDispatcher = new();
