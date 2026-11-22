@@ -39,7 +39,10 @@ namespace TinyTemp.Tray
             };
             _currentIcon = _notifyIcon.Icon;
 
-            _contextMenuStrip = new ContextMenuStrip();
+            _contextMenuStrip = new ContextMenuStrip
+            {
+                AutoClose = true
+            };
             _contextMenuStrip.Items.Add("Exit", null, (_, _) => ExitThread());
             _notifyIcon.MouseClick += OnNotifyIconMouseClick;
 
@@ -61,26 +64,27 @@ namespace TinyTemp.Tray
                 int y = cursorPos.Y - menuSize.Height;
 
                 var screen = Screen.FromPoint(cursorPos);
-                var workingArea = screen.WorkingArea;
+                var bounds = screen.Bounds;
 
-                if (x < workingArea.Left)
+                if (x < bounds.Left)
                 {
-                    x = workingArea.Left;
+                    x = bounds.Left;
                 }
-                if (y < workingArea.Top)
+                if (y < bounds.Top)
                 {
-                    y = workingArea.Top;
+                    y = bounds.Top;
                 }
-                if (x + menuSize.Width > workingArea.Right)
+                if (x + menuSize.Width > bounds.Right)
                 {
-                    x = workingArea.Right - menuSize.Width;
+                    x = bounds.Right - menuSize.Width;
                 }
-                if (y + menuSize.Height > workingArea.Bottom)
+                if (y + menuSize.Height > bounds.Bottom)
                 {
-                    y = workingArea.Bottom - menuSize.Height;
+                    y = bounds.Bottom - menuSize.Height;
                 }
 
-                _contextMenuStrip.Show(new Point(x, y));
+                var clientPoint = _uiDispatcher.PointToClient(new Point(x, y));
+                _contextMenuStrip.Show(_uiDispatcher, clientPoint);
             }
         }
 
