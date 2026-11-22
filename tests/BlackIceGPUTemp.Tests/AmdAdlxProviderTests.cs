@@ -311,7 +311,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Probe_WhenGpuListFails_ReleasesSystem()
+        public void Probe_WhenGpuListFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -326,12 +326,12 @@ namespace BlackIceGPUTemp.Tests
             var result = provider.Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.TerminateCalls);
         }
 
         [Fact]
-        public void Probe_WhenGpuListSizeFails_ReleasesGpuListAndSystem()
+        public void Probe_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -347,7 +347,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.TerminateCalls);
         }
 
@@ -419,7 +419,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_WhenInitializeFailsWithNonZeroSystem_ReleasesSystem()
+        public void EnumerateDevices_WhenInitializeFailsWithNonZeroSystem_ZeroesSystem()
         {
             var fake = new FakeAdlxNative
             {
@@ -435,11 +435,11 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Empty(devices);
             Assert.Equal(1, fake.InitializeCalls);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenGpuListFails_ReleasesSystem()
+        public void EnumerateDevices_WhenGpuListFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -454,11 +454,11 @@ namespace BlackIceGPUTemp.Tests
             var devices = provider.EnumerateDevices();
 
             Assert.Empty(devices);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenGpuListSizeFails_ReleasesGpuListAndSystem()
+        public void EnumerateDevices_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -474,7 +474,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Empty(devices);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -530,7 +530,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGpuListFails_ReleasesSystem()
+        public void TryReadTemperatureInternal_WhenGpuListFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -545,11 +545,11 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGpuListSizeFails_ReleasesGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -565,11 +565,11 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(success);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenTargetGpuNotFound_ReleasesAllLoopGpusAndGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenTargetGpuNotFound_ReleasesAllLoopGpusAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -584,11 +584,11 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x3001, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGetPerfServicesFails_ReleasesTargetGpuGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenGetPerfServicesFails_ReleasesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -605,11 +605,11 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(success);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGetSupportedMetricsFails_ReleasesServicesTargetGpuGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenGetSupportedMetricsFails_ReleasesServicesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -627,11 +627,11 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenIsSupportedTempFails_ReleasesMetricsSupportServicesTargetGpuGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenIsSupportedTempFails_ReleasesMetricsSupportServicesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -650,11 +650,11 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGetCurrentMetricsFails_ReleasesMetricsSupportServicesTargetGpuGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenGetCurrentMetricsFails_ReleasesMetricsSupportServicesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -673,11 +673,11 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void TryReadTemperatureInternal_WhenGetTemperatureFails_ReleasesMetricsMetricsSupportServicesTargetGpuGpuListAndSystem()
+        public void TryReadTemperatureInternal_WhenGetTemperatureFails_ReleasesMetricsMetricsSupportServicesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -697,7 +697,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -758,13 +758,11 @@ namespace BlackIceGPUTemp.Tests
             int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
             int metricsSupportIdx = fake.ReleaseOrder.IndexOf(0x6000);
             int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
-            int systemIdx = fake.ReleaseOrder.IndexOf(0x1000);
 
             Assert.True(gpuIdx >= 0 && metricsSupportIdx >= 0 && servicesIdx >= 0, "Child interfaces should be released");
             Assert.True(metricsSupportIdx < servicesIdx, "metricsSupport (child) before services (parent)");
             Assert.True(servicesIdx < gpuIdx, "services (child of gpu) before gpu");
             Assert.True(gpuIdx < gpuListIdx, "gpu (child) before gpuList (parent)");
-            Assert.True(gpuListIdx < systemIdx, "gpuList (child) before system (root)");
         }
 
         [Fact]
@@ -780,14 +778,12 @@ namespace BlackIceGPUTemp.Tests
             int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
             int targetGpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
             int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
-            int systemIdx = fake.ReleaseOrder.IndexOf(0x1000);
 
             Assert.True(metricsIdx >= 0 && metricsSupportIdx >= 0 && servicesIdx >= 0 && targetGpuIdx >= 0, "All child interfaces should be released");
             Assert.True(metricsIdx < metricsSupportIdx, "metrics before metricsSupport");
             Assert.True(metricsSupportIdx < servicesIdx, "metricsSupport before services");
             Assert.True(servicesIdx < targetGpuIdx, "services before targetGpu");
             Assert.True(targetGpuIdx < gpuListIdx, "targetGpu before gpuList");
-            Assert.True(gpuListIdx < systemIdx, "gpuList before system");
         }
 
         [Fact]
@@ -799,14 +795,11 @@ namespace BlackIceGPUTemp.Tests
             provider.Probe();
 
             int gpuListIdx = fake.Events.IndexOf("Release:0x2000");
-            int systemIdx = fake.Events.IndexOf("Release:0x1000");
             int terminateIdx = fake.Events.IndexOf("Terminate");
 
             Assert.True(gpuListIdx >= 0, "gpuList should be released");
-            Assert.True(systemIdx >= 0, "system should be released");
             Assert.True(terminateIdx >= 0, "Terminate should be called");
             Assert.True(gpuListIdx < terminateIdx, "gpuList released before Terminate");
-            Assert.True(systemIdx < terminateIdx, "system released before Terminate");
         }
 
         [Fact]
@@ -826,7 +819,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.ThrowOnReleaseCount);
         }
 
@@ -848,7 +841,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x2000, fake.ReleasedPointers);
-            Assert.Contains(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.ThrowOnReleaseCount);
         }
 
