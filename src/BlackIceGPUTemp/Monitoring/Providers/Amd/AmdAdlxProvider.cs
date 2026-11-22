@@ -186,7 +186,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 return devices;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return devices;
             }
