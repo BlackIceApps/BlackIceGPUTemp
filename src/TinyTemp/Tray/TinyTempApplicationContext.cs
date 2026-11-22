@@ -14,7 +14,6 @@ namespace TinyTemp.Tray
     {
         private readonly NotifyIcon _notifyIcon;
         private readonly Timer _timer;
-        private readonly ContextMenuStrip _contextMenuStrip;
         private HardwareMonitorService? _monitorService;
         private string? _providerId;
         private string? _deviceId;
@@ -26,8 +25,33 @@ namespace TinyTemp.Tray
         private bool _disposing;
         private bool _readInProgress;
 
+        private const int MenuExitId = 1001;
+        private const uint TPM_RIGHTALIGN = 0x0008;
+        private const uint TPM_BOTTOMALIGN = 0x0020;
+        private const uint TPM_RIGHTBUTTON = 0x0002;
+        private const uint TPM_RETURNCMD = 0x0100;
+        private const uint WM_NULL = 0x0000;
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CreatePopupMenu();
+
+        [DllImport("user32.dll")]
+        private static extern bool AppendMenu(IntPtr hMenu, uint uFlags, uint uIDNewItem, string lpNewItem);
+
+        [DllImport("user32.dll")]
+        private static extern int TrackPopupMenuEx(IntPtr hMenu, uint uFlags, int x, int y, IntPtr hwnd, IntPtr lptpm);
+
+        [DllImport("user32.dll")]
+        private static extern bool DestroyMenu(IntPtr hMenu);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         public TinyTempApplicationContext()
         {
@@ -39,11 +63,6 @@ namespace TinyTemp.Tray
             };
             _currentIcon = _notifyIcon.Icon;
 
-            _contextMenuStrip = new ContextMenuStrip
-            {
-                AutoClose = true
-            };
-            _contextMenuStrip.Items.Add("Exit", null, (_, _) => ExitThread());
             _notifyIcon.MouseClick += OnNotifyIconMouseClick;
 
             _timer = new Timer { Interval = 1000 };
@@ -56,35 +75,42 @@ namespace TinyTemp.Tray
 
         private void OnNotifyIconMouseClick(object? sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Right)
+            if (e.Button != MouseButtons.Right)
             {
-                var cursorPos = Cursor.Position;
-                var menuSize = _contextMenuStrip.GetPreferredSize(Size.Empty);
-                int x = cursorPos.X - menuSize.Width;
-                int y = cursorPos.Y - menuSize.Height;
+                return;
+            }
 
-                var screen = Screen.FromPoint(cursorPos);
-                var bounds = screen.Bounds;
+            var cursorPos = Cursor.Position;
 
-                if (x < bounds.Left)
+            IntPtr hMenu = CreatePopupMenu();
+            if (hMenu == IntPtr.Zero)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!AppendMenu(hMenu, 0x00000000, (uint)MenuExitId, "Exit"))
                 {
-                    x = bounds.Left;
-                }
-                if (y < bounds.Top)
-                {
-                    y = bounds.Top;
-                }
-                if (x + menuSize.Width > bounds.Right)
-                {
-                    x = bounds.Right - menuSize.Width;
-                }
-                if (y + menuSize.Height > bounds.Bottom)
-                {
-                    y = bounds.Bottom - menuSize.Height;
+                    return;
                 }
 
-                var clientPoint = _uiDispatcher.PointToClient(new Point(x, y));
-                _contextMenuStrip.Show(_uiDispatcher, clientPoint);
+                uint flags = TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD;
+                int x = cursorPos.X;
+                int y = cursorPos.Y;
+
+                SetForegroundWindow(_uiDispatcher.Handle);
+                int result = TrackPopupMenuEx(hMenu, flags, x, y, _uiDispatcher.Handle, IntPtr.Zero);
+                PostMessage(_uiDispatcher.Handle, WM_NULL, IntPtr.Zero, IntPtr.Zero);
+
+                if (result == MenuExitId)
+                {
+                    ExitThread();
+                }
+            }
+            finally
+            {
+                DestroyMenu(hMenu);
             }
         }
 
@@ -389,7 +415,6 @@ namespace TinyTemp.Tray
                 }
 
                 _currentIcon?.Dispose();
-                _contextMenuStrip?.Dispose();
                 _uiDispatcher.Dispose();
             }
             base.Dispose(disposing);
