@@ -55,7 +55,32 @@ namespace TinyTemp.Tray
         {
             if (e.Button == MouseButtons.Right)
             {
-                _contextMenuStrip.Show(Cursor.Position, ToolStripDropDownDirection.AboveLeft);
+                var cursorPos = Cursor.Position;
+                var menuSize = _contextMenuStrip.GetPreferredSize(Size.Empty);
+                int x = cursorPos.X - menuSize.Width;
+                int y = cursorPos.Y - menuSize.Height;
+
+                var screen = Screen.FromPoint(cursorPos);
+                var workingArea = screen.WorkingArea;
+
+                if (x < workingArea.Left)
+                {
+                    x = workingArea.Left;
+                }
+                if (y < workingArea.Top)
+                {
+                    y = workingArea.Top;
+                }
+                if (x + menuSize.Width > workingArea.Right)
+                {
+                    x = workingArea.Right - menuSize.Width;
+                }
+                if (y + menuSize.Height > workingArea.Bottom)
+                {
+                    y = workingArea.Bottom - menuSize.Height;
+                }
+
+                _contextMenuStrip.Show(new Point(x, y));
             }
         }
 
