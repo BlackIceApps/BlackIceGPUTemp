@@ -335,6 +335,8 @@ namespace TinyTemp.Tray
         {
             const int size = 16;
             const float fontSize = 12f; // Adjust this value to change text size (in pixels)
+            const int fontStyle = (int)FontStyle.Bold; // Change to FontStyle.Regular for normal weight
+            const float verticalOffset = -1f; // Adjust to move text up (-) or down (+) in pixels
             var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             IntPtr hIcon = IntPtr.Zero;
 
@@ -349,7 +351,7 @@ namespace TinyTemp.Tray
                     using (var brush = new SolidBrush(Color.White))
                     using (var path = new System.Drawing.Drawing2D.GraphicsPath())
                     {
-                        path.AddString(text, fontFamily, (int)FontStyle.Regular, fontSize, PointF.Empty, StringFormat.GenericTypographic);
+                        path.AddString(text, fontFamily, fontStyle, fontSize, PointF.Empty, StringFormat.GenericTypographic);
 
                         RectangleF bounds = path.GetBounds();
                         if (bounds.Width <= 0 || bounds.Height <= 0)
@@ -363,7 +365,7 @@ namespace TinyTemp.Tray
                         using (var matrix = new System.Drawing.Drawing2D.Matrix())
                         {
                             matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f, System.Drawing.Drawing2D.MatrixOrder.Append);
-                            matrix.Translate(centerX, centerY, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            matrix.Translate(centerX, centerY + verticalOffset, System.Drawing.Drawing2D.MatrixOrder.Append);
                             path.Transform(matrix);
                         }
 
