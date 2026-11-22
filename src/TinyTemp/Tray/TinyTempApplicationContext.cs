@@ -347,7 +347,7 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    using (var fontFamily = new FontFamily("Segoe UI"))
+                    using (var fontFamily = new FontFamily("Tahoma")) // Options: "Tahoma" (closest to Segoe UI), "Segoe UI", "Arial", "Microsoft Sans Serif"
                     using (var brush = new SolidBrush(Color.White))
                     using (var path = new System.Drawing.Drawing2D.GraphicsPath())
                     {
