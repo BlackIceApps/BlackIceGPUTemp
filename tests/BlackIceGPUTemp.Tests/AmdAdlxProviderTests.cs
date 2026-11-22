@@ -1119,53 +1119,50 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Dispose_WhenInitialized_DoesNotFreeLibraryAndNotMarkDisposed()
+        public void AdlxNative_Dispose_WhenInitialized_DoesNotCallFreeLibrary()
         {
-            var fake = new AdlxNativeDisposeBehaviorFake();
-            fake.Initialize(out _);
+            int freeCallCount = 0;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, true);
 
-            fake.Dispose();
+            native.Dispose();
 
-            Assert.False(fake.IsDisposed);
-            Assert.True(fake.LibraryHandleRetained);
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
         }
 
         [Fact]
-        public void Dispose_WhenNotInitialized_FreesLibraryAndMarksDisposed()
+        public void AdlxNative_Dispose_WhenNotInitialized_SuccessfulFree_CallsFreeLibraryOnce()
         {
-            var fake = new AdlxNativeDisposeBehaviorFake();
+            int freeCallCount = 0;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, false);
 
-            fake.Dispose();
+            native.Dispose();
 
-            Assert.True(fake.IsDisposed);
-            Assert.False(fake.LibraryHandleRetained);
-        }
-    }
-
-    private class AdlxNativeDisposeBehaviorFake : FakeAdlxNative
-    {
-        public bool LibraryHandleRetained { get; private set; } = true;
-
-        public override int Initialize(out IntPtr system)
-        {
-            var result = base.Initialize(out system);
-            if (result == 0)
-            {
-                LibraryHandleRetained = true;
-            }
-            return result;
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+            Assert.Equal(IntPtr.Zero, native.LibHandle);
         }
 
-        public override void Dispose()
+        [Fact]
+        public void AdlxNative_Dispose_WhenNotInitialized_FailedFree_RetainsHandleAndAllowsRetry()
         {
-            if (InitializeCalls > 0 && TerminateCalls == 0)
-            {
-                LibraryHandleRetained = true;
-                return;
-            }
+            int freeCallCount = 0;
+            bool freeResult = false;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return freeResult; }, false);
 
-            base.Dispose();
-            LibraryHandleRetained = false;
+            native.Dispose();
+
+            Assert.Equal(1, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+
+            freeResult = true;
+            native.Dispose();
+
+            Assert.Equal(2, freeCallCount);
+            Assert.True(native.IsDisposed);
+            Assert.Equal(IntPtr.Zero, native.LibHandle);
         }
     }
 }

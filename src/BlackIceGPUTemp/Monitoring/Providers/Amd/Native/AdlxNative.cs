@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
@@ -35,9 +36,23 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     private bool _isInitialized;
     private bool _disposed;
 
+    internal Func<IntPtr, bool>? FreeLibraryOverride { get; set; }
+
+    internal bool IsDisposed => _disposed;
+
+    internal IntPtr LibHandle => _libHandle;
+
     public AdlxNative()
     {
         LoadLibraryAndGetExports();
+    }
+
+    internal AdlxNative(IntPtr testLibHandle, Func<IntPtr, bool> testFreeLibrary, bool isInitialized)
+    {
+        _libHandle = testLibHandle;
+        _isLoaded = true;
+        _isInitialized = isInitialized;
+        FreeLibraryOverride = testFreeLibrary;
     }
 
     private void LoadLibraryAndGetExports()
@@ -141,32 +156,32 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return del(system, out gpuList);
     }
 
-public int GetGpuListSize(IntPtr gpuList, out int count)
+    public int GetGpuListSize(IntPtr gpuList, out int count)
+    {
+        count = 0;
+        if (_disposed)
         {
-            count = 0;
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(AdlxNative));
-            }
-            if (!_isInitialized)
-            {
-                throw new InvalidOperationException("ADLX is not initialized.");
-            }
-            if (gpuList == IntPtr.Zero)
-            {
-                throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
-            }
-
-            var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
-            uint uCount = del(gpuList);
-            if (uCount > int.MaxValue)
-            {
-                throw new OverflowException("ADLX GPU list size exceeds the supported range.");
-            }
-
-            count = (int)uCount;
-            return 0;
+            throw new ObjectDisposedException(nameof(AdlxNative));
         }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized.");
+        }
+        if (gpuList == IntPtr.Zero)
+        {
+            throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
+        }
+
+        var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
+        uint uCount = del(gpuList);
+        if (uCount > int.MaxValue)
+        {
+            throw new OverflowException("ADLX GPU list size exceeds the supported range.");
+        }
+
+        count = (int)uCount;
+        return 0;
+    }
 
     public int GetGpuAt(IntPtr gpuList, int index, out IntPtr gpu)
     {
@@ -403,27 +418,38 @@ public int GetGpuListSize(IntPtr gpuList, out int count)
             return;
         }
 
-        _disposed = true;
-
         if (_libHandle != IntPtr.Zero)
         {
             IntPtr handle = _libHandle;
-            _libHandle = IntPtr.Zero;
+            bool freeResult = false;
+
             try
             {
-                bool freeResult = FreeLibrary(handle);
-                if (!freeResult)
+                if (FreeLibraryOverride != null)
                 {
-                    int error = Marshal.GetLastWin32Error();
-                    Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                    freeResult = FreeLibraryOverride(handle);
+                }
+                else
+                {
+                    freeResult = FreeLibrary(handle);
                 }
             }
             catch (Exception ex)
             {
                 Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
             }
+
+            if (!freeResult)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                return;
+            }
+
+            _libHandle = IntPtr.Zero;
         }
 
+        _disposed = true;
         _initialize = null;
         _terminate = null;
         _isLoaded = false;

@@ -27,7 +27,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
-            Exception? operationException = null;
 
             try
             {
@@ -101,12 +100,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                operationException = ex;
                 return new ProviderProbeResult(false, $"ADLX probe failed with exception: {ex.Message}");
             }
             finally
             {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
@@ -120,7 +118,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
-            Exception? operationException = null;
 
             try
             {
@@ -191,12 +188,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                operationException = ex;
                 return devices;
             }
             finally
             {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
@@ -210,7 +206,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
-            Exception? operationException = null;
 
             try
             {
@@ -327,13 +322,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                operationException = ex;
                 error = $"Exception during temperature read: {ex.Message}";
                 return false;
             }
             finally
             {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
@@ -342,8 +336,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             ref IntPtr gpuList,
             ref IntPtr system,
             bool initialized,
-            IDisposable? disposableNative,
-            Exception? operationException)
+            IDisposable? disposableNative)
         {
             AdlxInterop.ReleaseInterface(native, ref gpuList);
             AdlxInterop.ReleaseInterface(native, ref system);
