@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
@@ -338,11 +339,19 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             bool initialized,
             IDisposable? disposableNative)
         {
+            Logger.LogInfo("Cleanup: entry");
+
+            Logger.LogInfo($"Cleanup: releasing gpuList=0x{gpuList:X}");
             AdlxInterop.ReleaseInterface(native, ref gpuList);
+            Logger.LogInfo($"Cleanup: gpuList released");
+
+            Logger.LogInfo($"Cleanup: releasing system=0x{system:X}");
             AdlxInterop.ReleaseInterface(native, ref system);
+            Logger.LogInfo($"Cleanup: system released");
 
             if (initialized && native != null)
             {
+                Logger.LogInfo("Cleanup: Terminate start");
                 int terminateResult = 0;
                 Exception? terminateException = null;
 
@@ -353,25 +362,28 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 catch (Exception ex)
                 {
                     terminateException = ex;
-                    Trace.TraceError("ADLX Terminate threw exception: {0}", ex.Message);
+                    Logger.LogError("ADLX Terminate threw exception", ex);
                 }
 
                 if (terminateResult != 0)
                 {
-                    Trace.TraceError("ADLX Terminate failed with HRESULT: 0x{0:X}", terminateResult);
+                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
                 }
+                Logger.LogInfo("Cleanup: Terminate end");
             }
 
             if (disposableNative != null)
             {
+                Logger.LogInfo("Cleanup: Dispose start");
                 try
                 {
                     disposableNative.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError("AdlxNative Dispose threw exception: {0}", ex.Message);
+                    Logger.LogError("AdlxNative Dispose threw exception", ex);
                 }
+                Logger.LogInfo("Cleanup: Dispose end");
             }
         }
     }
