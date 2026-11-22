@@ -345,27 +345,36 @@ namespace TinyTemp.Tray
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
                     const float fontSize = 11f;
-                    using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
+                    using (var fontFamily = new FontFamily("Segoe UI"))
                     using (var brush = new SolidBrush(Color.White))
-                    using (var format = StringFormat.GenericTypographic)
+                    using (var path = new System.Drawing.Drawing2D.GraphicsPath())
                     {
-                        SizeF measured = graphics.MeasureString(text, font, PointF.Empty, format);
-                        float x = (size - measured.Width) / 2f;
-                        float y = (size - measured.Height) / 2f;
+                        path.AddString(text, fontFamily, (int)FontStyle.Regular, fontSize, PointF.Empty, StringFormat.GenericTypographic);
 
-                        const float maxScale = 1.08f;
+                        RectangleF bounds = path.GetBounds();
+                        if (bounds.Width <= 0 || bounds.Height <= 0)
+                        {
+                            return null;
+                        }
+
                         const float maxScaledSize = 14f;
-                        float scaleX = measured.Width > 0 ? maxScaledSize / measured.Width : maxScale;
-                        float scaleY = measured.Height > 0 ? maxScaledSize / measured.Height : maxScale;
+                        float scaleX = maxScaledSize / bounds.Width;
+                        float scaleY = maxScaledSize / bounds.Height;
                         float scale = Math.Min(scaleX, scaleY);
-                        scale = Math.Max(1f, Math.Min(maxScale, scale));
+                        scale = Math.Min(scale, 1.08f);
 
-                        float center = size / 2f;
-                        graphics.TranslateTransform(center, center);
-                        graphics.ScaleTransform(scale, scale);
-                        graphics.TranslateTransform(-center, -center);
+                        float centerX = size / 2f;
+                        float centerY = size / 2f;
 
-                        graphics.DrawString(text, font, brush, x, y, format);
+                        using (var matrix = new System.Drawing.Drawing2D.Matrix())
+                        {
+                            matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f);
+                            matrix.Scale(scale, scale);
+                            matrix.Translate(centerX, centerY);
+                            path.Transform(matrix);
+                        }
+
+                        graphics.FillPath(brush, path);
                     }
                 }
 
