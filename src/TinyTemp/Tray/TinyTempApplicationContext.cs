@@ -226,7 +226,7 @@ namespace TinyTemp.Tray
                     const float fontSize = 14f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
                     {
-                        var textSize = TextRenderer.MeasureText(text, font, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                        var textSize = TextRenderer.MeasureText(text, font, new Size(1000, 1000), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
                         int x = (size - textSize.Width) / 2;
                         int y = (size - textSize.Height) / 2;
 
