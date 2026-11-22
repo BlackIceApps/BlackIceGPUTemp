@@ -2,6 +2,8 @@ using System;
 using System.Windows.Forms;
 using BlackIceGPUTemp.Tray;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("BlackIceGPUTemp.Tests")]
+
 namespace BlackIceGPUTemp
 {
     static class Program
