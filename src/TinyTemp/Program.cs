@@ -1,15 +1,17 @@
+using System;
 using System.Windows.Forms;
+using TinyTemp.Tray;
 
 namespace TinyTemp
 {
     static class Program
     {
-        [System.STAThread]
+        [STAThread]
         static void Main()
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            // Skeleton entry point
+            Application.Run(new TinyTempApplicationContext());
         }
     }
 }
