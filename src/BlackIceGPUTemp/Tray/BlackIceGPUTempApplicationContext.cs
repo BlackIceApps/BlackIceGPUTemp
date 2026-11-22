@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
+using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
 using BlackIceGPUTemp.Monitoring.Providers.Amd;
 
@@ -55,6 +56,7 @@ namespace BlackIceGPUTemp.Tray
 
         public BlackIceGPUTempApplicationContext()
         {
+            Logger.LogInfo("BlackIceGPUTempApplicationContext created");
             _notifyIcon = new NotifyIcon
             {
                 Icon = CreateTemperatureIcon("--"),
@@ -118,6 +120,7 @@ namespace BlackIceGPUTemp.Tray
         {
             try
             {
+                Logger.LogInfo("Initializing GPU monitoring");
                 var provider = new AmdAdlxProvider();
                 var probeResult = provider.Probe();
 
@@ -128,6 +131,7 @@ namespace BlackIceGPUTemp.Tray
 
                 if (probeResult.IsAvailable)
                 {
+                    Logger.LogInfo("ADLX provider available");
                     var devices = provider.EnumerateDevices();
                     if (devices != null && devices.Count > 0)
                     {
@@ -135,10 +139,12 @@ namespace BlackIceGPUTemp.Tray
                         _providerId = provider.Id;
                         _deviceId = firstDevice.Id;
                         _deviceName = firstDevice.Name;
+                        Logger.LogInfo($"Selected GPU: {_deviceName} (Provider: {_providerId}, Device: {_deviceId})");
 
                         var registry = new GpuProviderRegistry(new[] { provider });
                         var selector = new DeviceSelector(registry);
                         _monitorService = new HardwareMonitorService(selector);
+                        Logger.LogInfo("HardwareMonitorService created");
 
                         if (cancellationToken.IsCancellationRequested)
                         {
@@ -158,6 +164,7 @@ namespace BlackIceGPUTemp.Tray
                             return;
                         }
                         _deviceName = "No supported GPU detected";
+                        Logger.LogWarn("No supported GPU devices found");
                         InvokeOnUiThread(() => _notifyIcon.Text = "BlackIceGPUTemp: No supported GPU");
                     }
                 }
@@ -171,16 +178,18 @@ namespace BlackIceGPUTemp.Tray
                     string reason = string.IsNullOrWhiteSpace(probeResult.Message)
                         ? "Unknown error"
                         : probeResult.Message!;
+                    Logger.LogWarn($"ADLX not available: {reason}");
                     InvokeOnUiThread(() => UpdateTooltip($"BlackIceGPUTemp: {reason}"));
                 }
             }
             catch (OperationCanceledException)
             {
             }
-            catch
+            catch (Exception ex)
             {
                 if (!cancellationToken.IsCancellationRequested)
                 {
+                    Logger.LogError("Initialization error", ex);
                     InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initialization error"));
                 }
             }
@@ -282,7 +291,7 @@ namespace BlackIceGPUTemp.Tray
                         });
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     lock (_disposeLock)
                     {
@@ -292,6 +301,7 @@ namespace BlackIceGPUTemp.Tray
                         }
                     }
 
+                    Logger.LogError("Error reading temperature", ex);
                     InvokeOnUiThread(() =>
                     {
                         UpdateTooltip($"{_deviceName}: Temp unavailable");
@@ -433,6 +443,7 @@ namespace BlackIceGPUTemp.Tray
         {
             if (disposing)
             {
+                Logger.LogInfo("Application shutting down");
                 lock (_disposeLock)
                 {
                     _disposing = true;

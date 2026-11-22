@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
@@ -12,9 +13,19 @@ namespace BlackIceGPUTemp.Tests
         private class FakeAdlxNative : IAdlxNative, IDisposable
         {
             public int InitializeCalls { get; private set; }
-            public int TerminateCalls { get; private set; }
+            public int TerminateCalls { get; protected set; }
             public int ReleaseCalls { get; private set; }
-            public bool IsDisposed { get; private set; }
+            public List<int> ReleasedPointers { get; } = new List<int>();
+            public List<int> ReleaseOrder { get; } = new List<int>();
+            public List<int> ReleaseReturnCodes { get; } = new List<int>();
+            public bool IsDisposed { get; protected set; }
+            public int LastReleaseResult { get; private set; }
+            public int ReleaseFailAtPointer { get; set; } = -1;
+            public int ReleaseFailCount { get; set; }
+            public bool ThrowOnRelease { get; set; } = false;
+            public int ThrowOnReleasePointer { get; set; } = -1;
+            public int ThrowOnReleaseCount { get; set; }
+            public List<string> Events { get; } = new List<string>();
 
             public delegate int InitializeDelegate(out IntPtr system);
             public delegate int TerminateDelegate();
@@ -60,9 +71,10 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             }
 
-            public int Terminate()
+            public virtual int Terminate()
             {
                 TerminateCalls++;
+                Events.Add("Terminate");
                 if (TerminateHandler != null)
                 {
                     return TerminateHandler();
@@ -179,16 +191,65 @@ namespace BlackIceGPUTemp.Tests
             public int Release(IntPtr adlxInterface)
             {
                 ReleaseCalls++;
-                if (ReleaseHandler != null)
+                int ptr = adlxInterface.ToInt32();
+                ReleasedPointers.Add(ptr);
+                ReleaseOrder.Add(ptr);
+                Events.Add($"Release:0x{ptr:X}");
+
+                int result = 0;
+                if (ThrowOnRelease && ptr == ThrowOnReleasePointer)
                 {
-                    return ReleaseHandler(adlxInterface);
+                    ThrowOnReleaseCount++;
+                    throw new InvalidOperationException($"Simulated Release failure for 0x{ptr:X}");
                 }
-                return 0;
+                if (ReleaseFailAtPointer == ptr)
+                {
+                    ReleaseFailCount++;
+                    result = -1;
+                }
+                else if (ReleaseHandler != null)
+                {
+                    result = ReleaseHandler(adlxInterface);
+                }
+                ReleaseReturnCodes.Add(result);
+                LastReleaseResult = result;
+                return result;
             }
 
-            public void Dispose()
+            public virtual void Dispose()
             {
                 IsDisposed = true;
+            }
+        }
+
+        private class TerminateFailingFake : FakeAdlxNative
+        {
+            public int TerminateHResult { get; set; } = unchecked((int)0x80004005); // E_FAIL
+            public bool ThrowOnTerminate { get; set; } = false;
+
+            public override int Terminate()
+            {
+                TerminateCalls++;
+                Events.Add("Terminate");
+                if (ThrowOnTerminate)
+                {
+                    throw new InvalidOperationException("Simulated Terminate exception");
+                }
+                return TerminateHResult;
+            }
+        }
+
+        private class DisposeThrowingFake : FakeAdlxNative
+        {
+            public bool ThrowOnDispose { get; set; } = false;
+
+            public override void Dispose()
+            {
+                IsDisposed = true;
+                if (ThrowOnDispose)
+                {
+                    throw new InvalidOperationException("Simulated Dispose exception");
+                }
             }
         }
 
@@ -234,11 +295,11 @@ namespace BlackIceGPUTemp.Tests
         {
             var fake = new FakeAdlxNative
             {
-InitializeHandler = (out IntPtr outSystem) =>
-            {
-                outSystem = IntPtr.Zero;
-                return 0;
-            }
+                InitializeHandler = (out IntPtr outSystem) =>
+                {
+                    outSystem = IntPtr.Zero;
+                    return 0;
+                }
             };
             var provider = new AmdAdlxProvider(() => fake);
 
@@ -247,6 +308,78 @@ InitializeHandler = (out IntPtr outSystem) =>
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Probe_WhenGpuListFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    list = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.TerminateCalls);
+        }
+
+        [Fact]
+        public void Probe_WhenGpuListSizeFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    count = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.TerminateCalls);
+        }
+
+        [Fact]
+        public void Probe_ReleaseReturnCodeIsObserved()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => 42
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Contains(42, fake.ReleaseReturnCodes);
+        }
+
+        [Fact]
+        public void Probe_ReleaseFailureDoesNotMaskOriginalResult()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => -1,
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
         }
 
         [Fact]
@@ -266,6 +399,99 @@ InitializeHandler = (out IntPtr outSystem) =>
         }
 
         [Fact]
+        public void EnumerateDevices_WhenInitializeFailsWithNullSystem_ReleasesNothing()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Empty(devices);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.ReleaseCalls);
+        }
+
+        [Fact]
+        public void EnumerateDevices_WhenInitializeFailsWithNonZeroSystem_ZeroesSystem()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Empty(devices);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void EnumerateDevices_WhenGpuListFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    list = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Empty(devices);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void EnumerateDevices_WhenGpuListSizeFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    count = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Empty(devices);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void EnumerateDevices_ReleaseFailureDoesNotMaskOriginalResult()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => -1
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+        }
+
+        [Fact]
         public void Device_TryReadTemperature_ReturnsReading()
         {
             var fake = new FakeAdlxNative();
@@ -281,6 +507,709 @@ InitializeHandler = (out IntPtr outSystem) =>
             Assert.NotNull(reading);
             Assert.Equal(65.5, reading.Celsius);
             Assert.Equal("GPU Edge", reading.SensorName);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenInitializeFails_ReleasesNothing()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Equal(0, fake.ReleaseCalls);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGpuListFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    list = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGpuListSizeFails_ReleasesGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    count = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenTargetGpuNotFound_ReleasesAllLoopGpusAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuUniqueIds = new List<int> { 11111, 22222 },
+                GpuNames = new List<string> { "GPU1", "GPU2" }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(99999, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x3001, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGetPerfServicesFails_ReleasesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
+                {
+                    svc = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGetSupportedMetricsFails_ReleasesServicesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
+                {
+                    ms = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenIsSupportedTempFails_ReleasesMetricsSupportServicesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                IsSupportedTempHandler = (IntPtr ms, out bool supp) =>
+                {
+                    supp = false;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGetCurrentMetricsFails_ReleasesMetricsSupportServicesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetCurrentMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr met) =>
+                {
+                    met = IntPtr.Zero;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_WhenGetTemperatureFails_ReleasesMetricsMetricsSupportServicesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuTempHandler = (IntPtr met, out double temp) =>
+                {
+                    temp = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains(0x5000, fake.ReleasedPointers);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_ReleaseReturnCodeIsObserved()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => 42
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.Contains(42, fake.ReleaseReturnCodes);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_ReleaseFailureDoesNotMaskOriginalResult()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => -1
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+        }
+
+        [Fact]
+        public void IsTemperatureSupported_UsesConsistentReleaseInterface()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+            var device = devices[0];
+
+            bool success = device.TryReadTemperature(out var reading, out var error);
+
+            Assert.True(success);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void ReleaseOrder_Probe_ChildBeforeParent()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            int gpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
+            int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
+            int metricsSupportIdx = fake.ReleaseOrder.IndexOf(0x6000);
+            int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
+
+            Assert.True(gpuIdx >= 0 && metricsSupportIdx >= 0 && servicesIdx >= 0, "Child interfaces should be released");
+            Assert.True(metricsSupportIdx < servicesIdx, "metricsSupport (child) before services (parent)");
+            Assert.True(servicesIdx < gpuIdx, "services (child of gpu) before gpu");
+            Assert.True(gpuIdx < gpuListIdx, "gpu (child) before gpuList (parent)");
+        }
+
+        [Fact]
+        public void ReleaseOrder_TryReadTemperatureInternal_ChildBeforeParent()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            int metricsIdx = fake.ReleaseOrder.IndexOf(0x5000);
+            int metricsSupportIdx = fake.ReleaseOrder.IndexOf(0x6000);
+            int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
+            int targetGpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
+            int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
+
+            Assert.True(metricsIdx >= 0 && metricsSupportIdx >= 0 && servicesIdx >= 0 && targetGpuIdx >= 0, "All child interfaces should be released");
+            Assert.True(metricsIdx < metricsSupportIdx, "metrics before metricsSupport");
+            Assert.True(metricsSupportIdx < servicesIdx, "metricsSupport before services");
+            Assert.True(servicesIdx < targetGpuIdx, "services before targetGpu");
+            Assert.True(targetGpuIdx < gpuListIdx, "targetGpu before gpuList");
+        }
+
+        [Fact]
+        public void ReleaseOrder_TerminateAfterInterfaces()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            int gpuListIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+
+            Assert.True(gpuListIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListIdx < terminateIdx, "gpuList released before Terminate");
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotBlockOtherReleases_Probe()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x4000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.ThrowOnReleaseCount);
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotBlockOtherReleases_TryReadTemperatureInternal()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x6000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.Contains(0x5000, fake.ReleasedPointers);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.ThrowOnReleaseCount);
+        }
+
+        [Fact]
+        public void ReleaseFailedHResult_DoesNotChangeOperationResult_Probe()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseFailAtPointer = 0x4000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.ReleaseFailCount);
+        }
+
+        [Fact]
+        public void ReleaseFailedHResult_DoesNotChangeOperationResult_TryReadTemperatureInternal()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseFailAtPointer = 0x6000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.ReleaseFailCount);
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotChangeOperationResult_Probe()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x3000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotChangeOperationResult_TryReadTemperatureInternal()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x5000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ErrorDoesNotMaskOriginalFailure_Probe()
+        {
+            var fake = new TerminateFailingFake
+            {
+                TerminateHResult = unchecked((int)0x80004005),
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+        }
+
+        [Fact]
+        public void Terminate_ErrorDoesNotMaskOriginalFailure_TryReadTemperatureInternal()
+        {
+            var fake = new TerminateFailingFake
+            {
+                TerminateHResult = unchecked((int)0x80004005),
+                GetGpuTempHandler = (IntPtr met, out double temp) =>
+                {
+                    temp = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Equal("Failed to get GPU temperature reading.", error);
+        }
+
+        [Fact]
+        public void Dispose_ErrorDoesNotMaskOriginalFailure_Probe()
+        {
+            var fake = new DisposeThrowingFake
+            {
+                ThrowOnDispose = true,
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+        }
+
+        [Fact]
+        public void Dispose_ErrorDoesNotMaskOriginalFailure_TryReadTemperatureInternal()
+        {
+            var fake = new DisposeThrowingFake
+            {
+                ThrowOnDispose = true,
+                GetGpuTempHandler = (IntPtr met, out double temp) =>
+                {
+                    temp = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Equal("Failed to get GPU temperature reading.", error);
+        }
+
+        [Fact]
+        public void Terminate_Success_DisposesLibrary()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Terminate_ReturnsZero_IsInitializedBecomesFalse()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => 0);
+
+            int result = native.Terminate();
+
+            Assert.Equal(0, result);
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Terminate_ReturnsOrphanObjects_IsInitializedBecomesFalse()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => 0xB);
+
+            int result = native.Terminate();
+
+            Assert.Equal(0xB, result);
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => -1);
+
+            int result = native.Terminate();
+
+            Assert.Equal(-1, result);
+            native.Dispose();
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenInitialized_DoesNotCallFreeLibrary()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, true);
+
+            native.Dispose();
+
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenNotInitialized_SuccessfulFree_CallsFreeLibraryOnce()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, false);
+
+            native.Dispose();
+
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+            Assert.Equal(IntPtr.Zero, native.LibHandle);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenNotInitialized_FailedFree_RetainsHandleAndAllowsRetry()
+        {
+            int freeCallCount = 0;
+            bool freeResult = false;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return freeResult; }, false);
+
+            native.Dispose();
+
+            Assert.Equal(1, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+
+            freeResult = true;
+            native.Dispose();
+
+            Assert.Equal(2, freeCallCount);
+            Assert.True(native.IsDisposed);
+            Assert.Equal(IntPtr.Zero, native.LibHandle);
         }
     }
 }

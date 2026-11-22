@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
@@ -78,9 +81,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     }
                     finally
                     {
-                        ReleaseInterface(native, ref metricsSupport);
-                        ReleaseInterface(native, ref services);
-                        ReleaseInterface(native, ref gpu);
+                        AdlxInterop.ReleaseInterface(native, ref metricsSupport);
+                        AdlxInterop.ReleaseInterface(native, ref services);
+                        AdlxInterop.ReleaseInterface(native, ref gpu);
                     }
 
                     if (hasSupportedGpu)
@@ -102,19 +105,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                ReleaseInterface(native, ref gpuList);
-                if (initialized && native != null)
-                {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                        // Ignore termination error on cleanup
-                    }
-                }
-                disposableNative?.Dispose();
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
@@ -188,32 +179,21 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     }
                     finally
                     {
-                        ReleaseInterface(native, ref metricsSupport);
-                        ReleaseInterface(native, ref services);
-                        ReleaseInterface(native, ref gpu);
+                        AdlxInterop.ReleaseInterface(native, ref metricsSupport);
+                        AdlxInterop.ReleaseInterface(native, ref services);
+                        AdlxInterop.ReleaseInterface(native, ref gpu);
                     }
                 }
 
                 return devices;
             }
-            catch
+            catch (Exception)
             {
                 return devices;
             }
             finally
             {
-                ReleaseInterface(native, ref gpuList);
-                if (initialized && native != null)
-                {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                    }
-                }
-                disposableNative?.Dispose();
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
@@ -269,8 +249,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             if (native.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
                             {
                                 targetGpu = gpu;
-                                // Do not release targetGpu here, we need it outside the loop.
-                                // We need to prevent finally block from releasing targetGpu if we assign it.
                                 break;
                             }
                         }
@@ -279,7 +257,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     {
                         if (gpu != targetGpu)
                         {
-                            ReleaseInterface(native, ref gpu);
+                            AdlxInterop.ReleaseInterface(native, ref gpu);
                         }
                     }
                 }
@@ -337,10 +315,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
                 finally
                 {
-                    ReleaseInterface(native, ref metrics);
-                    ReleaseInterface(native, ref metricsSupport);
-                    ReleaseInterface(native, ref services);
-                    ReleaseInterface(native, ref targetGpu);
+                    AdlxInterop.ReleaseInterface(native, ref metrics);
+                    AdlxInterop.ReleaseInterface(native, ref metricsSupport);
+                    AdlxInterop.ReleaseInterface(native, ref services);
+                    AdlxInterop.ReleaseInterface(native, ref targetGpu);
                 }
             }
             catch (Exception ex)
@@ -350,36 +328,62 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                ReleaseInterface(native, ref gpuList);
-                if (initialized && native != null)
-                {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                    }
-                }
-                disposableNative?.Dispose();
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
             }
         }
 
-        private static void ReleaseInterface(IAdlxNative? native, ref IntPtr ptr)
+        private static void Cleanup(
+            IAdlxNative? native,
+            ref IntPtr gpuList,
+            ref IntPtr system,
+            bool initialized,
+            IDisposable? disposableNative)
         {
-            if (native != null && ptr != IntPtr.Zero)
+            Logger.LogInfo("Cleanup: entry");
+
+            Logger.LogInfo($"Cleanup: releasing gpuList=0x{gpuList:X}");
+            AdlxInterop.ReleaseInterface(native, ref gpuList);
+            Logger.LogInfo($"Cleanup: gpuList released");
+
+            Logger.LogInfo($"Cleanup: zeroing system=0x{system:X} (no Release, managed by ADLX)");
+            system = IntPtr.Zero;
+            Logger.LogInfo($"Cleanup: system zeroed");
+
+            if (initialized && native != null)
             {
+                Logger.LogInfo("Cleanup: Terminate start");
+                int terminateResult = 0;
+                Exception? terminateException = null;
+
                 try
                 {
-                    native.Release(ptr);
+                    terminateResult = native.Terminate();
                 }
-                catch
+                catch (Exception ex)
                 {
+                    terminateException = ex;
+                    Logger.LogError("ADLX Terminate threw exception", ex);
                 }
-                finally
+
+                if (terminateResult != 0)
                 {
-                    ptr = IntPtr.Zero;
+                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
                 }
+                Logger.LogInfo("Cleanup: Terminate end");
+            }
+
+            if (disposableNative != null)
+            {
+                Logger.LogInfo("Cleanup: Dispose start");
+                try
+                {
+                    disposableNative.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError("AdlxNative Dispose threw exception", ex);
+                }
+                Logger.LogInfo("Cleanup: Dispose end");
             }
         }
     }
@@ -425,10 +429,34 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                if (native != null)
+                AdlxInterop.ReleaseInterface(native, ref metricsSupport);
+                AdlxInterop.ReleaseInterface(native, ref services);
+            }
+        }
+    }
+
+    internal static class AdlxInterop
+    {
+        public static void ReleaseInterface(IAdlxNative? native, ref IntPtr ptr)
+        {
+            if (native != null && ptr != IntPtr.Zero)
+            {
+                IntPtr currentPtr = ptr;
+                try
                 {
-                    if (metricsSupport != IntPtr.Zero) native.Release(metricsSupport);
-                    if (services != IntPtr.Zero) native.Release(services);
+                    int result = native.Release(currentPtr);
+                    if (result != 0)
+                    {
+                        Trace.TraceError("ADLX Release failed: interface=0x{0:X}, HRESULT=0x{1:X}", currentPtr, result);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceError("ADLX Release exception: interface=0x{0:X}, error={1}", currentPtr, ex.Message);
+                }
+                finally
+                {
+                    ptr = IntPtr.Zero;
                 }
             }
         }

@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using BlackIceGPUTemp.Logging;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
@@ -8,6 +10,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     const string DllName = "amdadlx64.dll";
     const ulong ADLX_FULL_VERSION = 0x000200000000007DUL;
     const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
+    const int ADLX_ORPHAN_OBJECTS = 0xB;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto, BestFitMapping = false, ThrowOnUnmappableChar = true)]
     private static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
@@ -25,7 +28,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         out IntPtr ppSystem);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int ADLXTerminateDelegate();
+    internal delegate int ADLXTerminateDelegate();
 
     private IntPtr _libHandle;
     private ADLXInitializeDelegate? _initialize;
@@ -35,9 +38,27 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     private bool _isInitialized;
     private bool _disposed;
 
+    internal Func<IntPtr, bool>? FreeLibraryOverride { get; set; }
+
+    internal bool IsDisposed => _disposed;
+
+    internal IntPtr LibHandle => _libHandle;
+
     public AdlxNative()
     {
         LoadLibraryAndGetExports();
+    }
+
+    internal AdlxNative(IntPtr testLibHandle, Func<IntPtr, bool> testFreeLibrary, bool isInitialized, ADLXTerminateDelegate? testTerminate = null)
+    {
+        _libHandle = testLibHandle;
+        _isLoaded = true;
+        _isInitialized = isInitialized;
+        FreeLibraryOverride = testFreeLibrary;
+        if (testTerminate != null)
+        {
+            _terminate = testTerminate;
+        }
     }
 
     private void LoadLibraryAndGetExports()
@@ -118,6 +139,11 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         {
             _isInitialized = false;
         }
+        else if (result == ADLX_ORPHAN_OBJECTS)
+        {
+            _isInitialized = false;
+            Logger.LogInfo("ADLX reported orphan objects (0xB); local initialization state cleared.");
+        }
         return result;
     }
 
@@ -141,32 +167,32 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return del(system, out gpuList);
     }
 
-public int GetGpuListSize(IntPtr gpuList, out int count)
+    public int GetGpuListSize(IntPtr gpuList, out int count)
+    {
+        count = 0;
+        if (_disposed)
         {
-            count = 0;
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(AdlxNative));
-            }
-            if (!_isInitialized)
-            {
-                throw new InvalidOperationException("ADLX is not initialized.");
-            }
-            if (gpuList == IntPtr.Zero)
-            {
-                throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
-            }
-
-            var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
-            uint uCount = del(gpuList);
-            if (uCount > int.MaxValue)
-            {
-                throw new OverflowException("ADLX GPU list size exceeds the supported range.");
-            }
-
-            count = (int)uCount;
-            return 0;
+            throw new ObjectDisposedException(nameof(AdlxNative));
         }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized.");
+        }
+        if (gpuList == IntPtr.Zero)
+        {
+            throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
+        }
+
+        var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
+        uint uCount = del(gpuList);
+        if (uCount > int.MaxValue)
+        {
+            throw new OverflowException("ADLX GPU list size exceeds the supported range.");
+        }
+
+        count = (int)uCount;
+        return 0;
+    }
 
     public int GetGpuAt(IntPtr gpuList, int index, out IntPtr gpu)
     {
@@ -346,8 +372,22 @@ public int GetGpuListSize(IntPtr gpuList, out int count)
             return 0;
         }
 
-        var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, 1);
-        return del(adlxInterface);
+        Logger.LogInfo($"Release: entry adlxInterface=0x{adlxInterface:X}");
+
+        Logger.LogInfo($"Release: reading vtable at 0x{adlxInterface:X}");
+        IntPtr vtablePtr = Marshal.ReadIntPtr(adlxInterface);
+        Logger.LogInfo($"Release: vtablePtr=0x{vtablePtr:X}");
+
+        Logger.LogInfo($"Release: reading method pointer at vtable index 1");
+        IntPtr methodPtr = Marshal.ReadIntPtr(vtablePtr, 1 * IntPtr.Size);
+        Logger.LogInfo($"Release: methodPtr=0x{methodPtr:X}");
+
+        var del = Marshal.GetDelegateForFunctionPointer<ReleaseDelegate>(methodPtr);
+        Logger.LogInfo($"Release: calling delegate");
+        int result = del(adlxInterface);
+        Logger.LogInfo($"Release: returned reference count={result}");
+
+        return result;
     }
 
     private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, int vtableIndex) where TDelegate : Delegate
@@ -399,17 +439,42 @@ public int GetGpuListSize(IntPtr gpuList, out int count)
 
         if (_isInitialized)
         {
-            throw new InvalidOperationException("Cannot dispose AdlxNative while ADLX system is still initialized. Call Terminate first.");
+            Trace.TraceWarning("AdlxNative disposed while ADLX system still initialized. Call Terminate first to avoid resource leaks.");
+            return;
         }
-
-        _disposed = true;
 
         if (_libHandle != IntPtr.Zero)
         {
-            FreeLibrary(_libHandle);
+            IntPtr handle = _libHandle;
+            bool freeResult = false;
+
+            try
+            {
+                if (FreeLibraryOverride != null)
+                {
+                    freeResult = FreeLibraryOverride(handle);
+                }
+                else
+                {
+                    freeResult = FreeLibrary(handle);
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
+            }
+
+            if (!freeResult)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                return;
+            }
+
             _libHandle = IntPtr.Zero;
         }
 
+        _disposed = true;
         _initialize = null;
         _terminate = null;
         _isLoaded = false;
