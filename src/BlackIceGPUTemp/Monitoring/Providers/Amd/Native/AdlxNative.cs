@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using BlackIceGPUTemp.Logging;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
@@ -361,8 +362,22 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             return 0;
         }
 
-        var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, 1);
-        return del(adlxInterface);
+        Logger.LogInfo($"Release: entry adlxInterface=0x{adlxInterface:X}");
+
+        Logger.LogInfo($"Release: reading vtable at 0x{adlxInterface:X}");
+        IntPtr vtablePtr = Marshal.ReadIntPtr(adlxInterface);
+        Logger.LogInfo($"Release: vtablePtr=0x{vtablePtr:X}");
+
+        Logger.LogInfo($"Release: reading method pointer at vtable index 1");
+        IntPtr methodPtr = Marshal.ReadIntPtr(vtablePtr, 1 * IntPtr.Size);
+        Logger.LogInfo($"Release: methodPtr=0x{methodPtr:X}");
+
+        var del = Marshal.GetDelegateForFunctionPointer<ReleaseDelegate>(methodPtr);
+        Logger.LogInfo($"Release: calling delegate");
+        int result = del(adlxInterface);
+        Logger.LogInfo($"Release: returned HRESULT=0x{result:X}");
+
+        return result;
     }
 
     private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, int vtableIndex) where TDelegate : Delegate
