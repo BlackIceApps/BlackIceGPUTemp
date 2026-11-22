@@ -27,6 +27,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            Exception? operationException = null;
 
             try
             {
@@ -100,23 +101,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
+                operationException = ex;
                 return new ProviderProbeResult(false, $"ADLX probe failed with exception: {ex.Message}");
             }
             finally
             {
-                AdlxInterop.ReleaseInterface(native, ref gpuList);
-                AdlxInterop.ReleaseInterface(native, ref system);
-                if (initialized && native != null)
-                {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                    }
-                }
-                disposableNative?.Dispose();
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
             }
         }
 
@@ -130,6 +120,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            Exception? operationException = null;
 
             try
             {
@@ -198,25 +189,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 return devices;
             }
-            catch
+            catch (Exception ex)
             {
+                operationException = ex;
                 return devices;
             }
             finally
             {
-                AdlxInterop.ReleaseInterface(native, ref gpuList);
-                AdlxInterop.ReleaseInterface(native, ref system);
-                if (initialized && native != null)
-                {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                    }
-                }
-                disposableNative?.Dispose();
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
             }
         }
 
@@ -230,6 +210,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            Exception? operationException = null;
 
             try
             {
@@ -346,24 +327,58 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
+                operationException = ex;
                 error = $"Exception during temperature read: {ex.Message}";
                 return false;
             }
             finally
             {
-                AdlxInterop.ReleaseInterface(native, ref gpuList);
-                AdlxInterop.ReleaseInterface(native, ref system);
-                if (initialized && native != null)
+                Cleanup(native, ref gpuList, ref system, initialized, disposableNative, operationException);
+            }
+        }
+
+        private static void Cleanup(
+            IAdlxNative? native,
+            ref IntPtr gpuList,
+            ref IntPtr system,
+            bool initialized,
+            IDisposable? disposableNative,
+            Exception? operationException)
+        {
+            AdlxInterop.ReleaseInterface(native, ref gpuList);
+            AdlxInterop.ReleaseInterface(native, ref system);
+
+            if (initialized && native != null)
+            {
+                int terminateResult = 0;
+                Exception? terminateException = null;
+
+                try
                 {
-                    try
-                    {
-                        native.Terminate();
-                    }
-                    catch
-                    {
-                    }
+                    terminateResult = native.Terminate();
                 }
-                disposableNative?.Dispose();
+                catch (Exception ex)
+                {
+                    terminateException = ex;
+                    Trace.TraceError("ADLX Terminate threw exception: {0}", ex.Message);
+                }
+
+                if (terminateResult != 0)
+                {
+                    Trace.TraceError("ADLX Terminate failed with HRESULT: 0x{0:X}", terminateResult);
+                }
+            }
+
+            if (disposableNative != null)
+            {
+                try
+                {
+                    disposableNative.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceError("AdlxNative Dispose threw exception: {0}", ex.Message);
+                }
             }
         }
     }

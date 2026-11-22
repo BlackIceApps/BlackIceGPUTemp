@@ -399,15 +399,29 @@ public int GetGpuListSize(IntPtr gpuList, out int count)
 
         if (_isInitialized)
         {
-            throw new InvalidOperationException("Cannot dispose AdlxNative while ADLX system is still initialized. Call Terminate first.");
+            Trace.TraceWarning("AdlxNative disposed while ADLX system still initialized. Call Terminate first to avoid resource leaks.");
+            return;
         }
 
         _disposed = true;
 
         if (_libHandle != IntPtr.Zero)
         {
-            FreeLibrary(_libHandle);
+            IntPtr handle = _libHandle;
             _libHandle = IntPtr.Zero;
+            try
+            {
+                bool freeResult = FreeLibrary(handle);
+                if (!freeResult)
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
+            }
         }
 
         _initialize = null;

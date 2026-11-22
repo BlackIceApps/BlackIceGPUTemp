@@ -71,7 +71,7 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             }
 
-            public int Terminate()
+            public virtual int Terminate()
             {
                 TerminateCalls++;
                 Events.Add("Terminate");
@@ -216,9 +216,40 @@ namespace BlackIceGPUTemp.Tests
                 return result;
             }
 
-            public void Dispose()
+            public virtual void Dispose()
             {
                 IsDisposed = true;
+            }
+        }
+
+        private class TerminateFailingFake : FakeAdlxNative
+        {
+            public int TerminateHResult { get; set; } = unchecked((int)0x80004005); // E_FAIL
+            public bool ThrowOnTerminate { get; set; } = false;
+
+            public override int Terminate()
+            {
+                TerminateCalls++;
+                Events.Add("Terminate");
+                if (ThrowOnTerminate)
+                {
+                    throw new InvalidOperationException("Simulated Terminate exception");
+                }
+                return TerminateHResult;
+            }
+        }
+
+        private class DisposeThrowingFake : FakeAdlxNative
+        {
+            public bool ThrowOnDispose { get; set; } = false;
+
+            public override void Dispose()
+            {
+                IsDisposed = true;
+                if (ThrowOnDispose)
+                {
+                    throw new InvalidOperationException("Simulated Dispose exception");
+                }
             }
         }
 
@@ -881,6 +912,260 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(success);
             Assert.NotNull(reading);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ReturnsErrorHResult_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_Probe_ReturnsSuccessAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        {
+            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_ErrorDoesNotMaskOriginalFailure_Probe()
+        {
+            var fake = new TerminateFailingFake
+            {
+                TerminateHResult = unchecked((int)0x80004005),
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+        }
+
+        [Fact]
+        public void Terminate_ErrorDoesNotMaskOriginalFailure_TryReadTemperatureInternal()
+        {
+            var fake = new TerminateFailingFake
+            {
+                TerminateHResult = unchecked((int)0x80004005),
+                GetGpuTempHandler = (IntPtr met, out double temp) =>
+                {
+                    temp = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Equal("Failed to get GPU temperature reading.", error);
+        }
+
+        [Fact]
+        public void Dispose_ErrorDoesNotMaskOriginalFailure_Probe()
+        {
+            var fake = new DisposeThrowingFake
+            {
+                ThrowOnDispose = true,
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+        }
+
+        [Fact]
+        public void Dispose_ErrorDoesNotMaskOriginalFailure_TryReadTemperatureInternal()
+        {
+            var fake = new DisposeThrowingFake
+            {
+                ThrowOnDispose = true,
+                GetGpuTempHandler = (IntPtr met, out double temp) =>
+                {
+                    temp = 0;
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Equal("Failed to get GPU temperature reading.", error);
+        }
+
+        [Fact]
+        public void Terminate_Success_DisposesLibrary()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Dispose_WhenInitialized_DoesNotFreeLibraryAndNotMarkDisposed()
+        {
+            var fake = new AdlxNativeDisposeBehaviorFake();
+            fake.Initialize(out _);
+
+            fake.Dispose();
+
+            Assert.False(fake.IsDisposed);
+            Assert.True(fake.LibraryHandleRetained);
+        }
+
+        [Fact]
+        public void Dispose_WhenNotInitialized_FreesLibraryAndMarksDisposed()
+        {
+            var fake = new AdlxNativeDisposeBehaviorFake();
+
+            fake.Dispose();
+
+            Assert.True(fake.IsDisposed);
+            Assert.False(fake.LibraryHandleRetained);
+        }
+    }
+
+    private class AdlxNativeDisposeBehaviorFake : FakeAdlxNative
+    {
+        public bool LibraryHandleRetained { get; private set; } = true;
+
+        public override int Initialize(out IntPtr system)
+        {
+            var result = base.Initialize(out system);
+            if (result == 0)
+            {
+                LibraryHandleRetained = true;
+            }
+            return result;
+        }
+
+        public override void Dispose()
+        {
+            if (InitializeCalls > 0 && TerminateCalls == 0)
+            {
+                LibraryHandleRetained = true;
+                return;
+            }
+
+            base.Dispose();
+            LibraryHandleRetained = false;
         }
     }
 }
