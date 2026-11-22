@@ -342,9 +342,9 @@ namespace TinyTemp.Tray
                 using (var graphics = Graphics.FromImage(bitmap))
                 {
                     graphics.Clear(Color.Transparent);
-                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    const float fontSize = 11f;
+                    const float fontSize = 14f;
                     using (var fontFamily = new FontFamily("Segoe UI"))
                     using (var brush = new SolidBrush(Color.White))
                     using (var path = new System.Drawing.Drawing2D.GraphicsPath())
@@ -361,16 +361,15 @@ namespace TinyTemp.Tray
                         float scaleX = maxScaledSize / bounds.Width;
                         float scaleY = maxScaledSize / bounds.Height;
                         float scale = Math.Min(scaleX, scaleY);
-                        scale = Math.Min(scale, 1.08f);
 
                         float centerX = size / 2f;
                         float centerY = size / 2f;
 
                         using (var matrix = new System.Drawing.Drawing2D.Matrix())
                         {
-                            matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f);
-                            matrix.Scale(scale, scale);
-                            matrix.Translate(centerX, centerY);
+                            matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            matrix.Scale(scale, scale, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            matrix.Translate(centerX, centerY, System.Drawing.Drawing2D.MatrixOrder.Append);
                             path.Transform(matrix);
                         }
 
