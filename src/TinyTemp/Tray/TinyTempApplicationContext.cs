@@ -342,30 +342,38 @@ namespace TinyTemp.Tray
                 using (var graphics = Graphics.FromImage(bitmap))
                 {
                     graphics.Clear(Color.Transparent);
-                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    const float fontSize = 11f;
-                    using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
+                    const float fontSize = 14f;
+                    using (var fontFamily = new FontFamily("Segoe UI"))
                     using (var brush = new SolidBrush(Color.White))
-                    using (var format = StringFormat.GenericTypographic)
+                    using (var path = new System.Drawing.Drawing2D.GraphicsPath())
                     {
-                        SizeF measured = graphics.MeasureString(text, font, PointF.Empty, format);
-                        float x = (size - measured.Width) / 2f;
-                        float y = (size - measured.Height) / 2f;
+                        path.AddString(text, fontFamily, (int)FontStyle.Regular, fontSize, PointF.Empty, StringFormat.GenericTypographic);
 
-                        const float maxScale = 1.08f;
+                        RectangleF bounds = path.GetBounds();
+                        if (bounds.Width <= 0 || bounds.Height <= 0)
+                        {
+                            return null;
+                        }
+
                         const float maxScaledSize = 14f;
-                        float scaleX = measured.Width > 0 ? maxScaledSize / measured.Width : maxScale;
-                        float scaleY = measured.Height > 0 ? maxScaledSize / measured.Height : maxScale;
+                        float scaleX = maxScaledSize / bounds.Width;
+                        float scaleY = maxScaledSize / bounds.Height;
                         float scale = Math.Min(scaleX, scaleY);
-                        scale = Math.Max(1f, Math.Min(maxScale, scale));
 
-                        float center = size / 2f;
-                        graphics.TranslateTransform(center, center);
-                        graphics.ScaleTransform(scale, scale);
-                        graphics.TranslateTransform(-center, -center);
+                        float centerX = size / 2f;
+                        float centerY = size / 2f;
 
-                        graphics.DrawString(text, font, brush, x, y, format);
+                        using (var matrix = new System.Drawing.Drawing2D.Matrix())
+                        {
+                            matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            matrix.Scale(scale, scale, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            matrix.Translate(centerX, centerY, System.Drawing.Drawing2D.MatrixOrder.Append);
+                            path.Transform(matrix);
+                        }
+
+                        graphics.FillPath(brush, path);
                     }
                 }
 
