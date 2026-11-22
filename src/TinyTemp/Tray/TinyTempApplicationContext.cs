@@ -333,8 +333,38 @@ namespace TinyTemp.Tray
 
         private static Icon? CreateTemperatureIcon(string text)
         {
-            const int size = 16;
-            var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            // 1. DPI awareness - scale icon size with system DPI
+            float dpiX, dpiY;
+            using (var bmp = new Bitmap(1, 1, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                dpiX = bmp.HorizontalResolution;
+                dpiY = bmp.VerticalResolution;
+            }
+
+            int width = (int)Math.Round(16 * dpiX / 96);
+            int height = (int)Math.Round(16 * dpiY / 96);
+            width = width < 16 ? 16 : width;
+            height = height < 16 ? 16 : height;
+
+            // 2. Use system font family (adapts to OS)
+            var fontFamily = SystemFonts.MessageBoxFont.FontFamily;
+
+            // 3. Per-font base size tuning (compensate metric differences)
+            float baseSize = fontFamily.Name switch
+            {
+                "Segoe UI" => 12f,
+                "Tahoma" => 11f,
+                _ => 12f
+            };
+
+            // 4. Configurable overrides (adjust these to taste)
+            const float fontSizeMultiplier = 1f;    // Multiply calculated size
+            const int fontStyle = (int)FontStyle.Bold; // FontStyle.Regular for normal
+            const float verticalOffset = -1f;       // Pixels up (-) or down (+)
+
+            float fontSize = baseSize * width / 16f * fontSizeMultiplier;
+
+            var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             IntPtr hIcon = IntPtr.Zero;
 
             try
@@ -342,38 +372,24 @@ namespace TinyTemp.Tray
                 using (var graphics = Graphics.FromImage(bitmap))
                 {
                     graphics.Clear(Color.Transparent);
-                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    const float fontSize = 14f;
-                    using (var fontFamily = new FontFamily("Segoe UI"))
+                    // 3. TextRenderer for better small-text rendering on Windows
+                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+
+                    using (var font = new Font(fontFamily, fontSize, (FontStyle)fontStyle, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
-                    using (var path = new System.Drawing.Drawing2D.GraphicsPath())
                     {
-                        path.AddString(text, fontFamily, (int)FontStyle.Regular, fontSize, PointF.Empty, StringFormat.GenericTypographic);
+                        var bounds = new Rectangle(0, 0, width, height);
+                        var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
 
-                        RectangleF bounds = path.GetBounds();
-                        if (bounds.Width <= 0 || bounds.Height <= 0)
+                        // Apply vertical offset by adjusting bounds
+                        if (verticalOffset != 0)
                         {
-                            return null;
+                            bounds = new Rectangle(0, (int)Math.Round(verticalOffset), width, height);
                         }
 
-                        const float maxScaledSize = 14f;
-                        float scaleX = maxScaledSize / bounds.Width;
-                        float scaleY = maxScaledSize / bounds.Height;
-                        float scale = Math.Min(scaleX, scaleY);
-
-                        float centerX = size / 2f;
-                        float centerY = size / 2f;
-
-                        using (var matrix = new System.Drawing.Drawing2D.Matrix())
-                        {
-                            matrix.Translate(-bounds.X - bounds.Width / 2f, -bounds.Y - bounds.Height / 2f, System.Drawing.Drawing2D.MatrixOrder.Append);
-                            matrix.Scale(scale, scale, System.Drawing.Drawing2D.MatrixOrder.Append);
-                            matrix.Translate(centerX, centerY, System.Drawing.Drawing2D.MatrixOrder.Append);
-                            path.Transform(matrix);
-                        }
-
-                        graphics.FillPath(brush, path);
+                        TextRenderer.DrawText(graphics, text, font, bounds, Color.White, Color.Transparent, flags);
                     }
                 }
 
