@@ -223,10 +223,10 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    const float fontSize = 13f;
+                    const float fontSize = 14f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
                     {
-                        var textSize = TextRenderer.MeasureText(text, font, new Size(size, size), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                        var textSize = TextRenderer.MeasureText(text, font, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
                         int x = (size - textSize.Width) / 2;
                         int y = (size - textSize.Height) / 2;
 
