@@ -13,12 +13,12 @@ namespace BlackIceGPUTemp.Tests
         private class FakeAdlxNative : IAdlxNative, IDisposable
         {
             public int InitializeCalls { get; private set; }
-            public int TerminateCalls { get; private set; }
+            public int TerminateCalls { get; protected set; }
             public int ReleaseCalls { get; private set; }
             public List<int> ReleasedPointers { get; } = new List<int>();
             public List<int> ReleaseOrder { get; } = new List<int>();
             public List<int> ReleaseReturnCodes { get; } = new List<int>();
-            public bool IsDisposed { get; private set; }
+            public bool IsDisposed { get; protected set; }
             public int LastReleaseResult { get; private set; }
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
