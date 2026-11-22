@@ -141,27 +141,32 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return del(system, out gpuList);
     }
 
-    public int GetGpuListSize(IntPtr gpuList, out int count)
-    {
-        count = 0;
-        if (_disposed)
+public int GetGpuListSize(IntPtr gpuList, out int count)
         {
-            throw new ObjectDisposedException(nameof(AdlxNative));
-        }
-        if (!_isInitialized)
-        {
-            throw new InvalidOperationException("ADLX is not initialized.");
-        }
-        if (gpuList == IntPtr.Zero)
-        {
-            throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
-        }
+            count = 0;
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(AdlxNative));
+            }
+            if (!_isInitialized)
+            {
+                throw new InvalidOperationException("ADLX is not initialized.");
+            }
+            if (gpuList == IntPtr.Zero)
+            {
+                throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
+            }
 
-        var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
-        int hr = del(gpuList, out uint uCount);
-        count = (int)uCount;
-        return hr;
-    }
+            var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
+            uint uCount = del(gpuList);
+            if (uCount > int.MaxValue)
+            {
+                throw new OverflowException("ADLX GPU list size exceeds the supported range.");
+            }
+
+            count = (int)uCount;
+            return 0;
+        }
 
     public int GetGpuAt(IntPtr gpuList, int index, out IntPtr gpu)
     {
@@ -356,7 +361,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     private delegate int GetGPUsDelegate(IntPtr pThis, out IntPtr ppGPUList);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int SizeDelegate(IntPtr pThis, out uint pCount);
+    private delegate uint SizeDelegate(IntPtr pThis);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int AtGpuListDelegate(IntPtr pThis, int location, out IntPtr ppGPU);
