@@ -14,6 +14,7 @@ namespace TinyTemp.Tray
     {
         private readonly NotifyIcon _notifyIcon;
         private readonly Timer _timer;
+        private readonly ContextMenuStrip _contextMenuStrip;
         private HardwareMonitorService? _monitorService;
         private string? _providerId;
         private string? _deviceId;
@@ -38,8 +39,9 @@ namespace TinyTemp.Tray
             };
             _currentIcon = _notifyIcon.Icon;
 
-            var exitMenuItem = new MenuItem("Exit", (_, _) => ExitThread());
-            _notifyIcon.ContextMenu = new ContextMenu(new[] { exitMenuItem });
+            _contextMenuStrip = new ContextMenuStrip();
+            _contextMenuStrip.Items.Add("Exit", null, (_, _) => ExitThread());
+            _notifyIcon.MouseClick += OnNotifyIconMouseClick;
 
             _timer = new Timer { Interval = 1000 };
             _timer.Tick += OnTimerTick;
@@ -47,6 +49,14 @@ namespace TinyTemp.Tray
             _ = _uiDispatcher.Handle;
 
             Task.Run(() => Initialize(_cancellationTokenSource.Token));
+        }
+
+        private void OnNotifyIconMouseClick(object? sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                _contextMenuStrip.Show(Cursor.Position, ToolStripDropDownDirection.AboveLeft);
+            }
         }
 
         private void Initialize(CancellationToken cancellationToken)
@@ -350,6 +360,7 @@ namespace TinyTemp.Tray
                 }
 
                 _currentIcon?.Dispose();
+                _contextMenuStrip?.Dispose();
                 _uiDispatcher.Dispose();
             }
             base.Dispose(disposing);
