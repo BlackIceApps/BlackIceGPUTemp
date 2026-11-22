@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Windows.Forms;
 using TinyTemp.Monitoring;
 using TinyTemp.Monitoring.Providers.Amd;
@@ -64,12 +65,20 @@ namespace TinyTemp.Tray
 
         private void OnTimerTick(object? sender, EventArgs e)
         {
-            if (_monitorService == null || string.IsNullOrEmpty(_providerId) || string.IsNullOrEmpty(_deviceId))
+            if (_monitorService == null)
             {
                 return;
             }
 
-            bool success = _monitorService.TryReadTemperature(_providerId, _deviceId, out var reading, out var error);
+            string providerId = _providerId ?? string.Empty;
+            string deviceId = _deviceId ?? string.Empty;
+
+            if (string.IsNullOrEmpty(providerId) || string.IsNullOrEmpty(deviceId))
+            {
+                return;
+            }
+
+            bool success = _monitorService.TryReadTemperature(providerId, deviceId, out var reading, out var error);
 
             if (success && reading != null)
             {
