@@ -50,7 +50,7 @@ namespace TinyTemp.Tray
                     var selector = new DeviceSelector(registry);
                     _monitorService = new HardwareMonitorService(selector);
 
-                    _timer = new Timer { Interval = 5000 };
+                    _timer = new Timer { Interval = 1000 };
                     _timer.Tick += OnTimerTick;
                     _timer.Start();
 
@@ -126,7 +126,7 @@ namespace TinyTemp.Tray
 
         private static Icon? CreateTemperatureIcon(string text)
         {
-            const int size = 32;
+            const int size = 16;
             var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             IntPtr hIcon = IntPtr.Zero;
 
@@ -137,7 +137,7 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    float fontSize = text.Length >= 3 ? 13f : 16f;
+                    float fontSize = text.Length >= 3 ? 8.5f : 10.5f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
                     using (var shadowBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
