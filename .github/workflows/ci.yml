@@ -25,13 +25,13 @@ jobs:
         dotnet msbuild -version
 
     - name: Restore dependencies (locked mode)
-      run: dotnet restore TinyTemp.sln --locked-mode
+      run: dotnet restore BlackIceGPUTemp.sln --locked-mode
 
     - name: Build Solution (Release)
-      run: dotnet build TinyTemp.sln --configuration Release --no-restore
+      run: dotnet build BlackIceGPUTemp.sln --configuration Release --no-restore
 
     - name: Run Tests
-      run: dotnet test TinyTemp.sln --configuration Release --no-build --verbosity normal
+      run: dotnet test BlackIceGPUTemp.sln --configuration Release --no-build --verbosity normal
 
     - name: Verify Single EXE Staging
       shell: pwsh
@@ -39,11 +39,11 @@ jobs:
         $stagingDir = "$env:GITHUB_WORKSPACE\staging"
         New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
-        $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\src\TinyTemp\bin" -Filter "TinyTemp.exe" -Recurse -File | Select-Object -First 1
+        $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin" -Filter "BlackIceGPUTemp.exe" -Recurse -File | Select-Object -First 1
 
         if (-not $exe) {
-          Write-Error "TinyTemp.exe was not found anywhere under src/TinyTemp/bin."
-          Get-ChildItem "$env:GITHUB_WORKSPACE\src\TinyTemp\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
+          Write-Error "BlackIceGPUTemp.exe was not found anywhere under src/BlackIceGPUTemp/bin."
+          Get-ChildItem "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
           exit 1
         }
 
@@ -59,14 +59,14 @@ jobs:
           exit 1
         }
 
-        Write-Host "Staging validation passed: exactly 1 file (TinyTemp.exe)."
+        Write-Host "Staging validation passed: exactly 1 file (BlackIceGPUTemp.exe)."
 
 
-    - name: Upload TinyTemp Application
+    - name: Upload BlackIceGPUTemp Application
       uses: actions/upload-artifact@v7
       with:
-        name: TinyTemp-win-x64
-        path: staging/TinyTemp.exe
+        name: BlackIceGPUTemp-win-x64
+        path: staging/BlackIceGPUTemp.exe
         if-no-files-found: error
 
 

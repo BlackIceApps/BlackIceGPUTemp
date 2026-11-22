@@ -1,10 +1,10 @@
-# TinyTemp - Decision Log and License References
+# BlackIceGPUTemp - Decision Log and License References
 
 ## 0. Technical Context & Decisions
 
 - **Target Framework:** `net48` (.NET Framework 4.8), `PlatformTarget = x64`, `Prefer32Bit = false`.
 - **UI:** Windows Forms (`NotifyIcon`), WinExe (no console).
-- **Architecture:** Zero dependencies in production app (`TinyTemp.exe` is a single portable executable). Modular GPU provider architecture isolating native interop (`Native/`) behind robust abstractions (`IGpuProvider`, `IGpuDevice`).
+- **Architecture:** Zero dependencies in production app (`BlackIceGPUTemp.exe` is a single portable executable). Modular GPU provider architecture isolating native interop (`Native/`) behind robust abstractions (`IGpuProvider`, `IGpuDevice`).
 
 ## 1. AMD Libraries & Licensing Sources
 
@@ -16,11 +16,11 @@
   - Terms Summary: Similar terms regarding SDK header/documentation usage. Application loads system `amdadlx64.dll` dynamically from `System32`.
 - **LibreHardwareMonitorLib (Diagnostics Only):**
   - License: MPL-2.0 (Mozilla Public License 2.0).
-  - Usage scope: Strictly limited to `TinyTemp.Diagnostics` console utility as a reference comparison during Stage 1 and future vendor analysis. Never included in the production `TinyTemp.exe` release.
+  - Usage scope: Strictly limited to `BlackIceGPUTemp.Diagnostics` console utility as a reference comparison during Stage 1 and future vendor analysis. Never included in the production `BlackIceGPUTemp.exe` release.
 
 ## 2. Vendor Selection & Roadmap
 - V1.0 candidate APIs: ADL (`atiadlxx.dll`) and ADLX (`amdadlx64.dll`). Stage 1 diagnostics concluded:
-  - **AMD ADLX** is selected as the primary API for GPU temperature reading in TinyTemp.
+  - **AMD ADLX** is selected as the primary API for GPU temperature reading in BlackIceGPUTemp.
   - ADLX successfully detected the GPU and read `IADLXGPUMetrics::GPUTemperature` on all tested machines (Windows 10 with Radeon RX 580 at 74°C, and Windows 11 with Radeon RX 9070 GRE at 27°C, both with Edge Temperature semantics).
   - In both cases, `IsSupportedGPUTemperature` returned `Supported: 1`, and metric reading finished with `Result: 0`.
   - Results matched LHM GPU Core readings (73°C and 27°C respectively), with ADLX confirming Edge Temperature semantics.
