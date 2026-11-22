@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using TinyTemp.Monitoring;
 using TinyTemp.Monitoring.Providers.Amd;
@@ -11,11 +13,15 @@ namespace TinyTemp.Tray
     {
         private readonly NotifyIcon _notifyIcon;
         private readonly Timer? _timer;
-        private readonly HardwareMonitorService? _monitorService;
-        private readonly string? _providerId;
-        private readonly string? _deviceId;
-        private readonly string _deviceName;
+        private HardwareMonitorService? _monitorService;
+        private string? _providerId;
+        private string? _deviceId;
+        private string _deviceName;
         private Icon? _currentIcon;
+        private readonly CancellationTokenSource _cancellationTokenSource = new();
+        private readonly Control _uiDispatcher = new();
+        private readonly object _disposeLock = new();
+        private bool _disposing;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
@@ -33,42 +39,115 @@ namespace TinyTemp.Tray
             var exitMenuItem = new MenuItem("Exit", (_, _) => ExitThread());
             _notifyIcon.ContextMenu = new ContextMenu(new[] { exitMenuItem });
 
-            var provider = new AmdAdlxProvider();
-            var probeResult = provider.Probe();
+            _timer = new Timer { Interval = 1000 };
+            _timer.Tick += OnTimerTick;
 
-            if (probeResult.IsAvailable)
+            _ = _uiDispatcher.Handle;
+
+            Task.Run(() => Initialize(_cancellationTokenSource.Token));
+        }
+
+        private void Initialize(CancellationToken cancellationToken)
+        {
+            try
             {
-                var devices = provider.EnumerateDevices();
-                if (devices != null && devices.Count > 0)
+                var provider = new AmdAdlxProvider();
+                var probeResult = provider.Probe();
+
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    var firstDevice = devices[0];
-                    _providerId = provider.Id;
-                    _deviceId = firstDevice.Id;
-                    _deviceName = firstDevice.Name;
+                    return;
+                }
 
-                    var registry = new GpuProviderRegistry(new[] { provider });
-                    var selector = new DeviceSelector(registry);
-                    _monitorService = new HardwareMonitorService(selector);
+                if (probeResult.IsAvailable)
+                {
+                    var devices = provider.EnumerateDevices();
+                    if (devices != null && devices.Count > 0)
+                    {
+                        var firstDevice = devices[0];
+                        _providerId = provider.Id;
+                        _deviceId = firstDevice.Id;
+                        _deviceName = firstDevice.Name;
 
-                    _timer = new Timer { Interval = 1000 };
-                    _timer.Tick += OnTimerTick;
-                    _timer.Start();
+                        var registry = new GpuProviderRegistry(new[] { provider });
+                        var selector = new DeviceSelector(registry);
+                        _monitorService = new HardwareMonitorService(selector);
 
-                    UpdateTooltip("TinyTemp: Reading temperature...");
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        InvokeOnUiThread(() =>
+                        {
+                            _timer.Start();
+                            UpdateTooltip("TinyTemp: Reading temperature...");
+                        });
+                    }
+                    else
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+                        _deviceName = "No supported GPU detected";
+                        InvokeOnUiThread(() => _notifyIcon.Text = "TinyTemp: No supported GPU");
+                    }
                 }
                 else
                 {
-                    _deviceName = "No supported GPU detected";
-                    _notifyIcon.Text = "TinyTemp: No supported GPU";
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    _deviceName = "ADLX not available";
+                    string reason = string.IsNullOrWhiteSpace(probeResult.Message)
+                        ? "Unknown error"
+                        : probeResult.Message!;
+                    InvokeOnUiThread(() => UpdateTooltip($"TinyTemp: {reason}"));
                 }
             }
-            else
+            catch (OperationCanceledException)
             {
-                _deviceName = "ADLX not available";
-                string reason = string.IsNullOrWhiteSpace(probeResult.Message)
-                    ? "Unknown error"
-                    : probeResult.Message!;
-                UpdateTooltip($"TinyTemp: {reason}");
+            }
+            catch
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    InvokeOnUiThread(() => UpdateTooltip("TinyTemp: Initialization error"));
+                }
+            }
+        }
+
+        private void InvokeOnUiThread(Action action)
+        {
+            lock (_disposeLock)
+            {
+                if (_disposing)
+                {
+                    return;
+                }
+
+                try
+                {
+                    _uiDispatcher.BeginInvoke(() =>
+                    {
+                        lock (_disposeLock)
+                        {
+                            if (_disposing)
+                            {
+                                return;
+                            }
+                            action();
+                        }
+                    });
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                catch (InvalidOperationException)
+                {
+                }
             }
         }
 
@@ -91,13 +170,19 @@ namespace TinyTemp.Tray
 
             if (success && reading != null)
             {
-                UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
-                UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
+                InvokeOnUiThread(() =>
+                {
+                    UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
+                    UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
+                });
             }
             else
             {
-                UpdateTooltip($"{_deviceName}: Temp unavailable");
-                UpdateIcon("--");
+                InvokeOnUiThread(() =>
+                {
+                    UpdateTooltip($"{_deviceName}: Temp unavailable");
+                    UpdateIcon("--");
+                });
             }
         }
 
@@ -188,6 +273,14 @@ namespace TinyTemp.Tray
         {
             if (disposing)
             {
+                lock (_disposeLock)
+                {
+                    _disposing = true;
+                }
+
+                _cancellationTokenSource.Cancel();
+                _cancellationTokenSource.Dispose();
+
                 _timer?.Stop();
                 _timer?.Dispose();
 
@@ -198,6 +291,7 @@ namespace TinyTemp.Tray
                 }
 
                 _currentIcon?.Dispose();
+                _uiDispatcher.Dispose();
             }
             base.Dispose(disposing);
         }
