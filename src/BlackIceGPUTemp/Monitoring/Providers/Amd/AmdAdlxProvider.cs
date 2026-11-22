@@ -345,9 +345,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             AdlxInterop.ReleaseInterface(native, ref gpuList);
             Logger.LogInfo($"Cleanup: gpuList released");
 
-            Logger.LogInfo($"Cleanup: releasing system=0x{system:X}");
-            AdlxInterop.ReleaseInterface(native, ref system);
-            Logger.LogInfo($"Cleanup: system released");
+            Logger.LogInfo($"Cleanup: zeroing system=0x{system:X} (no Release, managed by ADLX)");
+            system = IntPtr.Zero;
+            Logger.LogInfo($"Cleanup: system zeroed");
 
             if (initialized && native != null)
             {
