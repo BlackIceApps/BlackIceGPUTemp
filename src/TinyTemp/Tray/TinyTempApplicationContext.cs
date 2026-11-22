@@ -225,12 +225,14 @@ namespace TinyTemp.Tray
 
                     const float fontSize = 14f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
+                    using (var brush = new SolidBrush(Color.White))
+                    using (var format = new StringFormat
                     {
-                        var textSize = TextRenderer.MeasureText(text, font, new Size(1000, 1000), TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-                        int x = (size - textSize.Width) / 2;
-                        int y = (size - textSize.Height) / 2;
-
-                        TextRenderer.DrawText(graphics, text, font, new Point(x, y), Color.White, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                        Alignment = StringAlignment.Center,
+                        LineAlignment = StringAlignment.Center
+                    })
+                    {
+                        graphics.DrawString(text, font, brush, new RectangleF(0, 0, size, size), format);
                     }
                 }
 
