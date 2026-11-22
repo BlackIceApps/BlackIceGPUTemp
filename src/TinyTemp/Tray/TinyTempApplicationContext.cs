@@ -137,14 +137,14 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    float fontSize = text.Length >= 3 ? 8.5f : 10.5f;
+                    const float fontSize = 13f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
                     using (var shadowBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
                     {
                         var textSize = graphics.MeasureString(text, font);
                         float x = (size - textSize.Width) / 2f;
-                        float y = (size - textSize.Height) / 2f - 1f;
+                        float y = (size - textSize.Height) / 2f;
 
                         graphics.DrawString(text, font, shadowBrush, x + 1f, y + 1f);
                         graphics.DrawString(text, font, brush, x, y);
