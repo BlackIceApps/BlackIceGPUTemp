@@ -1119,6 +1119,60 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void AdlxNative_Terminate_ReturnsZero_IsInitializedBecomesFalse()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => 0);
+
+            int result = native.Terminate();
+
+            Assert.Equal(0, result);
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Terminate_ReturnsOrphanObjects_IsInitializedBecomesFalse()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => 0xB);
+
+            int result = native.Terminate();
+
+            Assert.Equal(0xB, result);
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => -1);
+
+            int result = native.Terminate();
+
+            Assert.Equal(-1, result);
+            native.Dispose();
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+        }
+
+        [Fact]
         public void AdlxNative_Dispose_WhenInitialized_DoesNotCallFreeLibrary()
         {
             int freeCallCount = 0;

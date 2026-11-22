@@ -10,6 +10,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     const string DllName = "amdadlx64.dll";
     const ulong ADLX_FULL_VERSION = 0x000200000000007DUL;
     const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
+    const int ADLX_ORPHAN_OBJECTS = 0xB;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto, BestFitMapping = false, ThrowOnUnmappableChar = true)]
     private static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
@@ -27,7 +28,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         out IntPtr ppSystem);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int ADLXTerminateDelegate();
+    internal delegate int ADLXTerminateDelegate();
 
     private IntPtr _libHandle;
     private ADLXInitializeDelegate? _initialize;
@@ -48,12 +49,16 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         LoadLibraryAndGetExports();
     }
 
-    internal AdlxNative(IntPtr testLibHandle, Func<IntPtr, bool> testFreeLibrary, bool isInitialized)
+    internal AdlxNative(IntPtr testLibHandle, Func<IntPtr, bool> testFreeLibrary, bool isInitialized, ADLXTerminateDelegate? testTerminate = null)
     {
         _libHandle = testLibHandle;
         _isLoaded = true;
         _isInitialized = isInitialized;
         FreeLibraryOverride = testFreeLibrary;
+        if (testTerminate != null)
+        {
+            _terminate = testTerminate;
+        }
     }
 
     private void LoadLibraryAndGetExports()
@@ -133,6 +138,11 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         if (result == 0)
         {
             _isInitialized = false;
+        }
+        else if (result == ADLX_ORPHAN_OBJECTS)
+        {
+            _isInitialized = false;
+            Logger.LogInfo("ADLX reported orphan objects (0xB); local initialization state cleared.");
         }
         return result;
     }
@@ -375,7 +385,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         var del = Marshal.GetDelegateForFunctionPointer<ReleaseDelegate>(methodPtr);
         Logger.LogInfo($"Release: calling delegate");
         int result = del(adlxInterface);
-        Logger.LogInfo($"Release: returned HRESULT=0x{result:X}");
+        Logger.LogInfo($"Release: returned reference count={result}");
 
         return result;
     }
