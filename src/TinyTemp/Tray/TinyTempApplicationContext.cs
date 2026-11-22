@@ -23,6 +23,7 @@ namespace TinyTemp.Tray
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
         private bool _disposing;
+        private bool _readInProgress;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
@@ -167,24 +168,79 @@ namespace TinyTemp.Tray
                 return;
             }
 
-            bool success = _monitorService.TryReadTemperature(providerId, deviceId, out var reading, out var error);
+            lock (_disposeLock)
+            {
+                if (_disposing || _readInProgress)
+                {
+                    return;
+                }
+                _readInProgress = true;
+            }
 
-            if (success && reading != null)
+            var capturedProviderId = providerId;
+            var capturedDeviceId = deviceId;
+            var token = _cancellationTokenSource.Token;
+
+            Task.Run(() =>
             {
-                InvokeOnUiThread(() =>
+                try
                 {
-                    UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
-                    UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
-                });
-            }
-            else
-            {
-                InvokeOnUiThread(() =>
+                    if (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    bool success = _monitorService!.TryReadTemperature(capturedProviderId, capturedDeviceId, out var reading, out var error);
+
+                    lock (_disposeLock)
+                    {
+                        if (_disposing)
+                        {
+                            return;
+                        }
+                    }
+
+                    if (success && reading != null)
+                    {
+                        InvokeOnUiThread(() =>
+                        {
+                            UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
+                            UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
+                        });
+                    }
+                    else
+                    {
+                        InvokeOnUiThread(() =>
+                        {
+                            UpdateTooltip($"{_deviceName}: Temp unavailable");
+                            UpdateIcon("--");
+                        });
+                    }
+                }
+                catch
                 {
-                    UpdateTooltip($"{_deviceName}: Temp unavailable");
-                    UpdateIcon("--");
-                });
-            }
+                    lock (_disposeLock)
+                    {
+                        if (_disposing)
+                        {
+                            return;
+                        }
+                    }
+
+                    InvokeOnUiThread(() =>
+                    {
+                        UpdateTooltip($"{_deviceName}: Temp unavailable");
+                        UpdateIcon("--");
+                    });
+                }
+                finally
+                {
+                    lock (_disposeLock)
+                    {
+                        _readInProgress = false;
+                    }
+                }
+            });
         }
 
         private void UpdateIcon(string text)
@@ -223,7 +279,7 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    const float fontSize = 13f;
+                    const float fontSize = 11f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
                     using (var format = new StringFormat
