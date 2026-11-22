@@ -344,16 +344,15 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    const float fontSize = 11.5f;
+                    const float fontSize = 11f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
-                    using (var format = new StringFormat
+                    using (var format = StringFormat.GenericTypographic)
                     {
-                        Alignment = StringAlignment.Center,
-                        LineAlignment = StringAlignment.Center
-                    })
-                    {
-                        graphics.DrawString(text, font, brush, new RectangleF(0, 0, size, size), format);
+                        SizeF measured = graphics.MeasureString(text, font, PointF.Empty, format);
+                        float x = (size - measured.Width) / 2f;
+                        float y = (size - measured.Height) / 2f;
+                        graphics.DrawString(text, font, brush, x, y, format);
                     }
                 }
 
