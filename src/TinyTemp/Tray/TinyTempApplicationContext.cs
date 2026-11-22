@@ -289,7 +289,7 @@ namespace TinyTemp.Tray
                     graphics.Clear(Color.Transparent);
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-                    const float fontSize = 12f;
+                    const float fontSize = 11f;
                     using (var font = new Font("Segoe UI", fontSize, FontStyle.Regular, GraphicsUnit.Pixel))
                     using (var brush = new SolidBrush(Color.White))
                     using (var format = new StringFormat
