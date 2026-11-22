@@ -14,15 +14,17 @@ namespace TinyTemp.Tray
         private readonly string? _providerId;
         private readonly string? _deviceId;
         private readonly string _deviceName;
+        private Icon? _currentIcon;
 
         public TinyTempApplicationContext()
         {
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = CreateTemperatureIcon("--"),
                 Visible = true,
                 Text = "TinyTemp: Starting..."
             };
+            _currentIcon = _notifyIcon.Icon;
 
             var exitMenuItem = new MenuItem("Exit", (_, _) => ExitThread());
             _notifyIcon.ContextMenu = new ContextMenu(new[] { exitMenuItem });
@@ -83,10 +85,73 @@ namespace TinyTemp.Tray
             if (success && reading != null)
             {
                 UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
+                UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
             }
             else
             {
                 UpdateTooltip($"{_deviceName}: Temp unavailable");
+                UpdateIcon("--");
+            }
+        }
+
+        private void UpdateIcon(string text)
+        {
+            if (_notifyIcon == null)
+            {
+                return;
+            }
+
+            var newIcon = CreateTemperatureIcon(text);
+            if (newIcon == null)
+            {
+                return;
+            }
+
+            var oldIcon = _currentIcon;
+            _notifyIcon.Icon = newIcon;
+            _currentIcon = newIcon;
+
+            if (oldIcon != null)
+            {
+                oldIcon.Dispose();
+            }
+        }
+
+        private static Icon? CreateTemperatureIcon(string text)
+        {
+            const int size = 32;
+            var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+            try
+            {
+                using (var graphics = Graphics.FromImage(bitmap))
+                {
+                    graphics.Clear(Color.Transparent);
+                    graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+                    using (var font = new Font("Segoe UI", 16f, FontStyle.Bold, GraphicsUnit.Pixel))
+                    using (var brush = new SolidBrush(Color.White))
+                    using (var shadowBrush = new SolidBrush(Color.FromArgb(180, 0, 0, 0)))
+                    {
+                        var textSize = graphics.MeasureString(text, font);
+                        float x = (size - textSize.Width) / 2f;
+                        float y = (size - textSize.Height) / 2f - 1f;
+
+                        graphics.DrawString(text, font, shadowBrush, x + 1f, y + 1f);
+                        graphics.DrawString(text, font, brush, x, y);
+                    }
+                }
+
+                return Icon.FromHandle(bitmap.GetHicon());
+            }
+            catch
+            {
+                bitmap.Dispose();
+                return null;
+            }
+            finally
+            {
+                bitmap.Dispose();
             }
         }
 
@@ -114,6 +179,8 @@ namespace TinyTemp.Tray
                     _notifyIcon.Visible = false;
                     _notifyIcon.Dispose();
                 }
+
+                _currentIcon?.Dispose();
             }
             base.Dispose(disposing);
         }
