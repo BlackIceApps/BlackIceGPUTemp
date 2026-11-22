@@ -67,7 +67,7 @@ namespace TinyTemp.Tray
                 _deviceName = "ADLX not available";
                 string reason = string.IsNullOrWhiteSpace(probeResult.Message)
                     ? "Unknown error"
-                    : probeResult.Message;
+                    : probeResult.Message!;
                 UpdateTooltip($"TinyTemp: {reason}");
             }
         }
