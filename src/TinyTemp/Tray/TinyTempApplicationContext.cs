@@ -352,6 +352,19 @@ namespace TinyTemp.Tray
                         SizeF measured = graphics.MeasureString(text, font, PointF.Empty, format);
                         float x = (size - measured.Width) / 2f;
                         float y = (size - measured.Height) / 2f;
+
+                        const float maxScale = 1.08f;
+                        const float maxScaledSize = 14f;
+                        float scaleX = measured.Width > 0 ? maxScaledSize / measured.Width : maxScale;
+                        float scaleY = measured.Height > 0 ? maxScaledSize / measured.Height : maxScale;
+                        float scale = Math.Min(scaleX, scaleY);
+                        scale = Math.Max(1f, Math.Min(maxScale, scale));
+
+                        float center = size / 2f;
+                        graphics.TranslateTransform(center, center);
+                        graphics.ScaleTransform(scale, scale);
+                        graphics.TranslateTransform(-center, -center);
+
                         graphics.DrawString(text, font, brush, x, y, format);
                     }
                 }
