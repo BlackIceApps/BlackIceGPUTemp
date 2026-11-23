@@ -427,8 +427,9 @@ namespace BlackIceGPUTemp.Tray
                 var clonedIcon = (Icon)icon.Clone();
                 return clonedIcon;
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.LogError("CreateTemperatureIcon: exception creating temperature icon", ex);
                 return null;
             }
             finally

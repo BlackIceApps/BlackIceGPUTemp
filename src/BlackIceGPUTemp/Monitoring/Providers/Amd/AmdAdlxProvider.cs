@@ -59,7 +59,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                return new ProviderProbeResult(false, $"ADLX probe failed with exception: {ex.Message}");
+                Logger.LogError("ADLX Probe: exception during native acquisition", ex);
+                return new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
             }
 
             try
@@ -126,7 +127,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                return new ProviderProbeResult(false, $"ADLX probe failed with exception: {ex.Message}");
+                Logger.LogError("ADLX Probe: exception during GPU enumeration", ex);
+                return new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
@@ -275,8 +277,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     return devices;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Logger.LogError("ADLX EnumerateDevices: exception during native acquisition", ex);
                 return devices;
             }
 
@@ -339,8 +342,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 return devices;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Logger.LogError("ADLX EnumerateDevices: exception during GPU enumeration", ex);
                 return devices;
             }
             finally
@@ -387,7 +391,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                error = $"Exception during temperature read: {ex.Message}";
+                Logger.LogError("ADLX TryReadTemperature: exception during native acquisition", ex);
+                error = $"Exception during temperature read: {ex.GetType().Name}: {ex.Message}";
                 return false;
             }
 
@@ -498,7 +503,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                error = $"Exception during temperature read: {ex.Message}";
+                Logger.LogError("ADLX TryReadTemperature: exception during temperature read", ex);
+                error = $"Exception during temperature read: {ex.GetType().Name}: {ex.Message}";
                 return false;
             }
             finally
@@ -646,7 +652,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError("ADLX Release exception: interface=0x{0:X}, error={1}", currentPtr, ex.Message);
+                    Logger.LogError($"ADLX Release exception: interface=0x{currentPtr:X}", ex);
                 }
                 finally
                 {
