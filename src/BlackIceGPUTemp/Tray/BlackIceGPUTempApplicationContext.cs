@@ -157,9 +157,9 @@ namespace BlackIceGPUTemp.Tray
                 var deviceName = result.DeviceName;
 
                 if (monitorService == null ||
-                    string.IsNullOrWhiteSpace(providerId) ||
-                    string.IsNullOrWhiteSpace(deviceId) ||
-                    string.IsNullOrWhiteSpace(deviceName))
+                    providerId == null || string.IsNullOrWhiteSpace(providerId) ||
+                    deviceId == null || string.IsNullOrWhiteSpace(deviceId) ||
+                    deviceName == null || string.IsNullOrWhiteSpace(deviceName))
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
