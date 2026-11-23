@@ -1940,6 +1940,25 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void InitializeThrowsException_TryReadTemperatureInternal_ReturnsError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    throw new InvalidOperationException("Initialize failed");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains("Initialize failed", error);
+        }
+
+        [Fact]
         public void Initialize_ReturnsNonZero_ReturnsErrorCode()
         {
             var fake = new FakeAdlxNative
