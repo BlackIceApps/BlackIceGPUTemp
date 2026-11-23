@@ -5,33 +5,15 @@ using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Monitoring
 {
-    /// <summary>
-    /// Represents a selector that finds a specific GPU device across registered providers.
-    /// </summary>
     public class DeviceSelector
     {
         private readonly GpuProviderRegistry _registry;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DeviceSelector"/> class.
-        /// </summary>
-        /// <param name="registry">The GPU provider registry to use for finding providers.</param>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="registry"/> is null.</exception>
         public DeviceSelector(GpuProviderRegistry registry)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         }
 
-        /// <summary>
-        /// Finds a specific GPU device by provider identifier and device identifier.
-        /// </summary>
-        /// <param name="providerId">The unique identifier of the provider.</param>
-        /// <param name="deviceId">The unique identifier of the device.</param>
-        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-        /// <returns>The matching <see cref="IGpuDevice"/> if found; otherwise, <c>null</c>.</returns>
-        /// <exception cref="ArgumentException">
-        /// Thrown when <paramref name="providerId"/> or <paramref name="deviceId"/> is null, empty, or white-space.
-        /// </exception>
         public IGpuDevice? FindDevice(string providerId, string deviceId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(providerId))

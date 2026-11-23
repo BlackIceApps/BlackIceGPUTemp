@@ -9,7 +9,7 @@ namespace BlackIceGPUTemp.Tests
 {
     public class GpuProviderRegistryTests
     {
-        private class DummyProvider : IGpuProvider
+        private class DummyProvider : IGpuDeviceEnumerator
         {
             public string Id { get; }
             public string DisplayName => Id;
@@ -19,7 +19,6 @@ namespace BlackIceGPUTemp.Tests
                 Id = id;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default) => new ProviderProbeResult(true, null);
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default) => Array.Empty<IGpuDevice>();
         }
 
@@ -32,7 +31,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Constructor_NullElement_ThrowsArgumentException()
         {
-            var providers = new IGpuProvider[] { new DummyProvider("gpu1"), null! };
+            var providers = new IGpuDeviceEnumerator[] { new DummyProvider("gpu1"), null! };
             Assert.Throws<ArgumentException>(() => new GpuProviderRegistry(providers));
         }
 
@@ -42,14 +41,14 @@ namespace BlackIceGPUTemp.Tests
         [InlineData("   ")]
         public void Constructor_InvalidId_ThrowsArgumentException(string? invalidId)
         {
-            var providers = new IGpuProvider[] { new DummyProvider(invalidId!) };
+            var providers = new IGpuDeviceEnumerator[] { new DummyProvider(invalidId!) };
             Assert.Throws<ArgumentException>(() => new GpuProviderRegistry(providers));
         }
 
         [Fact]
         public void Constructor_DuplicateIdCaseInsensitive_ThrowsArgumentException()
         {
-            var providers = new IGpuProvider[]
+            var providers = new IGpuDeviceEnumerator[]
             {
                 new DummyProvider("Nvidia"),
                 new DummyProvider("nvidia")
@@ -60,7 +59,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Constructor_EmptyCollection_Allowed()
         {
-            var registry = new GpuProviderRegistry(Array.Empty<IGpuProvider>());
+            var registry = new GpuProviderRegistry(Array.Empty<IGpuDeviceEnumerator>());
             Assert.Empty(registry.Providers);
         }
 
@@ -83,7 +82,7 @@ namespace BlackIceGPUTemp.Tests
         public void Providers_NotModifiableViaIListCast()
         {
             var registry = new GpuProviderRegistry(new[] { new DummyProvider("test") });
-            var list = registry.Providers as IList<IGpuProvider>;
+            var list = registry.Providers as IList<IGpuDeviceEnumerator>;
 
             if (list != null)
             {
@@ -114,7 +113,7 @@ namespace BlackIceGPUTemp.Tests
         [InlineData("   ")]
         public void FindById_InvalidId_ThrowsArgumentException(string? invalidId)
         {
-            var registry = new GpuProviderRegistry(Array.Empty<IGpuProvider>());
+            var registry = new GpuProviderRegistry(Array.Empty<IGpuDeviceEnumerator>());
             Assert.Throws<ArgumentException>(() => registry.FindById(invalidId!));
         }
     }

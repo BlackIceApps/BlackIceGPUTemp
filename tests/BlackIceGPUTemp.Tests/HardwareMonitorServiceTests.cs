@@ -36,11 +36,11 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
-        private class TestGpuProvider : IGpuProvider
+        private class TestGpuProvider : IGpuDeviceEnumerator
         {
             public string Id { get; }
             public string DisplayName => Id;
-            public int ProbeCallCount { get; private set; }
+            public int EnumerateDevicesCallCount { get; private set; }
 
             private readonly List<IGpuDevice> _devices;
 
@@ -50,14 +50,9 @@ namespace BlackIceGPUTemp.Tests
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
-            {
-                ProbeCallCount++;
-                return new ProviderProbeResult(true, null);
-            }
-
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
             {
+                EnumerateDevicesCallCount++;
                 return _devices.AsReadOnly();
             }
         }
@@ -71,7 +66,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void TryReadTemperature_DeviceNotFound_ReturnsFalseAndError()
         {
-            var registry = new GpuProviderRegistry(Array.Empty<IGpuProvider>());
+            var registry = new GpuProviderRegistry(Array.Empty<IGpuDeviceEnumerator>());
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
@@ -152,7 +147,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryReadTemperature_DoesNotInvokeProbe()
+        public void TryReadTemperature_DoesNotInvokeEnumerateDevicesWhenProviderNotFound()
         {
             var device = new TestGpuDevice("gpu-1", true, new TemperatureReading(50.0, "GPU Core", DateTimeOffset.UtcNow), null);
             var provider = new TestGpuProvider("nvidia", new[] { device });
@@ -160,9 +155,9 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            service.TryReadTemperature("nvidia", "gpu-1", out _, out _, CancellationToken.None);
+            service.TryReadTemperature("amd", "gpu-1", out _, out _, CancellationToken.None);
 
-            Assert.Equal(0, provider.ProbeCallCount);
+            Assert.Equal(0, provider.EnumerateDevicesCallCount);
         }
     }
 }
