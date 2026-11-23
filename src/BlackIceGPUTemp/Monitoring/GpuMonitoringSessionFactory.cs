@@ -31,6 +31,8 @@ namespace BlackIceGPUTemp.Monitoring
                 return new GpuMonitoringInitializationResult("No GPU providers available.");
             }
 
+            bool hasAvailableProvider = false;
+
             foreach (var provider in providers)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -39,6 +41,8 @@ namespace BlackIceGPUTemp.Monitoring
 
                 if (probeResult.IsAvailable)
                 {
+                    hasAvailableProvider = true;
+
                     var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
 
@@ -58,7 +62,12 @@ namespace BlackIceGPUTemp.Monitoring
                 }
             }
 
-            return new GpuMonitoringInitializationResult("No supported GPU devices found.");
+            if (hasAvailableProvider)
+            {
+                return new GpuMonitoringInitializationResult("No supported GPU devices found.");
+            }
+
+            return new GpuMonitoringInitializationResult("No GPU providers are available.");
         }
     }
 }

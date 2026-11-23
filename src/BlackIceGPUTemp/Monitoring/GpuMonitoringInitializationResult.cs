@@ -14,7 +14,8 @@ namespace BlackIceGPUTemp.Monitoring
         /// <param name="providerId">The ID of the selected provider.</param>
         /// <param name="deviceId">The ID of the selected device.</param>
         /// <param name="deviceName">The name of the selected device.</param>
-        /// <exception cref="ArgumentNullException">Thrown when any parameter is null or empty.</exception>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="monitorService"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="providerId"/>, <paramref name="deviceId"/>, or <paramref name="deviceName"/> is null, empty, or consists entirely of white-space characters.</exception>
         public GpuMonitoringInitializationResult(HardwareMonitorService monitorService, string providerId, string deviceId, string deviceName)
         {
             if (monitorService == null)
