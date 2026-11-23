@@ -8,7 +8,6 @@ using Timer = System.Windows.Forms.Timer;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
 using BlackIceGPUTemp.Monitoring.Abstractions;
-using BlackIceGPUTemp.Monitoring.Providers.Amd;
 
 namespace BlackIceGPUTemp.Tray
 {
@@ -23,6 +22,7 @@ namespace BlackIceGPUTemp.Tray
         private volatile bool _disposing;
         private bool _readInProgress;
         private MonitoringSession? _session;
+        private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
 
         private sealed class MonitoringSession
         {
@@ -68,8 +68,10 @@ namespace BlackIceGPUTemp.Tray
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-        public BlackIceGPUTempApplicationContext()
+        public BlackIceGPUTempApplicationContext(IGpuMonitoringSessionFactory monitoringSessionFactory)
         {
+            _monitoringSessionFactory = monitoringSessionFactory ?? throw new ArgumentNullException(nameof(monitoringSessionFactory));
+
             Logger.LogInfo("BlackIceGPUTempApplicationContext created");
             _notifyIcon = new NotifyIcon
             {
@@ -135,77 +137,59 @@ namespace BlackIceGPUTemp.Tray
             try
             {
                 Logger.LogInfo("Initializing GPU monitoring");
-                var provider = new AmdAdlxProvider();
-                var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
+                var result = _monitoringSessionFactory.Create(cancellationToken);
+
+                if (!result.IsSuccess)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    Logger.LogWarn($"GPU monitoring initialization failed: {result.Message}");
+                    InvokeOnUiThread(() => UpdateTooltip($"BlackIceGPUTemp: {result.Message}"));
+                    return;
+                }
+
+                if (result.HardwareMonitorService == null ||
+                    string.IsNullOrWhiteSpace(result.ProviderId) ||
+                    string.IsNullOrWhiteSpace(result.DeviceId) ||
+                    string.IsNullOrWhiteSpace(result.DeviceName))
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    Logger.LogError("GPU monitoring initialization succeeded but returned invalid data.");
+                    InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initialization error"));
+                    return;
+                }
+
+                Logger.LogInfo($"Selected GPU: {result.DeviceName} (Provider: {result.ProviderId}, Device: {result.DeviceId})");
+                Logger.LogInfo("HardwareMonitorService created");
 
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
 
-                if (probeResult.IsAvailable)
-                {
-                    Logger.LogInfo("ADLX provider available");
-                    var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
+                var session = new MonitoringSession(
+                    result.HardwareMonitorService,
+                    result.ProviderId,
+                    result.DeviceId,
+                    result.DeviceName);
 
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    if (devices != null && devices.Count > 0)
-                    {
-                        var firstDevice = devices[0];
-                        var providerId = provider.Id;
-                        var deviceId = firstDevice.Id;
-                        var deviceName = firstDevice.Name;
-                        Logger.LogInfo($"Selected GPU: {deviceName} (Provider: {providerId}, Device: {deviceId})");
-
-                        var registry = new GpuProviderRegistry(new[] { provider });
-                        var selector = new DeviceSelector(registry);
-                        var monitorService = new HardwareMonitorService(selector);
-                        Logger.LogInfo("HardwareMonitorService created");
-
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            return;
-                        }
-
-                        var session = new MonitoringSession(monitorService, providerId, deviceId, deviceName);
-
-                        InvokeOnUiThread(() =>
-                        {
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                return;
-                            }
-                            _session = session;
-                            _timer.Start();
-                            UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
-                        });
-                    }
-                    else
-                    {
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            return;
-                        }
-                        Logger.LogWarn("No supported GPU devices found");
-                        InvokeOnUiThread(() => _notifyIcon.Text = "BlackIceGPUTemp: No supported GPU");
-                    }
-                }
-                else
+                InvokeOnUiThread(() =>
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
                         return;
                     }
-                    string reason = string.IsNullOrWhiteSpace(probeResult.Message)
-                        ? "Unknown error"
-                        : probeResult.Message!;
-                    Logger.LogWarn($"ADLX not available: {reason}");
-                    InvokeOnUiThread(() => UpdateTooltip($"BlackIceGPUTemp: {reason}"));
-                }
+                    _session = session;
+                    _timer.Start();
+                    UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
+                });
             }
             catch (OperationCanceledException)
             {
