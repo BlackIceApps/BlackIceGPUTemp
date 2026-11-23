@@ -475,7 +475,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     {
                         Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
                         _pendingDisposeNative = _pendingNative;
-                        _pendingDisposeDisposable = _pendingDisposeDisposable;
+                        _pendingDisposeDisposable = _pendingDisposable;
                         _pendingNative = null;
                         _pendingDisposable = null;
                         error = "Pending AdlxNative Dispose threw exception on retry";
