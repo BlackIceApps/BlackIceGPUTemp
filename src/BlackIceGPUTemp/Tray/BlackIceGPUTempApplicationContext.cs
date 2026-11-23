@@ -146,6 +146,12 @@ namespace BlackIceGPUTemp.Tray
                 {
                     Logger.LogInfo("ADLX provider available");
                     var devices = provider.EnumerateDevices();
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
                     if (devices != null && devices.Count > 0)
                     {
                         var firstDevice = devices[0];
@@ -168,6 +174,10 @@ namespace BlackIceGPUTemp.Tray
 
                         InvokeOnUiThread(() =>
                         {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                return;
+                            }
                             _session = session;
                             _timer.Start();
                             UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
