@@ -175,7 +175,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetSupportedGpuMetrics(IntPtr services, IntPtr gpu, out IntPtr metricsSupport)
             {
-                int index = (int)(gpu.ToInt64() - 0x6000);
+                int index = (int)(gpu.ToInt64() - 0x3000);
                 metricsSupport = new IntPtr(0x6000 + index);
                 if (GetSupportedMetricsHandler != null)
                 {
