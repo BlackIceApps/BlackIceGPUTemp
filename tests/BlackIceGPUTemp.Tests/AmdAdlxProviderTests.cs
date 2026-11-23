@@ -296,21 +296,28 @@ namespace BlackIceGPUTemp.Tests
         private class DisposeThrowsOnceThenSucceedsFake : FakeAdlxNative
         {
             public int DisposeCallCount { get; private set; }
+            private bool _disposedSuccessfully;
 
             public override void Dispose()
             {
+                if (_disposedSuccessfully)
+                {
+                    // Already succeeded, subsequent calls are no-ops (e.g., from Cleanup after successful Probe)
+                    return;
+                }
                 DisposeCallCount++;
                 if (DisposeCallCount == 1)
                 {
                     throw new InvalidOperationException("Simulated Dispose failure on first call");
                 }
+                _disposedSuccessfully = true;
                 IsDisposed = true;
             }
         }
 
         private class TerminateFailsThenSucceedsThenDisposeThrowsFake : FakeAdlxNative
         {
-            public int TerminateCalls { get; private set; }
+            public new int TerminateCalls { get; private set; }
             public int DisposeCallCount { get; private set; }
 
             public override int Terminate()
@@ -327,6 +334,7 @@ namespace BlackIceGPUTemp.Tests
             public override void Dispose()
             {
                 DisposeCallCount++;
+                // First call throws, second call succeeds
                 if (DisposeCallCount == 1)
                 {
                     throw new InvalidOperationException("Simulated Dispose failure on first call");
@@ -337,7 +345,7 @@ namespace BlackIceGPUTemp.Tests
 
         private class TerminateFailsThenSucceedsThenDisposeThrowsTwiceFake : FakeAdlxNative
         {
-            public int TerminateCalls { get; private set; }
+            public new int TerminateCalls { get; private set; }
             public int DisposeCallCount { get; private set; }
 
             public override int Terminate()
@@ -353,6 +361,7 @@ namespace BlackIceGPUTemp.Tests
             public override void Dispose()
             {
                 DisposeCallCount++;
+                // Never set IsDisposed - always throws
                 throw new InvalidOperationException($"Simulated Dispose failure on call {DisposeCallCount}");
             }
         }
@@ -524,7 +533,12 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Directly invoke Cleanup with initialized=false via reflection
-            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod("Cleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod(
+                "Cleanup",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+                null,
+                new Type[] { typeof(IAdlxNative), typeof(IntPtr).MakeByRefType(), typeof(IntPtr).MakeByRefType(), typeof(bool), typeof(IDisposable) },
+                null);
             Assert.NotNull(cleanupMethod);
             var gpuList = new IntPtr(0x2000);
             var system = new IntPtr(0x1000);
@@ -556,7 +570,12 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Directly invoke Cleanup with initialized=false via reflection
-            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod("Cleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod(
+                "Cleanup",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+                null,
+                new Type[] { typeof(IAdlxNative), typeof(IntPtr).MakeByRefType(), typeof(IntPtr).MakeByRefType(), typeof(bool), typeof(IDisposable) },
+                null);
             Assert.NotNull(cleanupMethod);
             var gpuList = new IntPtr(0x2000);
             var system = new IntPtr(0x1000);
