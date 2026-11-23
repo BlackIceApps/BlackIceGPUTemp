@@ -394,19 +394,21 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             for (int i = 0; i < count; i++)
             {
                 IntPtr gpu = IntPtr.Zero;
+                bool isTarget = false;
                 try
                 {
                     if (session.GetGpuAt(i, out gpu) == 0 && gpu != IntPtr.Zero)
                     {
                         if (session.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
                         {
+                            isTarget = true;
                             return gpu;
                         }
                     }
                 }
                 finally
                 {
-                    if (gpu != IntPtr.Zero)
+                    if (gpu != IntPtr.Zero && !isTarget)
                     {
                         session.ReleaseInterface(ref gpu);
                     }
@@ -414,53 +416,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             return IntPtr.Zero;
-        }
-    }
-
-    internal static class AdlxHelperExtensions
-    {
-        public static bool GetUniqueIdAndName(this IAdlxNative native, IntPtr system, IntPtr gpu, out int uniqueId, out string? name)
-        {
-            uniqueId = 0;
-            name = null;
-
-            int idResult = native.GetGpuUniqueId(gpu, out uniqueId);
-            int nameResult = native.GetGpuName(gpu, out name);
-
-            return idResult == 0 && nameResult == 0;
-        }
-
-        public static bool IsTemperatureSupported(this IAdlxNative native, IntPtr system, IntPtr gpu, out bool supported)
-        {
-            supported = false;
-            IntPtr services = IntPtr.Zero;
-            IntPtr metricsSupport = IntPtr.Zero;
-
-            try
-            {
-                if (native.GetPerformanceMonitoringServices(system, out services) != 0 || services == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                if (native.GetSupportedGpuMetrics(services, gpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                if (native.IsSupportedGpuTemperature(metricsSupport, out supported) != 0)
-                {
-                    supported = false;
-                    return false;
-                }
-
-                return true;
-            }
-            finally
-            {
-                AdlxInterop.ReleaseInterface(native, ref metricsSupport);
-                AdlxInterop.ReleaseInterface(native, ref services);
-            }
         }
     }
 
