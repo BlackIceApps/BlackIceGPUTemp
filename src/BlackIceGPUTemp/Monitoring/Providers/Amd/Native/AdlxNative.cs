@@ -471,7 +471,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         if (_libHandle != IntPtr.Zero)
         {
             IntPtr handle = _libHandle;
-            bool freeResult;
+            bool freeResult = false;
 
             try
             {
