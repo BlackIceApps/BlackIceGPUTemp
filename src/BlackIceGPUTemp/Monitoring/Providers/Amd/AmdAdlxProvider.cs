@@ -163,12 +163,30 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                     continue;
                                 }
 
+                                GpuKind gpuKind = GpuKind.Unknown;
+                                int typeResult = session.GetGpuType(gpu, out int gpuType);
+                                if (typeResult == 0)
+                                {
+                                    switch (gpuType)
+                                    {
+                                        case 1:
+                                            gpuKind = GpuKind.Integrated;
+                                            break;
+                                        case 2:
+                                            gpuKind = GpuKind.Discrete;
+                                            break;
+                                        default:
+                                            gpuKind = GpuKind.Unknown;
+                                            break;
+                                    }
+                                }
+
                                 if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
                                 {
                                     if (seenUniqueIds.Add(uniqueId))
                                     {
                                         string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
-                                        devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId));
+                                        devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId, gpuKind));
                                     }
                                 }
                             }

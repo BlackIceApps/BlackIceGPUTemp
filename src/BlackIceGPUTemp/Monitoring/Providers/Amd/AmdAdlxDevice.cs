@@ -11,14 +11,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         public string Id { get; }
         public string Name { get; }
         public GpuVendor Vendor => GpuVendor.Amd;
-        public GpuKind Kind => GpuKind.Unknown;
+        public GpuKind Kind { get; }
 
-        internal AmdAdlxDevice(AmdAdlxProvider provider, string id, string name, int uniqueId)
+        internal AmdAdlxDevice(AmdAdlxProvider provider, string id, string name, int uniqueId, GpuKind kind)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
             Id = id ?? throw new ArgumentNullException(nameof(id));
             Name = name ?? throw new ArgumentNullException(nameof(name));
             _uniqueId = uniqueId;
+            Kind = kind;
         }
 
         public bool TryReadTemperature(out TemperatureReading? reading, out string? error)
