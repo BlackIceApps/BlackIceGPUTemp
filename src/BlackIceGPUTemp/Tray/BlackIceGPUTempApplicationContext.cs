@@ -19,7 +19,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
-        private bool _disposing;
+        private volatile bool _disposing;
         private bool _readInProgress;
         private MonitoringSession? _session;
 
@@ -221,33 +221,27 @@ namespace BlackIceGPUTemp.Tray
 
         private void InvokeOnUiThread(Action action)
         {
-            lock (_disposeLock)
+            if (_disposing)
             {
-                if (_disposing)
-                {
-                    return;
-                }
+                return;
+            }
 
-                try
+            try
+            {
+                _uiDispatcher.BeginInvoke(() =>
                 {
-                    _uiDispatcher.BeginInvoke(() =>
+                    if (_disposing)
                     {
-                        lock (_disposeLock)
-                        {
-                            if (_disposing)
-                            {
-                                return;
-                            }
-                            action();
-                        }
-                    });
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-                catch (InvalidOperationException)
-                {
-                }
+                        return;
+                    }
+                    action();
+                });
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
             }
         }
 
