@@ -151,6 +151,21 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             initResult = 0;
             retryAttempted = false;
 
+            if (_pendingDisposeNative != null && _pendingDisposeDisposable != null)
+            {
+                try
+                {
+                    _pendingDisposeDisposable.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError("Pending AdlxNative Dispose retry threw exception", ex);
+                    return false;
+                }
+                _pendingDisposeNative = null;
+                _pendingDisposeDisposable = null;
+            }
+
             if (_pendingNative != null)
             {
                 retryAttempted = true;

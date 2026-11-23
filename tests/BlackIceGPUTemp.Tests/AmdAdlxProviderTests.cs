@@ -1588,5 +1588,87 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
         }
+
+        private class DisposeThenSucceedsFake : FakeAdlxNative
+        {
+            public int DisposeCallCount { get; private set; }
+            public bool ThrowOnFirstDispose { get; set; } = true;
+
+            public override void Dispose()
+            {
+                DisposeCallCount++;
+                if (ThrowOnFirstDispose && DisposeCallCount == 1)
+                {
+                    throw new InvalidOperationException("Simulated Dispose exception on first call");
+                }
+                IsDisposed = true;
+            }
+        }
+
+        [Fact]
+        public void PendingDispose_RetryDispose_Succeeds_ClearsReferencesAndAllowsNewInit()
+        {
+            var fake = new DisposeThenSucceedsFake
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return 0;
+                },
+                TerminateHandler = () => 0,
+            };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            var result1 = provider.Probe();
+            Assert.True(result1.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed);
+
+            var result2 = provider.Probe();
+            Assert.True(result2.IsAvailable);
+            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
+        }
+
+        [Fact]
+        public void PendingDispose_RetryDispose_Fails_ReturnsFalseAndRetainsReferences()
+        {
+            var fake = new DisposeThrowingFake
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return 0;
+                },
+                TerminateHandler = () => 0,
+            };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            var result1 = provider.Probe();
+            Assert.True(result1.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            var result2 = provider.Probe();
+            Assert.False(result2.IsAvailable);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
+        }
     }
 }
