@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace BlackIceGPUTemp.Monitoring.Abstractions
@@ -20,13 +21,15 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// <summary>
         /// Checks whether the provider is supported and available on the current system.
         /// </summary>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns>A <see cref="ProviderProbeResult"/> containing availability and diagnostic details.</returns>
-        ProviderProbeResult Probe();
+        ProviderProbeResult Probe(CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Enumerates all GPU devices detected by this provider.
         /// </summary>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns>A read-only list of detected <see cref="IGpuDevice"/> instances.</returns>
-        IReadOnlyList<IGpuDevice> EnumerateDevices();
+        IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default);
     }
 }

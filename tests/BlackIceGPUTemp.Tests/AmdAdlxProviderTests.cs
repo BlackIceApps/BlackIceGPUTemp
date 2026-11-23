@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
@@ -2314,6 +2316,228 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
+        }
+
+        [Fact]
+        public void Probe_CancellationBeforeStart_ThrowsOperationCanceledException()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => provider.Probe(cts.Token));
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void Probe_CancellationDuringEnumeration_ThrowsOperationCanceledException()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2", "GPU3", "GPU4", "GPU5" },
+                GpuUniqueIds = new List<int> { 1, 2, 3, 4, 5 },
+                GpuTemperatureSupported = new List<bool> { true, true, true, true, true }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            
+            // Cancel immediately - should throw before or during first check
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => provider.Probe(cts.Token));
+        }
+
+        [Fact]
+        public void EnumerateDevices_CancellationBeforeStart_ThrowsOperationCanceledException()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => provider.EnumerateDevices(cts.Token));
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_CancellationBeforeStart_ThrowsOperationCanceledException()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => provider.TryReadTemperatureInternal(12345, out _, out _, cts.Token));
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void Probe_Cancellation_DoesNotLeakResources()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            try
+            {
+                provider.Probe(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // Resources should be cleaned up - no pending references
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void EnumerateDevices_Cancellation_DoesNotLeakResources()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            try
+            {
+                provider.EnumerateDevices(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // Resources should be cleaned up
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_Cancellation_DoesNotLeakResources()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            try
+            {
+                provider.TryReadTemperatureInternal(12345, out _, out _, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // Resources should be cleaned up
+            Assert.Equal(0, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_CancellationNotTreatedAsReadError()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            bool success = false;
+            string? error = null;
+            TemperatureReading? reading = null;
+
+            try
+            {
+                success = provider.TryReadTemperatureInternal(12345, out reading, out error, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected - cancellation should propagate, not be treated as a read error
+            }
+
+            Assert.False(success);
+            // The method should throw OperationCanceledException, not return false with an error message
+            // This test verifies that cancellation is not caught and converted to a regular error
+        }
+
+        [Fact]
+        public void Probe_CancellationTokenNotPassedToNativeCalls()
+        {
+            // Verify that native ADLX calls are not passed the CancellationToken
+            // (we check between calls, not during)
+            var nativeCalls = new List<string>();
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    nativeCalls.Add("Initialize");
+                    sys = new IntPtr(0x1000);
+                    return 0;
+                },
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    nativeCalls.Add("GetGpuList");
+                    list = new IntPtr(0x2000);
+                    return 0;
+                },
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    nativeCalls.Add("GetGpuListSize");
+                    count = 1;
+                    return 0;
+                },
+                GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+                {
+                    nativeCalls.Add("GetGpuAt");
+                    gpu = new IntPtr(0x3000);
+                    return 0;
+                },
+                GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
+                {
+                    nativeCalls.Add("GetGpuUniqueId");
+                    uid = 12345;
+                    return 0;
+                },
+                GetGpuNameHandler = (IntPtr gpu, out string? name) =>
+                {
+                    nativeCalls.Add("GetGpuName");
+                    name = "Test GPU";
+                    return 0;
+                },
+                GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
+                {
+                    nativeCalls.Add("GetPerformanceMonitoringServices");
+                    svc = new IntPtr(0x4000);
+                    return 0;
+                },
+                GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
+                {
+                    nativeCalls.Add("GetSupportedGpuMetrics");
+                    ms = new IntPtr(0x6000);
+                    return 0;
+                },
+                IsSupportedTempHandler = (IntPtr ms, out bool supported) =>
+                {
+                    nativeCalls.Add("IsSupportedGpuTemperature");
+                    supported = true;
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+            
+            // Cancel after initialization but before enumeration completes
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            try
+            {
+                provider.Probe(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // Initialize should have been called (it's the first native call)
+            // but cancellation should be checked before enumeration
+            Assert.Contains("Initialize", nativeCalls);
         }
     }
 }

@@ -135,7 +135,7 @@ namespace BlackIceGPUTemp.Tray
             {
                 Logger.LogInfo("Initializing GPU monitoring");
                 var provider = new AmdAdlxProvider();
-                var probeResult = provider.Probe();
+                var probeResult = provider.Probe(cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -145,7 +145,7 @@ namespace BlackIceGPUTemp.Tray
                 if (probeResult.IsAvailable)
                 {
                     Logger.LogInfo("ADLX provider available");
-                    var devices = provider.EnumerateDevices();
+                    var devices = provider.EnumerateDevices(cancellationToken);
 
                     if (cancellationToken.IsCancellationRequested)
                     {
@@ -278,7 +278,7 @@ namespace BlackIceGPUTemp.Tray
                         return;
                     }
 
-                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error);
+                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, token);
 
                     lock (_disposeLock)
                     {
@@ -329,7 +329,7 @@ namespace BlackIceGPUTemp.Tray
                         _readInProgress = false;
                     }
                 }
-            });
+            }, token);
         }
 
         private void UpdateIcon(string text)

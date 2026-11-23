@@ -27,7 +27,7 @@ namespace BlackIceGPUTemp.Tests
                 _error = error;
             }
 
-            public bool TryReadTemperature(out TemperatureReading? reading, out string? error)
+            public bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
             {
                 reading = _reading;
                 error = _error;
@@ -49,13 +49,13 @@ namespace BlackIceGPUTemp.Tests
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
             }
 
-            public ProviderProbeResult Probe()
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
             {
                 ProbeCallCount++;
                 return new ProviderProbeResult(true, null);
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices()
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
             {
                 return _devices.AsReadOnly();
             }
@@ -74,7 +74,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error);
+            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error, CancellationToken.None);
 
             Assert.False(result);
             Assert.Null(reading);
@@ -91,7 +91,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error);
+            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error, CancellationToken.None);
 
             Assert.True(result);
             Assert.Same(expectedReading, reading);
@@ -108,7 +108,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error);
+            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error, CancellationToken.None);
 
             Assert.False(result);
             Assert.Null(reading);
@@ -127,7 +127,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error);
+            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error, CancellationToken.None);
 
             Assert.False(result);
             Assert.Null(reading);
@@ -143,7 +143,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error);
+            bool result = service.TryReadTemperature("nvidia", "gpu-1", out var reading, out var error, CancellationToken.None);
 
             Assert.False(result);
             Assert.Null(reading);
@@ -159,7 +159,7 @@ namespace BlackIceGPUTemp.Tests
             var selector = new DeviceSelector(registry);
             var service = new HardwareMonitorService(selector);
 
-            service.TryReadTemperature("nvidia", "gpu-1", out _, out _);
+            service.TryReadTemperature("nvidia", "gpu-1", out _, out _, CancellationToken.None);
 
             Assert.Equal(0, provider.ProbeCallCount);
         }

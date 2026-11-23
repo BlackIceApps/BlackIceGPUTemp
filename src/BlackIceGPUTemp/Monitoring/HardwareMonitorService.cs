@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Monitoring
@@ -27,10 +28,11 @@ namespace BlackIceGPUTemp.Monitoring
         /// <param name="deviceId">The unique identifier of the device.</param>
         /// <param name="reading">When this method returns, contains the temperature reading if successful; otherwise, <c>null</c>.</param>
         /// <param name="error">When this method returns, contains the error message if unsuccessful; otherwise, <c>null</c>.</param>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns><c>true</c> if the temperature was successfully read; otherwise, <c>false</c>.</returns>
-        public bool TryReadTemperature(string providerId, string deviceId, out TemperatureReading? reading, out string? error)
+        public bool TryReadTemperature(string providerId, string deviceId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
         {
-            var device = _deviceSelector.FindDevice(providerId, deviceId);
+            var device = _deviceSelector.FindDevice(providerId, deviceId, cancellationToken);
             if (device == null)
             {
                 reading = null;
@@ -38,7 +40,7 @@ namespace BlackIceGPUTemp.Monitoring
                 return false;
             }
 
-            bool success = device.TryReadTemperature(out var deviceReading, out var deviceError);
+            bool success = device.TryReadTemperature(out var deviceReading, out var deviceError, cancellationToken);
             if (!success)
             {
                 reading = null;

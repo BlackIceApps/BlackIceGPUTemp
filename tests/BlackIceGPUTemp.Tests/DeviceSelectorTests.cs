@@ -20,7 +20,7 @@ namespace BlackIceGPUTemp.Tests
                 Id = id;
             }
 
-            public bool TryReadTemperature(out TemperatureReading? reading, out string? error)
+            public bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
             {
                 reading = null;
                 error = "Not supported";
@@ -43,13 +43,13 @@ namespace BlackIceGPUTemp.Tests
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
             }
 
-            public ProviderProbeResult Probe()
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
             {
                 ProbeCallCount++;
                 return new ProviderProbeResult(true, null);
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices()
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
             {
                 EnumerateDevicesCallCount++;
                 return _devices.AsReadOnly();
@@ -85,8 +85,8 @@ namespace BlackIceGPUTemp.Tests
             var registry = new GpuProviderRegistry(new[] { provider });
             var selector = new DeviceSelector(registry);
 
-            var found1 = selector.FindDevice("nvidia", "gpu-001");
-            var found2 = selector.FindDevice("NVIDIA", "GPU-001");
+            var found1 = selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
+            var found2 = selector.FindDevice("NVIDIA", "GPU-001", CancellationToken.None);
 
             Assert.Same(device, found1);
             Assert.Same(device, found2);
@@ -99,7 +99,7 @@ namespace BlackIceGPUTemp.Tests
             var registry = new GpuProviderRegistry(new[] { provider });
             var selector = new DeviceSelector(registry);
 
-            var result = selector.FindDevice("nvidia", "gpu-001");
+            var result = selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
 
             Assert.Null(result);
             Assert.Equal(0, provider.EnumerateDevicesCallCount);
@@ -113,7 +113,7 @@ namespace BlackIceGPUTemp.Tests
             var registry = new GpuProviderRegistry(new[] { provider });
             var selector = new DeviceSelector(registry);
 
-            var result = selector.FindDevice("nvidia", "gpu-999");
+            var result = selector.FindDevice("nvidia", "gpu-999", CancellationToken.None);
 
             Assert.Null(result);
             Assert.Equal(1, provider.EnumerateDevicesCallCount);
@@ -126,7 +126,7 @@ namespace BlackIceGPUTemp.Tests
             var registry = new GpuProviderRegistry(new[] { provider });
             var selector = new DeviceSelector(registry);
 
-            selector.FindDevice("nvidia", "gpu-001");
+            selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
 
             Assert.Equal(0, provider.ProbeCallCount);
         }

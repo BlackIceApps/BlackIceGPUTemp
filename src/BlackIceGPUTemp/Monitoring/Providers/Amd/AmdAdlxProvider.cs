@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
@@ -26,16 +27,18 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _nativeFactory = nativeFactory ?? (() => new AdlxNative());
         }
 
-        public ProviderProbeResult Probe()
+        public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
         {
             lock (_lock)
             {
-                return ProbeInternal();
+                return ProbeInternal(cancellationToken);
             }
         }
 
-        private ProviderProbeResult ProbeInternal()
+        private ProviderProbeResult ProbeInternal(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            
             if (!TryHandlePendingCleanup(out string? error))
             {
                 return new ProviderProbeResult(false, error);
@@ -62,6 +65,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         bool hasSupportedGpu = false;
                         for (int i = 0; i < count; i++)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            
                             IntPtr gpu = IntPtr.Zero;
                             try
                             {
@@ -107,19 +112,21 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return result;
         }
 
-        public IReadOnlyList<IGpuDevice> EnumerateDevices()
+        public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
         {
             lock (_lock)
             {
-                return EnumerateDevicesInternal();
+                return EnumerateDevicesInternal(cancellationToken);
             }
         }
 
-        private IReadOnlyList<IGpuDevice> EnumerateDevicesInternal()
+        private IReadOnlyList<IGpuDevice> EnumerateDevicesInternal(CancellationToken cancellationToken)
         {
             var devices = new List<IGpuDevice>();
             var seenUniqueIds = new HashSet<int>();
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             if (!TryHandlePendingCleanup(out string? error))
             {
                 return devices;
@@ -145,6 +152,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     {
                         for (int i = 0; i < count; i++)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            
                             IntPtr gpu = IntPtr.Zero;
                             try
                             {
@@ -218,19 +227,21 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return result;
         }
 
-        internal bool TryReadTemperatureInternal(int targetUniqueId, out TemperatureReading? reading, out string? error)
+        internal bool TryReadTemperatureInternal(int targetUniqueId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
         {
             lock (_lock)
             {
-                return TryReadTemperatureInternalImpl(targetUniqueId, out reading, out error);
+                return TryReadTemperatureInternalImpl(targetUniqueId, out reading, out error, cancellationToken);
             }
         }
 
-        private bool TryReadTemperatureInternalImpl(int targetUniqueId, out TemperatureReading? reading, out string? error)
+        private bool TryReadTemperatureInternalImpl(int targetUniqueId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken)
         {
             reading = null;
             error = null;
 
+            cancellationToken.ThrowIfCancellationRequested();
+            
             if (!TryHandlePendingCleanup(out error))
             {
                 return false;
@@ -247,7 +258,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             {
                 try
                 {
-                    IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken);
                     if (targetGpu == IntPtr.Zero)
                     {
                         error = $"GPU with unique ID {targetUniqueId} not found.";
@@ -261,6 +274,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         try
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            
                             if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)
                             {
                                 error = "Failed to get performance monitoring services.";
@@ -409,7 +424,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _pendingDisposeDisposable = session.PendingDisposeDisposable;
         }
 
-        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId)
+        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken)
         {
             int sizeResult = session.GetGpuListSize(out int count);
             if (sizeResult != 0)
@@ -419,6 +434,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             for (int i = 0; i < count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                
                 IntPtr gpu = IntPtr.Zero;
                 bool isTarget = false;
                 try

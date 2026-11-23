@@ -1,3 +1,6 @@
+using System;
+using System.Threading;
+
 namespace BlackIceGPUTemp.Monitoring.Abstractions
 {
     /// <summary>
@@ -30,7 +33,8 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// </summary>
         /// <param name="reading">When this method returns, contains the temperature reading if successful, or <c>null</c> otherwise.</param>
         /// <param name="error">When this method returns, contains an error message if the read failed, or <c>null</c> otherwise.</param>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns><c>true</c> if the temperature was read successfully; otherwise, <c>false</c>.</returns>
-        bool TryReadTemperature(out TemperatureReading? reading, out string? error);
+        bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default);
     }
 }
