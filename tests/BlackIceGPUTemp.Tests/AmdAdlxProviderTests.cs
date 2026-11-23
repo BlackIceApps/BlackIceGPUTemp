@@ -2341,11 +2341,27 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
             var cts = new CancellationTokenSource();
-            
-            // Cancel immediately - should throw before or during first check
-            cts.Cancel();
+
+            // Cancel from GetGpuAt handler - during enumeration, after Initialize and GetGpuListSize
+            fake.GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+            {
+                gpu = new IntPtr(0x3000 + index);
+                cts.Cancel();
+                return 0;
+            };
 
             Assert.Throws<OperationCanceledException>(() => provider.Probe(cts.Token));
+            
+            // Verify Initialize and GetGpuListSize were called, but no further GPUs processed
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            // GPU handle from GetGpuAt should be released
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            // GPU list should be released
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            // System should NOT be released (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2459,10 +2475,183 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Probe_CancellationTokenNotPassedToNativeCalls()
+        public void EnumerateDevices_CancellationDuringGetGpuUniqueId_ThrowsOperationCanceledException()
         {
-            // Verify that native ADLX calls are not passed the CancellationToken
-            // (we check between calls, not during)
+            // Cancellation occurs from GetGpuUniqueId handler - verify GetGpuName is NOT called after cancellation
+            var nativeCalls = new List<string>();
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2", "GPU3" },
+                GpuUniqueIds = new List<int> { 111, 222, 333 },
+                GpuTypes = new List<int> { 2, 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true, true }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+
+            // Set up handlers to track calls
+            fake.GetGpuListSizeHandler = (IntPtr list, out int count) =>
+            {
+                nativeCalls.Add("GetGpuListSize");
+                count = fake.GpuNames.Count;
+                return 0;
+            };
+            fake.GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+            {
+                nativeCalls.Add($"GetGpuAt[{index}]");
+                gpu = new IntPtr(0x3000 + index);
+                return 0;
+            };
+            fake.GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
+            {
+                nativeCalls.Add("GetGpuUniqueId");
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                uid = index >= 0 && index < fake.GpuUniqueIds.Count ? fake.GpuUniqueIds[index] : 0;
+                if (index == 1) // Cancel on second GPU during GetGpuUniqueId
+                {
+                    cts.Cancel();
+                }
+                return 0;
+            };
+            fake.GetGpuNameHandler = (IntPtr gpu, out string? name) =>
+            {
+                nativeCalls.Add("GetGpuName");
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                name = index >= 0 && index < fake.GpuNames.Count ? fake.GpuNames[index] : "Unknown";
+                return 0;
+            };
+            fake.GetGpuTypeHandler = (IntPtr gpu, out int gpuType) =>
+            {
+                nativeCalls.Add("GetGpuType");
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                gpuType = index >= 0 && index < fake.GpuTypes.Count ? fake.GpuTypes[index] : 0;
+                return 0;
+            };
+
+            Assert.Throws<OperationCanceledException>(() => provider.EnumerateDevices(cts.Token));
+
+            // Verify calls made before cancellation
+            Assert.Contains("GetGpuListSize", nativeCalls);
+            Assert.Contains("GetGpuAt[0]", nativeCalls);
+            Assert.Contains("GetGpuAt[1]", nativeCalls);
+            Assert.Contains("GetGpuUniqueId", nativeCalls); // Called for GPU 0 and 1
+            
+            // GetGpuName should have been called for GPU 0 (before cancellation)
+            // but NOT for GPU 1 (cancellation happened in GetGpuUniqueId for GPU 1, before GetGpuName)
+            // Actually, looking at the code, GetGpuName is called after GetGpuUniqueId in GetUniqueIdAndName
+            // and cancellation is checked between them. So GetGpuName for GPU 0 should be called,
+            // but for GPU 1 it should NOT be called because cancellation happens in GetGpuUniqueId handler.
+            // The test setup has GetGpuUniqueId for index 1 cancel, so GetGpuName for index 1 should not be called.
+            
+            // GetGpuName for GPU 0 (index 0) should be called
+            // GetGpuName for GPU 1 (index 1) should NOT be called (cancelled in GetGpuUniqueId)
+            // Since both use the same handler, we check the call count
+            int getGpuNameCallCount = nativeCalls.Count(c => c == "GetGpuName");
+            Assert.Equal(1, getGpuNameCallCount); // Only GPU 0's name read
+            
+            // GetGpuType should not be called for GPU 1 (after cancellation)
+            int getGpuTypeCallCount = nativeCalls.Count(c => c == "GetGpuType");
+            Assert.Equal(1, getGpuTypeCallCount); // Only GPU 0's type read
+
+            // Resources should be cleaned up
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            // GPU handles released
+            Assert.Contains(0x3000, fake.ReleasedPointers); // GPU 0
+            Assert.Contains(0x3001, fake.ReleasedPointers); // GPU 1
+            Assert.Contains(0x2000, fake.ReleasedPointers); // GPU list
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_CancellationDuringGetPerfServices_ThrowsOperationCanceledException()
+        {
+            // Cancellation occurs from GetPerformanceMonitoringServices handler - verify subsequent calls not made
+            var nativeCalls = new List<string>();
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+
+            // Track all native calls
+            fake.GetGpuListSizeHandler = (IntPtr list, out int count) =>
+            {
+                nativeCalls.Add("GetGpuListSize");
+                count = 1;
+                return 0;
+            };
+            fake.GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+            {
+                nativeCalls.Add("GetGpuAt");
+                gpu = new IntPtr(0x3000);
+                return 0;
+            };
+            fake.GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
+            {
+                nativeCalls.Add("GetGpuUniqueId");
+                uid = 12345;
+                return 0;
+            };
+            fake.GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
+            {
+                nativeCalls.Add("GetPerformanceMonitoringServices");
+                svc = new IntPtr(0x4000);
+                cts.Cancel(); // Cancel here
+                return 0;
+            };
+            fake.GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
+            {
+                nativeCalls.Add("GetSupportedGpuMetrics");
+                ms = new IntPtr(0x6000);
+                return 0;
+            };
+            fake.IsSupportedTempHandler = (IntPtr ms, out bool supported) =>
+            {
+                nativeCalls.Add("IsSupportedGpuTemperature");
+                supported = true;
+                return 0;
+            };
+            fake.GetCurrentMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr met) =>
+            {
+                nativeCalls.Add("GetCurrentGpuMetrics");
+                met = new IntPtr(0x5000);
+                return 0;
+            };
+            fake.GetGpuTempHandler = (IntPtr met, out double temp) =>
+            {
+                nativeCalls.Add("GetGpuTemperature");
+                temp = 65.5;
+                return 0;
+            };
+
+            Assert.Throws<OperationCanceledException>(() => provider.TryReadTemperatureInternal(12345, out _, out _, cts.Token));
+
+            // Verify calls made before cancellation
+            Assert.Contains("GetGpuListSize", nativeCalls);
+            Assert.Contains("GetGpuAt", nativeCalls);
+            Assert.Contains("GetGpuUniqueId", nativeCalls);
+            Assert.Contains("GetPerformanceMonitoringServices", nativeCalls);
+            
+            // Subsequent calls should NOT be made
+            Assert.DoesNotContain("GetSupportedGpuMetrics", nativeCalls);
+            Assert.DoesNotContain("IsSupportedGpuTemperature", nativeCalls);
+            Assert.DoesNotContain("GetCurrentGpuMetrics", nativeCalls);
+            Assert.DoesNotContain("GetGpuTemperature", nativeCalls);
+
+            // Resources should be cleaned up
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            // All acquired interfaces released: targetGpu, gpuList, services (acquired before cancel)
+            Assert.Contains(0x3000, fake.ReleasedPointers); // targetGpu
+            Assert.Contains(0x2000, fake.ReleasedPointers); // gpuList
+            Assert.Contains(0x4000, fake.ReleasedPointers); // services
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
+        }
+
+        [Fact]
+        public void Probe_CancellationTokenCheckedBetweenNativeCalls()
+        {
+            // Verify that CancellationToken is checked between native ADLX calls
+            // (native calls themselves don't receive the token, but the provider checks it between calls)
             var nativeCalls = new List<string>();
             var fake = new FakeAdlxNative
             {
@@ -2481,25 +2670,19 @@ namespace BlackIceGPUTemp.Tests
                 GetGpuListSizeHandler = (IntPtr list, out int count) =>
                 {
                     nativeCalls.Add("GetGpuListSize");
-                    count = 1;
+                    count = 3;
                     return 0;
                 },
                 GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
                 {
-                    nativeCalls.Add("GetGpuAt");
-                    gpu = new IntPtr(0x3000);
+                    nativeCalls.Add($"GetGpuAt[{index}]");
+                    gpu = new IntPtr(0x3000 + index);
                     return 0;
                 },
                 GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
                 {
                     nativeCalls.Add("GetGpuUniqueId");
                     uid = 12345;
-                    return 0;
-                },
-                GetGpuNameHandler = (IntPtr gpu, out string? name) =>
-                {
-                    nativeCalls.Add("GetGpuName");
-                    name = "Test GPU";
                     return 0;
                 },
                 GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
@@ -2523,21 +2706,42 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
             
-            // Cancel after initialization but before enumeration completes
+            // Cancel after Initialize and GetGpuListSize, during GetGpuAt for second GPU
             var cts = new CancellationTokenSource();
-            cts.Cancel();
-
-            try
+            fake.GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
             {
-                provider.Probe(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
+                nativeCalls.Add($"GetGpuAt[{index}]");
+                gpu = new IntPtr(0x3000 + index);
+                if (index == 1) // Cancel on second GPU
+                {
+                    cts.Cancel();
+                }
+                return 0;
+            };
 
-            // Initialize should have been called (it's the first native call)
-            // but cancellation should be checked before enumeration
+            Assert.Throws<OperationCanceledException>(() => provider.Probe(cts.Token));
+
+            // Initialize and GetGpuListSize should have been called
             Assert.Contains("Initialize", nativeCalls);
+            Assert.Contains("GetGpuListSize", nativeCalls);
+            // GetGpuAt for index 0 and 1 should have been called
+            Assert.Contains("GetGpuAt[0]", nativeCalls);
+            Assert.Contains("GetGpuAt[1]", nativeCalls);
+            // GetGpuAt for index 2 should NOT have been called (cancelled before)
+            Assert.DoesNotContain("GetGpuAt[2]", nativeCalls);
+            // IsSupportedGpuTemperature should not have been called for index 2
+            // (but may have been called for index 0 and 1)
+            
+            // Resources should be cleaned up
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            // Last native call should be GetGpuAt[1] (where cancellation occurred)
+            Assert.Equal("GetGpuAt[1]", nativeCalls.Last());
+            // GPU handle 0x3001 (from GetGpuAt[1]) should be released
+            Assert.Contains(0x3001, fake.ReleasedPointers);
+            // GPU list handle 0x2000 should be released
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
     }
 }
