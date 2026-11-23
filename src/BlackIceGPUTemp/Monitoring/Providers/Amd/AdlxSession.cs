@@ -7,7 +7,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 {
     internal sealed class AdlxSession : IDisposable
     {
-        private const int ADLX_ORPHAN_OBJECTS = 0xB;
+        internal const int ADLX_ORPHAN_OBJECTS = 0xB;
 
         private readonly IAdlxNative _native;
         private readonly IDisposable? _disposableNative;
@@ -16,10 +16,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private readonly bool _initialized;
         private bool _disposed;
 
-        private IAdlxNative? _pendingNative;
-        private IDisposable? _pendingDisposable;
-        private IAdlxNative? _pendingDisposeNative;
-        private IDisposable? _pendingDisposeDisposable;
+        public IAdlxNative? PendingNative { get; private set; }
+        public IDisposable? PendingDisposable { get; private set; }
+        public IAdlxNative? PendingDisposeNative { get; private set; }
+        public IDisposable? PendingDisposeDisposable { get; private set; }
 
         private AdlxSession(
             IAdlxNative native,
@@ -43,9 +43,17 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         public static AdlxSession? Create(
             Func<IAdlxNative> nativeFactory,
-            out string? error)
+            out string? error,
+            out IAdlxNative? pendingNative,
+            out IDisposable? pendingDisposable,
+            out IAdlxNative? pendingDisposeNative,
+            out IDisposable? pendingDisposeDisposable)
         {
             error = null;
+            pendingNative = null;
+            pendingDisposable = null;
+            pendingDisposeNative = null;
+            pendingDisposeDisposable = null;
 
             IAdlxNative? native = null;
             IDisposable? disposableNative = null;
@@ -53,50 +61,37 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
             int initResult = 0;
-            bool retryAttempted = false;
 
             try
             {
-                if (!TryAcquireNative(
-                    nativeFactory,
-                    out native,
-                    out disposableNative,
-                    out system,
-                    out gpuList,
-                    out initialized,
-                    out initResult,
-                    out retryAttempted))
-                {
-                    if (retryAttempted)
-                    {
-                        error = "Failed to initialize ADLX after retry.";
-                    }
-                    else
-                    {
-                        error = $"Failed to initialize ADLX. Result code: {initResult}";
-                    }
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX Session: exception during native acquisition", ex);
-                error = $"ADLX session creation failed: {ex.GetType().Name}: {ex.Message}";
-                return null;
-            }
+                native = nativeFactory();
+                disposableNative = native as IDisposable;
 
-            try
-            {
-                if (system == IntPtr.Zero)
+                initResult = native.Initialize(out system);
+                if (initResult != 0)
                 {
                     error = $"Failed to initialize ADLX. Result code: {initResult}";
+                    if (disposableNative != null)
+                    {
+                        try { disposableNative.Dispose(); }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("AdlxNative Dispose threw exception after Initialize error", ex);
+                            pendingDisposeNative = native;
+                            pendingDisposeDisposable = disposableNative;
+                        }
+                    }
                     return null;
                 }
 
-                int gpuListResult = native!.GetGpuList(system, out gpuList);
+                initialized = true;
+
+                int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
                     error = $"Failed to get GPU list. Result code: {gpuListResult}";
+                    CleanupRef(native, ref gpuList, ref system, initialized, disposableNative,
+                        out pendingNative, out pendingDisposable, out pendingDisposeNative, out pendingDisposeDisposable);
                     return null;
                 }
 
@@ -104,10 +99,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                Logger.LogError("ADLX Session: exception during GPU list acquisition", ex);
+                Logger.LogError("ADLX Session: exception during native acquisition", ex);
                 error = $"ADLX session creation failed: {ex.GetType().Name}: {ex.Message}";
                 CleanupRef(native, ref gpuList, ref system, initialized, disposableNative,
-                    out _, out _, out _, out _);
+                    out pendingNative, out pendingDisposable, out pendingDisposeNative, out pendingDisposeDisposable);
                 return null;
             }
         }
@@ -303,8 +298,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         catch (Exception ex)
                         {
                             Logger.LogError("AdlxNative Dispose threw exception", ex);
-                            _pendingDisposeNative = _native;
-                            _pendingDisposeDisposable = _disposableNative;
+                            PendingDisposeNative = _native;
+                            PendingDisposeDisposable = _disposableNative;
                         }
                         Logger.LogInfo("AdlxSession Cleanup: Dispose end");
                     }
@@ -312,8 +307,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 else
                 {
                     Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}" + (terminateException != null ? $", exception: {terminateException.Message}" : ""));
-                    _pendingNative = _native;
-                    _pendingDisposable = _disposableNative;
+                    PendingNative = _native;
+                    PendingDisposable = _disposableNative;
                 }
                 Logger.LogInfo("AdlxSession Cleanup: Terminate end");
             }
@@ -327,147 +322,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 catch (Exception ex)
                 {
                     Logger.LogError("AdlxNative Dispose threw exception", ex);
-                    _pendingDisposeNative = _native;
-                    _pendingDisposeDisposable = _disposableNative;
+                    PendingDisposeNative = _native;
+                    PendingDisposeDisposable = _disposableNative;
                 }
                 Logger.LogInfo("AdlxSession Cleanup: Dispose end");
             }
-        }
-
-        private static bool TryAcquireNative(
-            Func<IAdlxNative> nativeFactory,
-            out IAdlxNative? native,
-            out IDisposable? disposableNative,
-            out IntPtr system,
-            out IntPtr gpuList,
-            out bool initialized,
-            out int initResult,
-            out bool retryAttempted)
-        {
-            native = null;
-            disposableNative = null;
-            system = IntPtr.Zero;
-            gpuList = IntPtr.Zero;
-            initialized = false;
-            initResult = 0;
-            retryAttempted = false;
-
-            if (HasPendingDispose())
-            {
-                try
-                {
-                    _pendingDisposeDisposable!.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError("Pending AdlxNative Dispose retry threw exception", ex);
-                    return false;
-                }
-                ClearPendingDispose();
-            }
-
-            if (HasPendingNative())
-            {
-                retryAttempted = true;
-                int retryResult = 0;
-                Exception? retryException = null;
-                try
-                {
-                    retryResult = _pendingNative!.Terminate();
-                }
-                catch (Exception ex)
-                {
-                    retryException = ex;
-                }
-
-                if (retryException == null && (retryResult == 0 || retryResult == ADLX_ORPHAN_OBJECTS))
-                {
-                    Logger.LogInfo($"Retry Terminate succeeded with HRESULT: 0x{retryResult:X}");
-                    try
-                    {
-                        _pendingDisposable?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
-                        SetPendingDispose(_pendingNative, _pendingDisposable);
-                        ClearPendingNative();
-                        return false;
-                    }
-                    ClearPendingNative();
-                }
-                else
-                {
-                    Logger.LogError($"Retry Terminate failed with HRESULT: 0x{retryResult:X}" + (retryException != null ? $", exception: {retryException.Message}" : ""));
-                    return false;
-                }
-            }
-
-            native = nativeFactory();
-            disposableNative = native as IDisposable;
-
-            try
-            {
-                initResult = native.Initialize(out system);
-            }
-            catch
-            {
-                if (disposableNative != null)
-                {
-                    try { disposableNative.Dispose(); }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("AdlxNative Dispose threw exception after Initialize exception", ex);
-                        SetPendingDispose(native, disposableNative);
-                    }
-                }
-                throw;
-            }
-
-            if (initResult == 0)
-            {
-                initialized = true;
-                return true;
-            }
-
-            if (disposableNative != null)
-            {
-                try { disposableNative.Dispose(); }
-                catch (Exception ex)
-                {
-                    Logger.LogError("AdlxNative Dispose threw exception after Initialize error", ex);
-                    SetPendingDispose(native, disposableNative);
-                }
-            }
-            return false;
-        }
-
-        private static bool HasPendingDispose()
-        {
-            return _pendingDisposeNative != null && _pendingDisposeDisposable != null;
-        }
-
-        private static void ClearPendingDispose()
-        {
-            _pendingDisposeNative = null;
-            _pendingDisposeDisposable = null;
-        }
-
-        private static bool HasPendingNative()
-        {
-            return _pendingNative != null;
-        }
-
-        private static void ClearPendingNative()
-        {
-            _pendingNative = null;
-            _pendingDisposable = null;
-        }
-
-        private static void SetPendingDispose(IAdlxNative native, IDisposable disposable)
-        {
-            _pendingDisposeNative = native;
-            _pendingDisposeDisposable = disposable;
         }
 
         private static void CleanupRef(
