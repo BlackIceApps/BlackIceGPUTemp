@@ -135,7 +135,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return _native.GetGpuAt(_gpuList, index, out gpu);
         }
 
-        public bool GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name)
+        public bool GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name, CancellationToken cancellationToken = default)
         {
             uniqueId = 0;
             name = null;
@@ -145,6 +145,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             int idResult = _native.GetGpuUniqueId(gpu, out uniqueId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             int nameResult = _native.GetGpuName(gpu, out name);
 
             return idResult == 0 && nameResult == 0;

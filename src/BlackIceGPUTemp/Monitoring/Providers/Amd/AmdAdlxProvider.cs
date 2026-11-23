@@ -75,6 +75,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                     continue;
                                 }
 
+                                cancellationToken.ThrowIfCancellationRequested();
+
                                 if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
                                 {
                                     hasSupportedGpu = true;
@@ -166,10 +168,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                     continue;
                                 }
 
-                                if (!session.GetUniqueIdAndName(gpu, out int uniqueId, out string? name))
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                if (!session.GetUniqueIdAndName(gpu, out int uniqueId, out string? name, cancellationToken))
                                 {
                                     continue;
                                 }
+
+                                cancellationToken.ThrowIfCancellationRequested();
 
                                 if (uniqueId <= 0 || string.IsNullOrWhiteSpace(name))
                                 {
@@ -201,6 +207,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                     Logger.LogError("ADLX EnumerateDevices: exception while reading GPU type", ex);
                                     gpuKind = GpuKind.Unknown;
                                 }
+
+                                cancellationToken.ThrowIfCancellationRequested();
 
                                 if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
                                 {
@@ -289,35 +297,55 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                 error = "Failed to get performance monitoring services.";
                                 result = false;
                             }
-                            else if (session.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
-                            {
-                                error = "Failed to get supported GPU metrics.";
-                                result = false;
-                            }
-                            else if (session.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
-                            {
-                                error = "GPU temperature monitoring is not supported.";
-                                result = false;
-                            }
-                            else if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
-                            {
-                                error = "Failed to get current GPU metrics.";
-                                result = false;
-                            }
-                            else if (session.GetGpuTemperature(metrics, out double celsius) != 0)
-                            {
-                                error = "Failed to get GPU temperature reading.";
-                                result = false;
-                            }
-                            else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
-                            {
-                                error = "GPU temperature is NaN or Infinity.";
-                                result = false;
-                            }
                             else
                             {
-                                reading = new TemperatureReading(celsius, "GPU Edge", DateTimeOffset.UtcNow);
-                                result = true;
+                                cancellationToken.ThrowIfCancellationRequested();
+
+                                if (session.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
+                                {
+                                    error = "Failed to get supported GPU metrics.";
+                                    result = false;
+                                }
+                                else
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+
+                                    if (session.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
+                                    {
+                                        error = "GPU temperature monitoring is not supported.";
+                                        result = false;
+                                    }
+                                    else
+                                    {
+                                        cancellationToken.ThrowIfCancellationRequested();
+
+                                        if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
+                                        {
+                                            error = "Failed to get current GPU metrics.";
+                                            result = false;
+                                        }
+                                        else
+                                        {
+                                            cancellationToken.ThrowIfCancellationRequested();
+
+                                            if (session.GetGpuTemperature(metrics, out double celsius) != 0)
+                                            {
+                                                error = "Failed to get GPU temperature reading.";
+                                                result = false;
+                                            }
+                                            else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
+                                            {
+                                                error = "GPU temperature is NaN or Infinity.";
+                                                result = false;
+                                            }
+                                            else
+                                            {
+                                                reading = new TemperatureReading(celsius, "GPU Edge", DateTimeOffset.UtcNow);
+                                                result = true;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         finally
@@ -454,6 +482,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 {
                     if (session.GetGpuAt(i, out gpu) == 0 && gpu != IntPtr.Zero)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+
                         if (session.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
                         {
                             isTarget = true;
