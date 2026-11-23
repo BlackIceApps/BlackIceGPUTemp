@@ -11,7 +11,7 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// <summary>
         /// Creates a read-only collection of GPU providers.
         /// </summary>
-        /// <returns>An immutable collection of <see cref="IGpuProvider"/> instances.</returns>
+        /// <returns>A read-only collection of <see cref="IGpuProvider"/> instances.</returns>
         IReadOnlyList<IGpuProvider> CreateProviders();
     }
 }
