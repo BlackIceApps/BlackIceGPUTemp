@@ -2696,13 +2696,15 @@ namespace BlackIceGPUTemp.Tests
                 GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
                 {
                     nativeCalls.Add("GetSupportedGpuMetrics");
-                    ms = new IntPtr(0x6000);
+                    int gpuIndex = (int)(gpu.ToInt64() - 0x3000);
+                    ms = new IntPtr(0x6000 + gpuIndex);
                     return 0;
                 },
                 IsSupportedTempHandler = (IntPtr ms, out bool supported) =>
                 {
                     nativeCalls.Add("IsSupportedGpuTemperature");
-                    supported = true;
+                    int gpuIndex = (int)(ms.ToInt64() - 0x6000);
+                    supported = gpuIndex != 0; // GPU 0 returns false, others true
                     return 0;
                 }
             };
