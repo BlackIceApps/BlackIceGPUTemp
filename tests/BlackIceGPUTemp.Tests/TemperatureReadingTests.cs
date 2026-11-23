@@ -46,5 +46,30 @@ namespace BlackIceGPUTemp.Tests
             var timestamp = DateTimeOffset.UtcNow;
             Assert.Throws<ArgumentException>(() => new TemperatureReading(50.0, invalidSensorName!, timestamp));
         }
+
+        [Fact]
+        public void Constructor_FutureTimestampBeyond30Seconds_ThrowsArgumentOutOfRangeException()
+        {
+            var futureTimestamp = DateTimeOffset.UtcNow.AddSeconds(31);
+            Assert.Throws<ArgumentOutOfRangeException>(() => new TemperatureReading(50.0, "GPU Core", futureTimestamp));
+        }
+
+        [Fact]
+        public void Constructor_FutureTimestampWithin30Seconds_Accepted()
+        {
+            var futureTimestamp = DateTimeOffset.UtcNow.AddSeconds(15);
+            var reading = new TemperatureReading(50.0, "GPU Core", futureTimestamp);
+
+            Assert.Equal(futureTimestamp.ToUniversalTime(), reading.TimestampUtc);
+        }
+
+        [Fact]
+        public void Constructor_PastTimestamp_Accepted()
+        {
+            var pastTimestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var reading = new TemperatureReading(50.0, "GPU Core", pastTimestamp);
+
+            Assert.Equal(pastTimestamp.ToUniversalTime(), reading.TimestampUtc);
+        }
     }
 }
