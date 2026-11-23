@@ -385,9 +385,9 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // First call: Terminate fails, native retained in _pendingNative
+            // First call: monitoring succeeds, Terminate fails in Cleanup, native retained in _pendingNative
             var result1 = provider.Probe();
-            Assert.False(result1.IsAvailable);
+            Assert.True(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(0, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
@@ -431,9 +431,9 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // First call: Terminate fails
+            // First call: monitoring succeeds, Terminate fails in Cleanup
             var result1 = provider.Probe();
-            Assert.False(result1.IsAvailable);
+            Assert.True(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
 
             // Second call: Terminate succeeds, Dispose throws -> retained
@@ -525,7 +525,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var fake = new DisposeThrowsOnceThenSucceedsFake();
             var fake2 = new FakeAdlxNative();
-            var factoryCallCount = 0;
+            var factoryCallCount = 1;
             var provider = new AmdAdlxProvider(() =>
             {
                 factoryCallCount++;
@@ -562,7 +562,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var fake = new DisposeFailsAndRetainsFake();
             var fake2 = new FakeAdlxNative();
-            var factoryCallCount = 0;
+            var factoryCallCount = 1;
             var provider = new AmdAdlxProvider(() =>
             {
                 factoryCallCount++;
