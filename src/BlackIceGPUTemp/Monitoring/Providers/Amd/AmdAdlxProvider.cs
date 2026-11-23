@@ -10,7 +10,7 @@ using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 {
-    public sealed class AmdAdlxProvider : IGpuProviderProbe, IGpuDeviceEnumerator, IGpuTemperatureReader
+    public sealed class AmdAdlxProvider : IGpuProvider, IGpuTemperatureReader
     {
         private readonly Func<IAdlxNative> _nativeFactory;
         private IAdlxNative? _pendingNative;
@@ -261,6 +261,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         public bool TryReadTemperature(string deviceId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            
             if (string.IsNullOrWhiteSpace(deviceId))
             {
                 reading = null;
