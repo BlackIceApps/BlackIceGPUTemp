@@ -101,6 +101,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         }
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     Logger.LogError("ADLX Probe: exception during GPU enumeration", ex);
@@ -216,6 +220,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         result = devices;
                     }
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     Logger.LogError("ADLX EnumerateDevices: exception during GPU enumeration", ex);
@@ -320,6 +328,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             session.ReleaseInterface(ref targetGpu);
                         }
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
