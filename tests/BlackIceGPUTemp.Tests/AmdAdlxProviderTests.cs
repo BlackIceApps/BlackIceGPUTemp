@@ -239,6 +239,33 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
+        private class TerminateSequenceFake : FakeAdlxNative
+        {
+            private readonly Queue<int> _terminateResults = new Queue<int>();
+            private readonly Queue<bool> _throwOnTerminate = new Queue<bool>();
+
+            public void EnqueueTerminate(int result, bool throwEx = false)
+            {
+                _terminateResults.Enqueue(result);
+                _throwOnTerminate.Enqueue(throwEx);
+            }
+
+            public override int Terminate()
+            {
+                TerminateCalls++;
+                Events.Add("Terminate");
+                if (_throwOnTerminate.Count > 0 && _throwOnTerminate.Dequeue())
+                {
+                    throw new InvalidOperationException("Simulated Terminate exception");
+                }
+                if (_terminateResults.Count > 0)
+                {
+                    return _terminateResults.Dequeue();
+                }
+                return 0;
+            }
+        }
+
         private class DisposeThrowingFake : FakeAdlxNative
         {
             public bool ThrowOnDispose { get; set; } = false;
@@ -250,6 +277,18 @@ namespace BlackIceGPUTemp.Tests
                 {
                     throw new InvalidOperationException("Simulated Dispose exception");
                 }
+            }
+        }
+
+        private class DisposeFailsAndRetainsFake : FakeAdlxNative
+        {
+            public int DisposeCallCount { get; private set; }
+
+            public override void Dispose()
+            {
+                DisposeCallCount++;
+                // Never mark as disposed - always throw
+                throw new InvalidOperationException($"Simulated Dispose failure on call {DisposeCallCount}");
             }
         }
 
@@ -917,7 +956,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -931,7 +970,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(success);
             Assert.NotNull(reading);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -944,7 +983,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(devices);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -957,7 +996,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -971,7 +1010,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(success);
             Assert.NotNull(reading);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -984,7 +1023,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(devices);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -1266,7 +1305,9 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void NextCall_RetriesTerminate_OnSuccess_DisposesAndAllowsNewInit()
         {
-            var fake = new TerminateFailingFake { TerminateHResult = -1 };
+            var fake = new TerminateSequenceFake();
+            fake.EnqueueTerminate(-1); // First call fails
+            fake.EnqueueTerminate(0);  // Second call succeeds
             var fake2 = new FakeAdlxNative();
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1643,7 +1684,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void PendingDispose_RetryDispose_Fails_ReturnsFalseAndRetainsReferences()
         {
-            var fake = new DisposeThrowingFake
+            var fake = new DisposeFailsAndRetainsFake
             {
                 InitializeHandler = (out IntPtr sys) =>
                 {
@@ -1663,12 +1704,15 @@ namespace BlackIceGPUTemp.Tests
             var result1 = provider.Probe();
             Assert.True(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed);
 
             var result2 = provider.Probe();
             Assert.False(result2.IsAvailable);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
+            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed);
         }
     }
 }
