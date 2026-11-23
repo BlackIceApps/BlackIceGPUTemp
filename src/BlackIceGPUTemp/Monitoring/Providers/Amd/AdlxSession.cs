@@ -86,6 +86,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 initialized = true;
 
+                if (system == IntPtr.Zero)
+                {
+                    error = "ADLX initialization succeeded but returned a null system interface.";
+                    CleanupRef(native, ref gpuList, ref system, initialized, disposableNative,
+                        out pendingNative, out pendingDisposable, out pendingDisposeNative, out pendingDisposeDisposable);
+                    return null;
+                }
+
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
