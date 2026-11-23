@@ -446,7 +446,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         if (_libHandle != IntPtr.Zero)
         {
             IntPtr handle = _libHandle;
-            bool freeResult = false;
+            bool freeResult;
 
             try
             {
@@ -462,13 +462,14 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             catch (Exception ex)
             {
                 Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
+                throw;
             }
 
             if (!freeResult)
             {
                 int error = Marshal.GetLastWin32Error();
                 Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
-                return;
+                throw new System.ComponentModel.Win32Exception(error, $"Failed to free ADLX library. Win32 error: {error}");
             }
 
             _libHandle = IntPtr.Zero;
