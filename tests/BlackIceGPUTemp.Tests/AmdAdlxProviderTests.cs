@@ -1248,6 +1248,126 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void Release_ReturnsZero_NotTreatedAsError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => 0
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Contains(0, fake.ReleaseReturnCodes);
+        }
+
+        [Fact]
+        public void Release_ReturnsPositiveRefCount_NotTreatedAsError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => 2
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Contains(2, fake.ReleaseReturnCodes);
+        }
+
+        [Fact]
+        public void Release_ReturnsNegativeValue_DoesNotBreakCleanup()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ReleaseHandler = (IntPtr ptr) => -1
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            // All interfaces should still be released despite negative return
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotBlockOtherReleases_AndZeroesPointer()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x4000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            // All interfaces should still be released despite one throwing
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.ThrowOnReleaseCount);
+        }
+
+        [Fact]
+        public void ReleaseException_DoesNotBlockOtherReleases_TryReadTemperatureInternal_AndZeroesPointer()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x6000
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.True(success);
+            // All interfaces should still be released despite one throwing
+            Assert.Contains(0x5000, fake.ReleasedPointers);
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.ThrowOnReleaseCount);
+        }
+
+        [Fact]
+        public void ReleaseInterface_ZeroesPointer_WhenReleaseThrows()
+        {
+            var fake = new FakeAdlxNative
+            {
+                ThrowOnRelease = true,
+                ThrowOnReleasePointer = 0x4000
+            };
+
+            var interopType = typeof(AmdAdlxProvider).Assembly.GetType("BlackIceGPUTemp.Monitoring.Providers.Amd.AdlxInterop");
+            Assert.NotNull(interopType);
+
+            var releaseInterfaceMethod = interopType!.GetMethod("ReleaseInterface", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            Assert.NotNull(releaseInterfaceMethod);
+
+            IntPtr ptr = new IntPtr(0x4000);
+            object[] args = new object[] { fake, ptr };
+
+            // Invoke the method - it should catch the exception and zero the pointer
+            releaseInterfaceMethod!.Invoke(null, args);
+
+            // Verify the pointer was zeroed (args[1] is the ref parameter)
+            Assert.Equal(IntPtr.Zero, args[1]);
+        }
+
+        [Fact]
         public void Terminate_ReturnsErrorHResult_Probe_ReturnsSuccessAndLogsError()
         {
             var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };

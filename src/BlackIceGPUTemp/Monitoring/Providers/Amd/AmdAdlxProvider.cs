@@ -642,10 +642,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 try
                 {
                     int result = native.Release(currentPtr);
-                    if (result != 0)
-                    {
-                        Trace.TraceError("ADLX Release failed: interface=0x{0:X}, HRESULT=0x{1:X}", currentPtr, result);
-                    }
+                    Trace.TraceInformation("ADLX Release: interface=0x{0:X}, ref count={1}", currentPtr, result);
                 }
                 catch (Exception ex)
                 {

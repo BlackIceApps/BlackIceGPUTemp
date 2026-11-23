@@ -107,6 +107,6 @@ public interface IAdlxNative
     /// Releases an unmanaged ADLX interface.
     /// </summary>
     /// <param name="adlxInterface">The unmanaged ADLX interface pointer to release.</param>
-    /// <returns>The native ADLX result code.</returns>
+    /// <returns>The remaining reference count of the interface after release.</returns>
     int Release(IntPtr adlxInterface);
 }
