@@ -2777,7 +2777,7 @@ namespace BlackIceGPUTemp.Tests
             // Should be assignable to IGpuProvider (aggregate interface)
             IGpuProvider aggregateProvider = provider;
 
-            // Should have Id and DisplayName from both probe and enumerator
+            // Should have Id and DisplayName from shared metadata interface
             Assert.Equal("amd-adlx", aggregateProvider.Id);
             Assert.Equal("AMD ADLX", aggregateProvider.DisplayName);
 

@@ -4,10 +4,8 @@ using System.Threading;
 
 namespace BlackIceGPUTemp.Monitoring.Abstractions
 {
-    public interface IGpuDeviceEnumerator
+    public interface IGpuDeviceEnumerator : IGpuProviderMetadata
     {
-        string Id { get; }
-        string DisplayName { get; }
         IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default);
     }
 }
