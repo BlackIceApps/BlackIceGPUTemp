@@ -69,7 +69,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
                 }
 
-                int gpuListResult = native.GetGpuList(system, out gpuList);
+                int gpuListResult = native!.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
                     return new ProviderProbeResult(false, $"Failed to get GPU list. Result code: {gpuListResult}");
@@ -270,7 +270,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     return devices;
                 }
 
-                int gpuListResult = native.GetGpuList(system, out gpuList);
+                int gpuListResult = native!.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
                     return devices;
@@ -382,7 +382,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     return false;
                 }
 
-                int gpuListResult = native.GetGpuList(system, out gpuList);
+                int gpuListResult = native!.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
                     error = $"Failed to get GPU list. Result code: {gpuListResult}";
