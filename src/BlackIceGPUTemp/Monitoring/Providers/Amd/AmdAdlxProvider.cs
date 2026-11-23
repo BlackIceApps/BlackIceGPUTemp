@@ -521,6 +521,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         catch (Exception ex)
                         {
                             Logger.LogError("AdlxNative Dispose threw exception", ex);
+                            _pendingDisposeNative = native;
+                            _pendingDisposeDisposable = disposableNative;
                         }
                         Logger.LogInfo("Cleanup: Dispose end");
                     }
