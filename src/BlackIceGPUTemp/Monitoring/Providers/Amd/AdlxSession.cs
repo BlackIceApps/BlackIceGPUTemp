@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
