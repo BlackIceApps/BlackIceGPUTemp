@@ -50,6 +50,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 return new ProviderProbeResult(false, error);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             ProviderProbeResult result;
             try
             {
@@ -79,7 +81,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                                     cancellationToken.ThrowIfCancellationRequested();
 
-                                    if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
+                                    if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
                                     {
                                         hasSupportedGpu = true;
                                     }
@@ -150,6 +152,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 return devices;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             IReadOnlyList<IGpuDevice> result;
             try
             {
@@ -218,7 +222,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                                     cancellationToken.ThrowIfCancellationRequested();
 
-                                    if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
+                                    if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
                                     {
                                         if (seenUniqueIds.Add(uniqueId))
                                         {
@@ -485,6 +489,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken)
         {
             int sizeResult = session.GetGpuListSize(out int count);
+            cancellationToken.ThrowIfCancellationRequested();
             if (sizeResult != 0)
             {
                 return IntPtr.Zero;
