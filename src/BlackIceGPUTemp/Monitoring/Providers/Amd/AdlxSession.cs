@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
@@ -135,7 +136,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return _native.GetGpuAt(_gpuList, index, out gpu);
         }
 
-        public bool GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name)
+        public bool GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name, CancellationToken cancellationToken = default)
         {
             uniqueId = 0;
             name = null;
@@ -145,12 +146,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             int idResult = _native.GetGpuUniqueId(gpu, out uniqueId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             int nameResult = _native.GetGpuName(gpu, out name);
 
             return idResult == 0 && nameResult == 0;
         }
 
-        public bool IsTemperatureSupported(IntPtr gpu, out bool supported)
+        public bool IsTemperatureSupported(IntPtr gpu, out bool supported, CancellationToken cancellationToken = default)
         {
             supported = false;
             if (_disposed)
@@ -168,10 +172,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     return false;
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (_native.GetSupportedGpuMetrics(services, gpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
                 {
                     return false;
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 if (_native.IsSupportedGpuTemperature(metricsSupport, out supported) != 0)
                 {

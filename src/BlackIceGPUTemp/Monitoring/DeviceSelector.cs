@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Monitoring
@@ -26,11 +27,12 @@ namespace BlackIceGPUTemp.Monitoring
         /// </summary>
         /// <param name="providerId">The unique identifier of the provider.</param>
         /// <param name="deviceId">The unique identifier of the device.</param>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns>The matching <see cref="IGpuDevice"/> if found; otherwise, <c>null</c>.</returns>
         /// <exception cref="ArgumentException">
         /// Thrown when <paramref name="providerId"/> or <paramref name="deviceId"/> is null, empty, or white-space.
         /// </exception>
-        public IGpuDevice? FindDevice(string providerId, string deviceId)
+        public IGpuDevice? FindDevice(string providerId, string deviceId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(providerId))
             {
@@ -48,7 +50,7 @@ namespace BlackIceGPUTemp.Monitoring
                 return null;
             }
 
-            var devices = provider.EnumerateDevices();
+            var devices = provider.EnumerateDevices(cancellationToken);
             if (devices == null)
             {
                 return null;

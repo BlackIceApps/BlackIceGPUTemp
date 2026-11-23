@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd
@@ -22,9 +23,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             Kind = kind;
         }
 
-        public bool TryReadTemperature(out TemperatureReading? reading, out string? error)
+        public bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
         {
-            return _provider.TryReadTemperatureInternal(_uniqueId, out reading, out error);
+            return _provider.TryReadTemperatureInternal(_uniqueId, out reading, out error, cancellationToken);
         }
     }
 }

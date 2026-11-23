@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using BlackIceGPUTemp.Monitoring;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using Xunit;
@@ -18,8 +19,8 @@ namespace BlackIceGPUTemp.Tests
                 Id = id;
             }
 
-            public ProviderProbeResult Probe() => new ProviderProbeResult(true, null);
-            public IReadOnlyList<IGpuDevice> EnumerateDevices() => Array.Empty<IGpuDevice>();
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default) => new ProviderProbeResult(true, null);
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default) => Array.Empty<IGpuDevice>();
         }
 
         [Fact]
