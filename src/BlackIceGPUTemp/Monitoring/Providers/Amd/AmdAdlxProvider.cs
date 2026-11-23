@@ -14,6 +14,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private readonly Func<IAdlxNative> _nativeFactory;
         private IAdlxNative? _pendingNative;
         private IDisposable? _pendingDisposable;
+        private IAdlxNative? _pendingDisposeNative;
+        private IDisposable? _pendingDisposeDisposable;
         private readonly object _lock = new object();
 
         public string Id => "amd-adlx";
