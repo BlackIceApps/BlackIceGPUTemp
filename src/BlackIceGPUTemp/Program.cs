@@ -1,6 +1,9 @@
 using System;
 using System.Windows.Forms;
 using BlackIceGPUTemp.Logging;
+using BlackIceGPUTemp.Monitoring;
+using BlackIceGPUTemp.Monitoring.Abstractions;
+using BlackIceGPUTemp.Monitoring.Providers.Amd;
 using BlackIceGPUTemp.Tray;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("BlackIceGPUTemp.Tests")]
@@ -17,7 +20,12 @@ namespace BlackIceGPUTemp
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new BlackIceGPUTempApplicationContext());
+
+            var providerFactory = new AmdGpuProviderFactory();
+            var monitoringSessionFactory = new GpuMonitoringSessionFactory(providerFactory);
+            var context = new BlackIceGPUTempApplicationContext(monitoringSessionFactory);
+
+            Application.Run(context);
         }
 
         private static void SetupExceptionHandlers()
