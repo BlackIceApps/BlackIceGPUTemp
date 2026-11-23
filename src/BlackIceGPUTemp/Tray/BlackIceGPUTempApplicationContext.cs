@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
+using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd;
 
 namespace BlackIceGPUTemp.Tray
@@ -135,7 +136,7 @@ namespace BlackIceGPUTemp.Tray
             {
                 Logger.LogInfo("Initializing GPU monitoring");
                 var provider = new AmdAdlxProvider();
-                var probeResult = provider.Probe(cancellationToken);
+                var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -145,7 +146,7 @@ namespace BlackIceGPUTemp.Tray
                 if (probeResult.IsAvailable)
                 {
                     Logger.LogInfo("ADLX provider available");
-                    var devices = provider.EnumerateDevices(cancellationToken);
+                    var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
 
                     if (cancellationToken.IsCancellationRequested)
                     {
@@ -357,7 +358,6 @@ namespace BlackIceGPUTemp.Tray
 
         private static Icon? CreateTemperatureIcon(string text)
         {
-            // 1. DPI awareness - scale icon size with system DPI
             float dpiX, dpiY;
             using (var bmp = new Bitmap(1, 1, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             {
@@ -370,10 +370,8 @@ namespace BlackIceGPUTemp.Tray
             width = width < 16 ? 16 : width;
             height = height < 16 ? 16 : height;
 
-            // 2. Use system font family (adapts to OS)
             var fontFamily = SystemFonts.MessageBoxFont.FontFamily;
 
-            // 3. Per-font base size tuning (compensate metric differences)
             float baseSize = fontFamily.Name switch
             {
                 "Segoe UI" => 12f,
@@ -381,10 +379,9 @@ namespace BlackIceGPUTemp.Tray
                 _ => 12f
             };
 
-            // 4. Configurable overrides (adjust these to taste)
-            const float fontSizeMultiplier = 1f;    // Multiply calculated size
-            const int fontStyle = (int)FontStyle.Bold; // FontStyle.Regular for normal
-            const float verticalOffset = -1f;       // Pixels up (-) or down (+)
+            const float fontSizeMultiplier = 1f;
+            const int fontStyle = (int)FontStyle.Bold;
+            const float verticalOffset = -1f;
 
             float fontSize = baseSize * width / 16f * fontSizeMultiplier;
 
@@ -397,7 +394,6 @@ namespace BlackIceGPUTemp.Tray
                 {
                     graphics.Clear(Color.Transparent);
 
-                    // 3. TextRenderer for better small-text rendering on Windows
                     graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
                     graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
 
@@ -407,7 +403,6 @@ namespace BlackIceGPUTemp.Tray
                         var bounds = new Rectangle(0, 0, width, height);
                         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
 
-                        // Apply vertical offset by adjusting bounds
                         if (verticalOffset != 0)
                         {
                             bounds = new Rectangle(0, (int)Math.Round(verticalOffset), width, height);

@@ -29,12 +29,11 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
-        private class TestGpuProvider : IGpuProvider
+        private class TestGpuProvider : IGpuDeviceEnumerator
         {
             public string Id { get; }
             public string DisplayName => Id;
             public int EnumerateDevicesCallCount { get; private set; }
-            public int ProbeCallCount { get; private set; }
 
             private readonly List<IGpuDevice> _devices;
 
@@ -42,12 +41,6 @@ namespace BlackIceGPUTemp.Tests
             {
                 Id = id;
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
-            }
-
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
-            {
-                ProbeCallCount++;
-                return new ProviderProbeResult(true, null);
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -72,7 +65,7 @@ namespace BlackIceGPUTemp.Tests
         [InlineData("prov1", "   ")]
         public void FindDevice_InvalidArguments_ThrowsArgumentException(string? providerId, string? deviceId)
         {
-            var registry = new GpuProviderRegistry(Array.Empty<IGpuProvider>());
+            var registry = new GpuProviderRegistry(Array.Empty<IGpuDeviceEnumerator>());
             var selector = new DeviceSelector(registry);
 
             Assert.Throws<ArgumentException>(() => selector.FindDevice(providerId!, deviceId!));
@@ -118,18 +111,6 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Null(result);
             Assert.Equal(1, provider.EnumerateDevicesCallCount);
-        }
-
-        [Fact]
-        public void FindDevice_ProbeIsNotCalled()
-        {
-            var provider = new TestGpuProvider("nvidia", new[] { new TestGpuDevice("gpu-001") });
-            var registry = new GpuProviderRegistry(new[] { provider });
-            var selector = new DeviceSelector(registry);
-
-            selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
-
-            Assert.Equal(0, provider.ProbeCallCount);
         }
     }
 }

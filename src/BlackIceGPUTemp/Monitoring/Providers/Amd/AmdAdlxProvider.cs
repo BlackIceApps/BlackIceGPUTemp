@@ -10,7 +10,7 @@ using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 {
-    public sealed class AmdAdlxProvider : IGpuProvider
+    public sealed class AmdAdlxProvider : IGpuProviderProbe, IGpuDeviceEnumerator, IGpuTemperatureReader
     {
         private readonly Func<IAdlxNative> _nativeFactory;
         private IAdlxNative? _pendingNative;
@@ -227,7 +227,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                         if (seenUniqueIds.Add(uniqueId))
                                         {
                                             string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
-                                            devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId, gpuKind));
+                                            devices.Add(new AmdAdlxDevice(this, deviceId, name!, gpuKind));
                                         }
                                     }
                                 }
@@ -257,6 +257,40 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             return result;
+        }
+
+        public bool TryReadTemperature(string deviceId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                reading = null;
+                error = "Device ID cannot be null, empty, or whitespace.";
+                return false;
+            }
+
+            if (!TryParseUniqueId(deviceId, out int uniqueId))
+            {
+                reading = null;
+                error = $"Invalid device ID format: '{deviceId}'. Expected format: 'amd-adlx:<uniqueId>'";
+                return false;
+            }
+
+            lock (_lock)
+            {
+                return TryReadTemperatureInternalImpl(uniqueId, out reading, out error, cancellationToken);
+            }
+        }
+
+        private static bool TryParseUniqueId(string deviceId, out int uniqueId)
+        {
+            uniqueId = 0;
+            const string prefix = "amd-adlx:";
+            if (!deviceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            string idPart = deviceId.Substring(prefix.Length);
+            return int.TryParse(idPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out uniqueId);
         }
 
         internal bool TryReadTemperatureInternal(int targetUniqueId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
@@ -439,7 +473,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     {
                         Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
                         _pendingDisposeNative = _pendingNative;
-                        _pendingDisposeDisposable = _pendingDisposable;
+                        _pendingDisposeDisposable = _pendingDisposeDisposable;
                         _pendingNative = null;
                         _pendingDisposable = null;
                         error = "Pending AdlxNative Dispose threw exception on retry";
