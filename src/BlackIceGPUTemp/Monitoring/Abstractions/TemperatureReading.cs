@@ -15,6 +15,7 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// <param name="timestampUtc">The UTC timestamp when the reading was taken.</param>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="celsius"/> is NaN or infinity.</exception>
         /// <exception cref="ArgumentException">Thrown when <paramref name="sensorName"/> is null, empty, or whitespace-only.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="timestampUtc"/> is more than 30 seconds in the future.</exception>
         public TemperatureReading(double celsius, string sensorName, DateTimeOffset timestampUtc)
         {
             if (double.IsNaN(celsius) || double.IsInfinity(celsius))
@@ -27,9 +28,16 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
                 throw new ArgumentException("Sensor name cannot be null or whitespace.", nameof(sensorName));
             }
 
+            var normalizedTimestamp = timestampUtc.ToUniversalTime();
+            var maxAllowedTimestamp = DateTimeOffset.UtcNow.AddSeconds(30);
+            if (normalizedTimestamp > maxAllowedTimestamp)
+            {
+                throw new ArgumentOutOfRangeException(nameof(timestampUtc), timestampUtc, "Timestamp cannot be more than 30 seconds in the future.");
+            }
+
             Celsius = celsius;
             SensorName = sensorName;
-            TimestampUtc = timestampUtc.ToUniversalTime();
+            TimestampUtc = normalizedTimestamp;
         }
 
         /// <summary>
