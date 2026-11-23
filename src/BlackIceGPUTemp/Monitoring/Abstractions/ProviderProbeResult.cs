@@ -1,3 +1,5 @@
+using System;
+
 namespace BlackIceGPUTemp.Monitoring.Abstractions
 {
     /// <summary>
