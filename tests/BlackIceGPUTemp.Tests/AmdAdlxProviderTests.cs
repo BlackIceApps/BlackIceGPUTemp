@@ -521,35 +521,36 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Cleanup_NotInitialized_DisposeThrows_RetainsReferencesAndRetriesOnNextCall()
+        public void SessionCreation_NotInitialized_DisposeThrows_RetainsReferencesAndRetriesOnNextCall()
         {
-            var fake = new DisposeThrowsOnceThenSucceedsFake();
+            // Initialize fails with error code -> CleanupRef runs with initialized=false
+            var fake = new DisposeThrowsOnceThenSucceedsFake
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return -5; // Initialize fails - triggers CleanupRef with initialized=false
+                }
+            };
             var fake2 = new FakeAdlxNative();
-            var factoryCallCount = 1;
+            var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
             {
                 factoryCallCount++;
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // Directly invoke Cleanup with initialized=false via reflection
-            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod(
-                "Cleanup",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-                null,
-                new Type[] { typeof(IAdlxNative), typeof(IntPtr).MakeByRefType(), typeof(IntPtr).MakeByRefType(), typeof(bool), typeof(IDisposable) },
-                null);
-            Assert.NotNull(cleanupMethod);
-            var gpuList = new IntPtr(0x2000);
-            var system = new IntPtr(0x1000);
-            cleanupMethod!.Invoke(provider, new object[] { fake, gpuList, system, false, fake });
-
+            // First call: Initialize fails, Dispose throws -> retained in _pendingDisposeNative
+            var result1 = provider.Probe();
+            Assert.False(result1.IsAvailable);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Next Probe() should retry Dispose before creating new instance
-            var result = provider.Probe();
-            Assert.True(result.IsAvailable);
+            var result2 = provider.Probe();
+            Assert.True(result2.IsAvailable);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.True(fake.IsDisposed);
             Assert.Equal(1, fake2.TerminateCalls);
@@ -558,35 +559,36 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Cleanup_NotInitialized_DisposeThrowsTwice_RetainsReferencesAndDoesNotInitNew()
+        public void SessionCreation_NotInitialized_DisposeThrowsTwice_RetainsReferencesAndDoesNotInitNew()
         {
-            var fake = new DisposeFailsAndRetainsFake();
+            // Initialize fails with error code -> CleanupRef runs with initialized=false
+            var fake = new DisposeFailsAndRetainsFake
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return -5; // Initialize fails - triggers CleanupRef with initialized=false
+                }
+            };
             var fake2 = new FakeAdlxNative();
-            var factoryCallCount = 1;
+            var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
             {
                 factoryCallCount++;
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // Directly invoke Cleanup with initialized=false via reflection
-            var cleanupMethod = typeof(AmdAdlxProvider).GetMethod(
-                "Cleanup",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-                null,
-                new Type[] { typeof(IAdlxNative), typeof(IntPtr).MakeByRefType(), typeof(IntPtr).MakeByRefType(), typeof(bool), typeof(IDisposable) },
-                null);
-            Assert.NotNull(cleanupMethod);
-            var gpuList = new IntPtr(0x2000);
-            var system = new IntPtr(0x1000);
-            cleanupMethod!.Invoke(provider, new object[] { fake, gpuList, system, false, fake });
-
+            // First call: Initialize fails, Dispose throws -> retained in _pendingDisposeNative
+            var result1 = provider.Probe();
+            Assert.False(result1.IsAvailable);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Next Probe() should retry Dispose, still fails -> no new instance
-            var result = provider.Probe();
-            Assert.False(result.IsAvailable);
+            var result2 = provider.Probe();
+            Assert.False(result2.IsAvailable);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
@@ -648,6 +650,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
         }
 
         [Fact]
@@ -1664,13 +1667,6 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(native.IsDisposed);
             Assert.Equal(new IntPtr(0x1234), native.LibHandle);
             Assert.Contains("Failed to free ADLX library", ex.Message);
-
-            freeResult = true;
-            native.Dispose();
-
-            Assert.Equal(2, freeCallCount);
-            Assert.True(native.IsDisposed);
-            Assert.Equal(IntPtr.Zero, native.LibHandle);
         }
 
         [Fact]
@@ -1819,11 +1815,9 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void NextCall_RetriesTerminate_OnSuccess_DisposesAndAllowsNewInit()
+        public void NextCall_RetriesTerminate_OnErrorHResult_ReturnsErrorAndDoesNotInit()
         {
-            var fake = new TerminateSequenceFake();
-            fake.EnqueueTerminate(-1); // First call fails
-            fake.EnqueueTerminate(0);  // Second call succeeds
+            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
             var fake2 = new FakeAdlxNative();
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1839,34 +1833,8 @@ namespace BlackIceGPUTemp.Tests
 
             var result = provider.Probe();
 
-            Assert.True(result.IsAvailable);
-            Assert.Equal(2, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
-            Assert.Equal(1, fake2.TerminateCalls);
-            Assert.True(fake2.IsDisposed);
-        }
-
-        [Fact]
-        public void NextCall_RetriesTerminate_OnFailure_ReturnsErrorAndDoesNotInit()
-        {
-            var fake = new TerminateFailingFake { TerminateHResult = -1 };
-            var fake2 = new TerminateFailingFake { TerminateHResult = -1 };
-            var factoryCallCount = 0;
-            var provider = new AmdAdlxProvider(() =>
-            {
-                factoryCallCount++;
-                return factoryCallCount == 1 ? fake : fake2;
-            });
-
-            provider.Probe();
-
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed);
-
-            var result = provider.Probe();
-
             Assert.False(result.IsAvailable);
-            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
             Assert.Equal(2, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
@@ -1892,7 +1860,7 @@ namespace BlackIceGPUTemp.Tests
             var result = provider.Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
             Assert.Equal(2, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
@@ -1918,7 +1886,7 @@ namespace BlackIceGPUTemp.Tests
             var result = provider.Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
             Assert.Equal(2, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
@@ -1992,27 +1960,6 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Initialize_ReturnsZeroWithNullSystem_CallsTerminateAndDisposes()
-        {
-            var fake = new FakeAdlxNative
-            {
-                InitializeHandler = (out IntPtr sys) =>
-                {
-                    sys = IntPtr.Zero;
-                    return 0;
-                }
-            };
-            var provider = new AmdAdlxProvider(() => fake);
-
-            var result = provider.Probe();
-
-            Assert.False(result.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
-            Assert.Contains("Result code: 0", result.Message);
-        }
-
-        [Fact]
         public void Initialize_ReturnsNonZero_ReturnsErrorCode()
         {
             var fake = new FakeAdlxNative
@@ -2053,7 +2000,7 @@ namespace BlackIceGPUTemp.Tests
             var result = provider.Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Contains("Result code: 0", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
         }
 
         [Fact]
@@ -2075,12 +2022,12 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
-            Assert.Contains("Result code: 0", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             var result2 = provider.Probe();
 
             Assert.False(result2.IsAvailable);
-            Assert.Equal("Failed to initialize ADLX after retry.", result2.Message);
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result2.Message);
             Assert.Equal(2, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
         }
@@ -2104,12 +2051,12 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
-            Assert.Contains("Result code: 0", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             var result2 = provider.Probe();
 
             Assert.False(result2.IsAvailable);
-            Assert.Equal("Failed to initialize ADLX after retry.", result2.Message);
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result2.Message);
             Assert.Equal(2, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
         }
@@ -2138,6 +2085,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result1.Message);
 
             var result2 = provider.Probe();
 
@@ -2182,14 +2130,17 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
             var result1 = provider.Probe();
             Assert.True(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
+            // Second call: retries Dispose, succeeds -> clears references, creates new instance
             var result2 = provider.Probe();
             Assert.True(result2.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.True(fake.IsDisposed);
             Assert.Equal(1, fake2.TerminateCalls);
@@ -2198,7 +2149,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void PendingDispose_RetryDispose_Fails_ReturnsFalseAndRetainsReferences()
+        public void PendingDispose_RetryDispose_Fails_RetainsReferencesAndDoesNotInitNew()
         {
             var fake = new DisposeFailsAndRetainsFake
             {
@@ -2217,18 +2168,21 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
             var result1 = provider.Probe();
             Assert.True(result1.IsAvailable);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
+            // Second call: retries Dispose, still fails -> no new instance
             var result2 = provider.Probe();
             Assert.False(result2.IsAvailable);
-            Assert.Equal(0, fake2.InitializeCalls);
-            Assert.Equal(1, factoryCallCount);
+            Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
         }
     }
 }

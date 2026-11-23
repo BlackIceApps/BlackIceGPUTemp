@@ -26,8 +26,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _nativeFactory = nativeFactory ?? (() => new AdlxNative());
         }
 
-        private const int ADLX_ORPHAN_OBJECTS = 0xB;
-
         public ProviderProbeResult Probe()
         {
             lock (_lock)
@@ -38,215 +36,75 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private ProviderProbeResult ProbeInternal()
         {
-            IAdlxNative? native = null;
-            IDisposable? disposableNative = null;
-            IntPtr system = IntPtr.Zero;
-            IntPtr gpuList = IntPtr.Zero;
-            bool initialized = false;
-            int initResult = 0;
-            bool retryAttempted = false;
-
-            try
+            if (!TryHandlePendingCleanup(out string? error))
             {
-                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
+                return new ProviderProbeResult(false, error);
+            }
+
+            var session = TryCreateSession(out error);
+            if (session == null)
+            {
+                return new ProviderProbeResult(false, error);
+            }
+
+            ProviderProbeResult result;
+            using (session)
+            {
+                try
                 {
-                    if (retryAttempted)
+                    int sizeResult = session.GetGpuListSize(out int count);
+                    if (sizeResult != 0)
                     {
-                        return new ProviderProbeResult(false, "Failed to initialize ADLX after retry.");
+                        result = new ProviderProbeResult(false, $"Failed to get GPU list size. Result code: {sizeResult}");
                     }
-                    return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX Probe: exception during native acquisition", ex);
-                return new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            try
-            {
-                if (system == IntPtr.Zero)
-                {
-                    return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
-                }
-
-                int gpuListResult = native!.GetGpuList(system, out gpuList);
-                if (gpuListResult != 0 || gpuList == IntPtr.Zero)
-                {
-                    return new ProviderProbeResult(false, $"Failed to get GPU list. Result code: {gpuListResult}");
-                }
-
-                int sizeResult = native.GetGpuListSize(gpuList, out int count);
-                if (sizeResult != 0)
-                {
-                    return new ProviderProbeResult(false, $"Failed to get GPU list size. Result code: {sizeResult}");
-                }
-
-                bool hasSupportedGpu = false;
-                for (int i = 0; i < count; i++)
-                {
-                    IntPtr gpu = IntPtr.Zero;
-                    IntPtr services = IntPtr.Zero;
-                    IntPtr metricsSupport = IntPtr.Zero;
-
-                    try
+                    else
                     {
-                        if (native.GetGpuAt(gpuList, i, out gpu) == 0 && gpu != IntPtr.Zero)
+                        bool hasSupportedGpu = false;
+                        for (int i = 0; i < count; i++)
                         {
-                            if (native.GetPerformanceMonitoringServices(system, out services) == 0 && services != IntPtr.Zero)
+                            IntPtr gpu = IntPtr.Zero;
+                            try
                             {
-                                if (native.GetSupportedGpuMetrics(services, gpu, out metricsSupport) == 0 && metricsSupport != IntPtr.Zero)
+                                if (session.GetGpuAt(i, out gpu) != 0 || gpu == IntPtr.Zero)
                                 {
-                                    if (native.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) == 0 && tempSupported)
-                                    {
-                                        hasSupportedGpu = true;
-                                    }
+                                    continue;
+                                }
+
+                                if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
+                                {
+                                    hasSupportedGpu = true;
                                 }
                             }
+                            finally
+                            {
+                                session.ReleaseInterface(ref gpu);
+                            }
+
+                            if (hasSupportedGpu)
+                            {
+                                break;
+                            }
+                        }
+
+                        if (!hasSupportedGpu)
+                        {
+                            result = new ProviderProbeResult(false, "No GPU supports temperature monitoring via ADLX.");
+                        }
+                        else
+                        {
+                            result = new ProviderProbeResult(true, null);
                         }
                     }
-                    finally
-                    {
-                        AdlxInterop.ReleaseInterface(native, ref metricsSupport);
-                        AdlxInterop.ReleaseInterface(native, ref services);
-                        AdlxInterop.ReleaseInterface(native, ref gpu);
-                    }
-
-                    if (hasSupportedGpu)
-                    {
-                        break;
-                    }
-                }
-
-                if (!hasSupportedGpu)
-                {
-                    return new ProviderProbeResult(false, "No GPU supports temperature monitoring via ADLX.");
-                }
-
-                return new ProviderProbeResult(true, null);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX Probe: exception during GPU enumeration", ex);
-                return new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
-            }
-            finally
-            {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
-            }
-        }
-
-        private bool TryAcquireNative(
-            out IAdlxNative? native,
-            out IDisposable? disposableNative,
-            out IntPtr system,
-            out IntPtr gpuList,
-            out bool initialized,
-            out int initResult,
-            out bool retryAttempted)
-        {
-            native = null;
-            disposableNative = null;
-            system = IntPtr.Zero;
-            gpuList = IntPtr.Zero;
-            initialized = false;
-            initResult = 0;
-            retryAttempted = false;
-
-            if (_pendingDisposeNative != null && _pendingDisposeDisposable != null)
-            {
-                try
-                {
-                    _pendingDisposeDisposable.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError("Pending AdlxNative Dispose retry threw exception", ex);
-                    return false;
-                }
-                _pendingDisposeNative = null;
-                _pendingDisposeDisposable = null;
-            }
-
-            if (_pendingNative != null)
-            {
-                retryAttempted = true;
-                int retryResult = 0;
-                Exception? retryException = null;
-                try
-                {
-                    retryResult = _pendingNative.Terminate();
-                }
-                catch (Exception ex)
-                {
-                    retryException = ex;
-                }
-
-                if (retryException == null && (retryResult == 0 || retryResult == ADLX_ORPHAN_OBJECTS))
-                {
-                    Logger.LogInfo($"Retry Terminate succeeded with HRESULT: 0x{retryResult:X}");
-                    try
-                    {
-                        _pendingDisposable?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
-                        _pendingDisposeNative = _pendingNative;
-                        _pendingDisposeDisposable = _pendingDisposable;
-                        _pendingNative = null;
-                        _pendingDisposable = null;
-                        return false;
-                    }
-                    _pendingNative = null;
-                    _pendingDisposable = null;
-                }
-                else
-                {
-                    Logger.LogError($"Retry Terminate failed with HRESULT: 0x{retryResult:X}" + (retryException != null ? $", exception: {retryException.Message}" : ""));
-                    return false;
+                    Logger.LogError("ADLX Probe: exception during GPU enumeration", ex);
+                    result = new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
 
-            native = _nativeFactory();
-            disposableNative = native as IDisposable;
-
-            try
-            {
-                initResult = native.Initialize(out system);
-            }
-            catch
-            {
-                if (disposableNative != null)
-                {
-                    try { disposableNative.Dispose(); }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("AdlxNative Dispose threw exception after Initialize exception", ex);
-                        _pendingDisposeNative = native;
-                        _pendingDisposeDisposable = disposableNative;
-                    }
-                }
-                throw;
-            }
-
-            if (initResult == 0)
-            {
-                initialized = true;
-                return true;
-            }
-
-            if (disposableNative != null)
-            {
-                try { disposableNative.Dispose(); }
-                catch (Exception ex)
-                {
-                    Logger.LogError("AdlxNative Dispose threw exception after Initialize error", ex);
-                    _pendingDisposeNative = native;
-                    _pendingDisposeDisposable = disposableNative;
-                }
-            }
-            return false;
+            CaptureSessionPendingState(session);
+            return result;
         }
 
         public IReadOnlyList<IGpuDevice> EnumerateDevices()
@@ -262,95 +120,76 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             var devices = new List<IGpuDevice>();
             var seenUniqueIds = new HashSet<int>();
 
-            IAdlxNative? native = null;
-            IDisposable? disposableNative = null;
-            IntPtr system = IntPtr.Zero;
-            IntPtr gpuList = IntPtr.Zero;
-            bool initialized = false;
-            int initResult = 0;
-            bool retryAttempted = false;
-
-            try
+            if (!TryHandlePendingCleanup(out string? error))
             {
-                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
-                {
-                    return devices;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX EnumerateDevices: exception during native acquisition", ex);
                 return devices;
             }
 
-            try
+            var session = TryCreateSession(out error);
+            if (session == null)
             {
-                if (system == IntPtr.Zero)
-                {
-                    return devices;
-                }
+                return devices;
+            }
 
-                int gpuListResult = native!.GetGpuList(system, out gpuList);
-                if (gpuListResult != 0 || gpuList == IntPtr.Zero)
+            IReadOnlyList<IGpuDevice> result;
+            using (session)
+            {
+                try
                 {
-                    return devices;
-                }
-
-                int sizeResult = native.GetGpuListSize(gpuList, out int count);
-                if (sizeResult != 0)
-                {
-                    return devices;
-                }
-
-                for (int i = 0; i < count; i++)
-                {
-                    IntPtr gpu = IntPtr.Zero;
-                    IntPtr services = IntPtr.Zero;
-                    IntPtr metricsSupport = IntPtr.Zero;
-
-                    try
+                    int sizeResult = session.GetGpuListSize(out int count);
+                    if (sizeResult != 0)
                     {
-                        if (native.GetGpuAt(gpuList, i, out gpu) != 0 || gpu == IntPtr.Zero)
+                        result = devices;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < count; i++)
                         {
-                            continue;
-                        }
-
-                        if (native.GetUniqueIdAndName(system, gpu, out int uniqueId, out string? name))
-                        {
-                            if (uniqueId <= 0 || string.IsNullOrWhiteSpace(name))
+                            IntPtr gpu = IntPtr.Zero;
+                            try
                             {
-                                continue;
-                            }
-
-                            if (native.IsTemperatureSupported(system, gpu, out bool tempSupported) && tempSupported)
-                            {
-                                if (seenUniqueIds.Add(uniqueId))
+                                if (session.GetGpuAt(i, out gpu) != 0 || gpu == IntPtr.Zero)
                                 {
-                                    string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
-                                    devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId));
+                                    continue;
+                                }
+
+                                if (!session.GetUniqueIdAndName(gpu, out int uniqueId, out string? name))
+                                {
+                                    continue;
+                                }
+
+                                if (uniqueId <= 0 || string.IsNullOrWhiteSpace(name))
+                                {
+                                    continue;
+                                }
+
+                                if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
+                                {
+                                    if (seenUniqueIds.Add(uniqueId))
+                                    {
+                                        string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
+                                        devices.Add(new AmdAdlxDevice(this, deviceId, name!, uniqueId));
+                                    }
                                 }
                             }
+                            finally
+                            {
+                                session.ReleaseInterface(ref gpu);
+                            }
                         }
-                    }
-                    finally
-                    {
-                        AdlxInterop.ReleaseInterface(native, ref metricsSupport);
-                        AdlxInterop.ReleaseInterface(native, ref services);
-                        AdlxInterop.ReleaseInterface(native, ref gpu);
+
+                        result = devices;
                     }
                 }
+                catch (Exception ex)
+                {
+                    Logger.LogError("ADLX EnumerateDevices: exception during GPU enumeration", ex);
+                    result = devices;
+                }
+            }
 
-                return devices;
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX EnumerateDevices: exception during GPU enumeration", ex);
-                return devices;
-            }
-            finally
-            {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
-            }
+            CaptureSessionPendingState(session);
+            return result;
         }
 
         internal bool TryReadTemperatureInternal(int targetUniqueId, out TemperatureReading? reading, out string? error)
@@ -366,275 +205,217 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             reading = null;
             error = null;
 
-            IAdlxNative? native = null;
-            IDisposable? disposableNative = null;
-            IntPtr system = IntPtr.Zero;
-            IntPtr gpuList = IntPtr.Zero;
-            bool initialized = false;
-            int initResult = 0;
-            bool retryAttempted = false;
-
-            try
+            if (!TryHandlePendingCleanup(out error))
             {
-                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
+                return false;
+            }
+
+            var session = TryCreateSession(out error);
+            if (session == null)
+            {
+                return false;
+            }
+
+            bool result;
+            using (session)
+            {
+                try
                 {
-                    if (retryAttempted)
+                    IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId);
+                    if (targetGpu == IntPtr.Zero)
                     {
-                        error = "Failed to initialize ADLX after retry.";
+                        error = $"GPU with unique ID {targetUniqueId} not found.";
+                        result = false;
                     }
                     else
                     {
-                        error = $"Failed to initialize ADLX. Result code: {initResult}";
-                    }
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX TryReadTemperature: exception during native acquisition", ex);
-                error = $"Exception during temperature read: {ex.GetType().Name}: {ex.Message}";
-                return false;
-            }
+                        IntPtr services = IntPtr.Zero;
+                        IntPtr metricsSupport = IntPtr.Zero;
+                        IntPtr metrics = IntPtr.Zero;
 
-            try
-            {
-                if (system == IntPtr.Zero)
-                {
-                    error = $"Failed to initialize ADLX. Result code: {initResult}";
-                    return false;
-                }
-
-                int gpuListResult = native!.GetGpuList(system, out gpuList);
-                if (gpuListResult != 0 || gpuList == IntPtr.Zero)
-                {
-                    error = $"Failed to get GPU list. Result code: {gpuListResult}";
-                    return false;
-                }
-
-                int sizeResult = native.GetGpuListSize(gpuList, out int count);
-                if (sizeResult != 0)
-                {
-                    error = $"Failed to get GPU list size. Result code: {sizeResult}";
-                    return false;
-                }
-
-                IntPtr targetGpu = IntPtr.Zero;
-                for (int i = 0; i < count; i++)
-                {
-                    IntPtr gpu = IntPtr.Zero;
-                    try
-                    {
-                        if (native.GetGpuAt(gpuList, i, out gpu) == 0 && gpu != IntPtr.Zero)
+                        try
                         {
-                            if (native.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
+                            if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)
                             {
-                                targetGpu = gpu;
-                                break;
+                                error = "Failed to get performance monitoring services.";
+                                result = false;
+                            }
+                            else if (session.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
+                            {
+                                error = "Failed to get supported GPU metrics.";
+                                result = false;
+                            }
+                            else if (session.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
+                            {
+                                error = "GPU temperature monitoring is not supported.";
+                                result = false;
+                            }
+                            else if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
+                            {
+                                error = "Failed to get current GPU metrics.";
+                                result = false;
+                            }
+                            else if (session.GetGpuTemperature(metrics, out double celsius) != 0)
+                            {
+                                error = "Failed to get GPU temperature reading.";
+                                result = false;
+                            }
+                            else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
+                            {
+                                error = "GPU temperature is NaN or Infinity.";
+                                result = false;
+                            }
+                            else
+                            {
+                                reading = new TemperatureReading(celsius, "GPU Edge", DateTimeOffset.UtcNow);
+                                result = true;
                             }
                         }
-                    }
-                    finally
-                    {
-                        if (gpu != targetGpu)
+                        finally
                         {
-                            AdlxInterop.ReleaseInterface(native, ref gpu);
+                            session.ReleaseInterface(ref metrics);
+                            session.ReleaseInterface(ref metricsSupport);
+                            session.ReleaseInterface(ref services);
+                            session.ReleaseInterface(ref targetGpu);
                         }
                     }
-                }
-
-                if (targetGpu == IntPtr.Zero)
-                {
-                    error = $"GPU with unique ID {targetUniqueId} not found.";
-                    return false;
-                }
-
-                IntPtr services = IntPtr.Zero;
-                IntPtr metricsSupport = IntPtr.Zero;
-                IntPtr metrics = IntPtr.Zero;
-
-                try
-                {
-                    if (native.GetPerformanceMonitoringServices(system, out services) != 0 || services == IntPtr.Zero)
-                    {
-                        error = "Failed to get performance monitoring services.";
-                        return false;
-                    }
-
-                    if (native.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
-                    {
-                        error = "Failed to get supported GPU metrics.";
-                        return false;
-                    }
-
-                    if (native.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
-                    {
-                        error = "GPU temperature monitoring is not supported.";
-                        return false;
-                    }
-
-                    if (native.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
-                    {
-                        error = "Failed to get current GPU metrics.";
-                        return false;
-                    }
-
-                    if (native.GetGpuTemperature(metrics, out double celsius) != 0)
-                    {
-                        error = "Failed to get GPU temperature reading.";
-                        return false;
-                    }
-
-                    if (double.IsNaN(celsius) || double.IsInfinity(celsius))
-                    {
-                        error = "GPU temperature is NaN or Infinity.";
-                        return false;
-                    }
-
-                    reading = new TemperatureReading(celsius, "GPU Edge", DateTimeOffset.UtcNow);
-                    return true;
-                }
-                finally
-                {
-                    AdlxInterop.ReleaseInterface(native, ref metrics);
-                    AdlxInterop.ReleaseInterface(native, ref metricsSupport);
-                    AdlxInterop.ReleaseInterface(native, ref services);
-                    AdlxInterop.ReleaseInterface(native, ref targetGpu);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("ADLX TryReadTemperature: exception during temperature read", ex);
-                error = $"Exception during temperature read: {ex.GetType().Name}: {ex.Message}";
-                return false;
-            }
-            finally
-            {
-                Cleanup(native, ref gpuList, ref system, initialized, disposableNative);
-            }
-        }
-
-        private void Cleanup(
-            IAdlxNative? native,
-            ref IntPtr gpuList,
-            ref IntPtr system,
-            bool initialized,
-            IDisposable? disposableNative)
-        {
-            Logger.LogInfo("Cleanup: entry");
-
-            Logger.LogInfo($"Cleanup: releasing gpuList=0x{gpuList:X}");
-            AdlxInterop.ReleaseInterface(native, ref gpuList);
-            Logger.LogInfo($"Cleanup: gpuList released");
-
-            Logger.LogInfo($"Cleanup: zeroing system=0x{system:X} (no Release, managed by ADLX)");
-            system = IntPtr.Zero;
-            Logger.LogInfo($"Cleanup: system zeroed");
-
-            if (initialized && native != null)
-            {
-                Logger.LogInfo("Cleanup: Terminate start");
-                int terminateResult = 0;
-                Exception? terminateException = null;
-
-                try
-                {
-                    terminateResult = native.Terminate();
                 }
                 catch (Exception ex)
                 {
-                    terminateException = ex;
-                    Logger.LogError("ADLX Terminate threw exception", ex);
+                    Logger.LogError("ADLX TryReadTemperature: exception during temperature read", ex);
+                    error = $"Exception during temperature read: {ex.GetType().Name}: {ex.Message}";
+                    result = false;
+                }
+            }
+
+            CaptureSessionPendingState(session);
+            return result;
+        }
+
+        private bool TryHandlePendingCleanup(out string? error)
+        {
+            error = null;
+
+            if (_pendingDisposeNative != null && _pendingDisposeDisposable != null)
+            {
+                try
+                {
+                    _pendingDisposeDisposable.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError("Pending AdlxNative Dispose retry threw exception", ex);
+                    error = "Pending AdlxNative Dispose retry threw exception";
+                    return false;
+                }
+                _pendingDisposeNative = null;
+                _pendingDisposeDisposable = null;
+            }
+
+            if (_pendingNative != null)
+            {
+                int retryResult = 0;
+                Exception? retryException = null;
+                try
+                {
+                    retryResult = _pendingNative.Terminate();
+                }
+                catch (Exception ex)
+                {
+                    retryException = ex;
                 }
 
-                if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
+                if (retryException == null && (retryResult == 0 || retryResult == AdlxSession.ADLX_ORPHAN_OBJECTS))
                 {
-                    Logger.LogInfo($"Cleanup: Terminate succeeded with HRESULT: 0x{terminateResult:X}");
-                    if (disposableNative != null)
+                    Logger.LogInfo($"Retry Terminate succeeded with HRESULT: 0x{retryResult:X}");
+                    try
                     {
-                        Logger.LogInfo("Cleanup: Dispose start");
-                        try
-                        {
-                            disposableNative.Dispose();
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError("AdlxNative Dispose threw exception", ex);
-                            _pendingDisposeNative = native;
-                            _pendingDisposeDisposable = disposableNative;
-                        }
-                        Logger.LogInfo("Cleanup: Dispose end");
+                        _pendingDisposable?.Dispose();
                     }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
+                        _pendingDisposeNative = _pendingNative;
+                        _pendingDisposeDisposable = _pendingDisposable;
+                        _pendingNative = null;
+                        _pendingDisposable = null;
+                        error = "Pending AdlxNative Dispose threw exception on retry";
+                        return false;
+                    }
+                    _pendingNative = null;
+                    _pendingDisposable = null;
                 }
                 else
                 {
-                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}" + (terminateException != null ? $", exception: {terminateException.Message}" : ""));
-                    _pendingNative = native;
-                    _pendingDisposable = disposableNative;
+                    Logger.LogError($"Retry Terminate failed with HRESULT: 0x{retryResult:X}" + (retryException != null ? $", exception: {retryException.Message}" : ""));
+                    error = $"Retry Terminate failed with HRESULT: 0x{retryResult:X}";
+                    return false;
                 }
-                Logger.LogInfo("Cleanup: Terminate end");
             }
-            else if (disposableNative != null)
+
+            return true;
+        }
+
+        private AdlxSession? TryCreateSession(out string? error)
+        {
+            IAdlxNative? pendingNative = null;
+            IDisposable? pendingDisposable = null;
+            IAdlxNative? pendingDisposeNative = null;
+            IDisposable? pendingDisposeDisposable = null;
+
+            var session = AdlxSession.Create(_nativeFactory, out error,
+                out pendingNative, out pendingDisposable,
+                out pendingDisposeNative, out pendingDisposeDisposable);
+
+            _pendingNative = pendingNative;
+            _pendingDisposable = pendingDisposable;
+            _pendingDisposeNative = pendingDisposeNative;
+            _pendingDisposeDisposable = pendingDisposeDisposable;
+
+            return session;
+        }
+
+        private void CaptureSessionPendingState(AdlxSession session)
+        {
+            _pendingNative = session.PendingNative;
+            _pendingDisposable = session.PendingDisposable;
+            _pendingDisposeNative = session.PendingDisposeNative;
+            _pendingDisposeDisposable = session.PendingDisposeDisposable;
+        }
+
+        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId)
+        {
+            int sizeResult = session.GetGpuListSize(out int count);
+            if (sizeResult != 0)
             {
-                Logger.LogInfo("Cleanup: Dispose start (not initialized)");
+                return IntPtr.Zero;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr gpu = IntPtr.Zero;
+                bool isTarget = false;
                 try
                 {
-                    disposableNative.Dispose();
+                    if (session.GetGpuAt(i, out gpu) == 0 && gpu != IntPtr.Zero)
+                    {
+                        if (session.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
+                        {
+                            isTarget = true;
+                            return gpu;
+                        }
+                    }
                 }
-                catch (Exception ex)
+                finally
                 {
-                    Logger.LogError("AdlxNative Dispose threw exception", ex);
-                    _pendingDisposeNative = native;
-                    _pendingDisposeDisposable = disposableNative;
+                    if (gpu != IntPtr.Zero && !isTarget)
+                    {
+                        session.ReleaseInterface(ref gpu);
+                    }
                 }
-                Logger.LogInfo("Cleanup: Dispose end");
             }
-        }
-    }
 
-    internal static class AdlxHelperExtensions
-    {
-        public static bool GetUniqueIdAndName(this IAdlxNative native, IntPtr system, IntPtr gpu, out int uniqueId, out string? name)
-        {
-            uniqueId = 0;
-            name = null;
-
-            int idResult = native.GetGpuUniqueId(gpu, out uniqueId);
-            int nameResult = native.GetGpuName(gpu, out name);
-
-            return idResult == 0 && nameResult == 0;
-        }
-
-        public static bool IsTemperatureSupported(this IAdlxNative native, IntPtr system, IntPtr gpu, out bool supported)
-        {
-            supported = false;
-            IntPtr services = IntPtr.Zero;
-            IntPtr metricsSupport = IntPtr.Zero;
-
-            try
-            {
-                if (native.GetPerformanceMonitoringServices(system, out services) != 0 || services == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                if (native.GetSupportedGpuMetrics(services, gpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                if (native.IsSupportedGpuTemperature(metricsSupport, out supported) != 0)
-                {
-                    supported = false;
-                    return false;
-                }
-
-                return true;
-            }
-            finally
-            {
-                AdlxInterop.ReleaseInterface(native, ref metricsSupport);
-                AdlxInterop.ReleaseInterface(native, ref services);
-            }
+            return IntPtr.Zero;
         }
     }
 
