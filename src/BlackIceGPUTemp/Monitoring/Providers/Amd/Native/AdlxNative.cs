@@ -430,7 +430,32 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int ReleaseDelegate(IntPtr pThis);
 
+    ~AdlxNative()
+    {
+        try
+        {
+            Dispose(false);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                Trace.TraceError("Finalizer error: {0}", ex.Message);
+            }
+            catch
+            {
+                // Swallow any logging exceptions in finalizer
+            }
+        }
+    }
+
     public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -461,18 +486,48 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             }
             catch (Exception ex)
             {
-                Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
-                throw;
+                if (disposing)
+                {
+                    Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
+                    throw;
+                }
+                else
+                {
+                    try
+                    {
+                        Trace.TraceError("FreeLibrary threw exception in finalizer: {0}", ex.Message);
+                    }
+                    catch
+                    {
+                        // Swallow any logging exceptions in finalizer
+                    }
+                }
             }
 
             if (!freeResult)
             {
                 int error = Marshal.GetLastWin32Error();
-                Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
-                throw new System.ComponentModel.Win32Exception(error, $"Failed to free ADLX library. Win32 error: {error}");
+                if (disposing)
+                {
+                    Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                    throw new System.ComponentModel.Win32Exception(error, $"Failed to free ADLX library. Win32 error: {error}");
+                }
+                else
+                {
+                    try
+                    {
+                        Trace.TraceError("FreeLibrary failed in finalizer: Win32 error {0}", error);
+                    }
+                    catch
+                    {
+                        // Swallow any logging exceptions in finalizer
+                    }
+                }
             }
-
-            _libHandle = IntPtr.Zero;
+            else
+            {
+                _libHandle = IntPtr.Zero;
+            }
         }
 
         _disposed = true;

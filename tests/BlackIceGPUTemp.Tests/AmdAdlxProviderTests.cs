@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Monitoring.Providers.Amd;
 using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
@@ -1545,6 +1546,101 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(native.IsDisposed);
             Assert.Equal(new IntPtr(0x1234), native.LibHandle);
             Assert.Equal("Simulated FreeLibrary failure", ex.Message);
+        }
+
+        private class FreeLibraryCallCounter
+        {
+            public int Count { get; set; }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static FreeLibraryCallCounter CreateAdlxNativeForFinalizerTest(bool isInitialized, Func<IntPtr, bool> freeLibraryOverride)
+        {
+            var counter = new FreeLibraryCallCounter();
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                h =>
+                {
+                    counter.Count++;
+                    return freeLibraryOverride(h);
+                },
+                isInitialized);
+            // Do not return native - let it become eligible for finalization
+            GC.KeepAlive(native);
+            return counter;
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_FreesLibrary_WhenNotInitialized()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(false, _ => true);
+
+            // Force GC - finalizer should run and free the library
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.Equal(1, counter.Count);
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_DoesNotFreeLibrary_WhenInitialized()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(true, _ => true);
+
+            // Force GC - finalizer should run but NOT free the library
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.Equal(0, counter.Count);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static FreeLibraryCallCounter CreateDisposedAdlxNative()
+        {
+            var counter = new FreeLibraryCallCounter();
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                h =>
+                {
+                    counter.Count++;
+                    return true;
+                },
+                false);
+            native.Dispose();
+            return counter;
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_SuppressesFinalizer()
+        {
+            var counter = CreateDisposedAdlxNative();
+
+            // Force GC - finalizer should not run because it was suppressed
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // FreeLibrary should have been called once by Dispose, not again by finalizer
+            Assert.Equal(1, counter.Count);
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_IgnoresFreeLibraryFailure()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(false, _ =>
+            {
+                throw new InvalidOperationException("Simulated FreeLibrary failure in finalizer");
+            });
+
+            // Force GC - finalizer should run but not throw
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // Finalizer should not throw, even though FreeLibrary threw
+            Assert.Equal(1, counter.Count);
         }
 
         [Fact]
