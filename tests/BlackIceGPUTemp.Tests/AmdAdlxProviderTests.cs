@@ -1661,11 +1661,12 @@ namespace BlackIceGPUTemp.Tests
             bool freeResult = false;
             var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return freeResult; }, false);
 
-            native.Dispose();
+            var ex = Assert.Throws<System.ComponentModel.Win32Exception>(() => native.Dispose());
 
             Assert.Equal(1, freeCallCount);
             Assert.False(native.IsDisposed);
             Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+            Assert.Contains("Failed to free ADLX library", ex.Message);
         }
 
         [Fact]
