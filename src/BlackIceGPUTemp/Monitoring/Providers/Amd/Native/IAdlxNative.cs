@@ -62,6 +62,14 @@ public interface IAdlxNative
     int GetGpuUniqueId(IntPtr gpu, out int uniqueId);
 
     /// <summary>
+    /// Retrieves the type of the specified GPU (integrated or discrete).
+    /// </summary>
+    /// <param name="gpu">The unmanaged GPU interface pointer.</param>
+    /// <param name="gpuType">Receives the GPU type (0=Undefined, 1=Integrated, 2=Discrete).</param>
+    /// <returns>The native ADLX result code.</returns>
+    int GetGpuType(IntPtr gpu, out int gpuType);
+
+    /// <summary>
     /// Retrieves the performance monitoring services interface.
     /// </summary>
     /// <param name="system">The unmanaged ADLX system interface pointer.</param>

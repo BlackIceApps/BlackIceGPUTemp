@@ -36,8 +36,9 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
         // IADLXGPU (IGPU.h) - inherits from IADLXInterface
         // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
-        // Index 7: Name | Index 18: UniqueId
+        // Index 5: Type | Index 7: Name | Index 18: UniqueId
         // Source: AMD ADLX SDK 2.0.0 build 125 - IGPU.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:697 for Name; UniqueId retained from existing implementation)
+        IADLXGPU_Type = 5,
         IADLXGPU_Name = 7,
         IADLXGPU_UniqueId = 18,
 
@@ -308,6 +309,26 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return del(gpu, out uniqueId);
     }
 
+    public int GetGpuType(IntPtr gpu, out int gpuType)
+    {
+        gpuType = 0;
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(AdlxNative));
+        }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized.");
+        }
+        if (gpu == IntPtr.Zero)
+        {
+            throw new ArgumentException("GPU pointer cannot be zero.", nameof(gpu));
+        }
+
+        var del = GetVtableDelegate<GpuTypeDelegate>(gpu, AdlxVtableIndex.IADLXGPU_Type);
+        return del(gpu, out gpuType);
+    }
+
     public int GetPerformanceMonitoringServices(IntPtr system, out IntPtr services)
     {
         services = IntPtr.Zero;
@@ -476,6 +497,9 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GpuUniqueIdDelegate(IntPtr pThis, out int pUniqueId);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int GpuTypeDelegate(IntPtr pThis, out int pGpuType);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetPerfServicesDelegate(IntPtr pThis, out IntPtr ppPerfMonitoringServices);

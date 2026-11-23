@@ -248,6 +248,16 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return _native.GetGpuUniqueId(gpu, out uniqueId);
         }
 
+        public int GetGpuType(IntPtr gpu, out int gpuType)
+        {
+            gpuType = 0;
+            if (_disposed)
+            {
+                return -1;
+            }
+            return _native.GetGpuType(gpu, out gpuType);
+        }
+
         public void ReleaseInterface(ref IntPtr ptr)
         {
             if (!_disposed && ptr != IntPtr.Zero)

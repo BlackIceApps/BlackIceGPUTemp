@@ -35,6 +35,7 @@ namespace BlackIceGPUTemp.Tests
             public delegate int GetGpuAtDelegate(IntPtr gpuList, int index, out IntPtr gpu);
             public delegate int GetGpuNameDelegate(IntPtr gpu, out string? name);
             public delegate int GetGpuUniqueIdDelegate(IntPtr gpu, out int uniqueId);
+            public delegate int GetGpuTypeDelegate(IntPtr gpu, out int gpuType);
             public delegate int GetPerformanceMonitoringServicesDelegate(IntPtr system, out IntPtr services);
             public delegate int GetCurrentGpuMetricsDelegate(IntPtr services, IntPtr gpu, out IntPtr metrics);
             public delegate int GetSupportedGpuMetricsDelegate(IntPtr services, IntPtr gpu, out IntPtr metricsSupport);
@@ -49,6 +50,7 @@ namespace BlackIceGPUTemp.Tests
             public GetGpuAtDelegate? GetGpuAtHandler { get; set; }
             public GetGpuNameDelegate? GetGpuNameHandler { get; set; }
             public GetGpuUniqueIdDelegate? GetGpuUniqueIdHandler { get; set; }
+            public GetGpuTypeDelegate? GetGpuTypeHandler { get; set; }
             public GetPerformanceMonitoringServicesDelegate? GetPerfServicesHandler { get; set; }
             public GetCurrentGpuMetricsDelegate? GetCurrentMetricsHandler { get; set; }
             public GetSupportedGpuMetricsDelegate? GetSupportedMetricsHandler { get; set; }
@@ -58,6 +60,7 @@ namespace BlackIceGPUTemp.Tests
 
             public List<string> GpuNames { get; set; } = new List<string> { "AMD Radeon RX 7900 XTX" };
             public List<int> GpuUniqueIds { get; set; } = new List<int> { 12345 };
+            public List<int> GpuTypes { get; set; } = new List<int> { 2 }; // Default to Discrete (2)
             public List<bool> GpuTemperatureSupported { get; set; } = new List<bool> { true };
             public List<double> GpuTemperatures { get; set; } = new List<double> { 65.5 };
 
@@ -131,6 +134,17 @@ namespace BlackIceGPUTemp.Tests
                 if (GetGpuUniqueIdHandler != null)
                 {
                     return GetGpuUniqueIdHandler(gpu, out uniqueId);
+                }
+                return 0;
+            }
+
+            public int GetGpuType(IntPtr gpu, out int gpuType)
+            {
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                gpuType = index >= 0 && index < GpuTypes.Count ? GpuTypes[index] : 2;
+                if (GetGpuTypeHandler != null)
+                {
+                    return GetGpuTypeHandler(gpu, out gpuType);
                 }
                 return 0;
             }
@@ -738,7 +752,124 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("amd-adlx:12345", device.Id);
             Assert.Equal("AMD Radeon RX 7900 XTX", device.Name);
             Assert.Equal(GpuVendor.Amd, device.Vendor);
-            Assert.Equal(GpuKind.Unknown, device.Kind);
+            Assert.Equal(GpuKind.Discrete, device.Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuKindIntegrated_MapsCorrectly()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuTypes = new List<int> { 1 } // Integrated
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Integrated, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuKindDiscrete_MapsCorrectly()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuTypes = new List<int> { 2 } // Discrete
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Discrete, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuKindUnknown_MapsCorrectly()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuTypes = new List<int> { 0 } // Undefined/Unknown
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Unknown, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuTypeReadError_DefaultsToUnknown()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuTypeHandler = (IntPtr gpu, out int gpuType) =>
+                {
+                    gpuType = 0;
+                    return -1; // Simulate error
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Unknown, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuTypeUnknownValue_DefaultsToUnknown()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuTypes = new List<int> { 99 } // Unknown value
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Unknown, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_GpuTypeReadThrowsException_DefaultsToUnknown()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuTypeHandler = (IntPtr gpu, out int gpuType) =>
+                {
+                    gpuType = 0;
+                    throw new InvalidOperationException("Simulated GetGpuType failure");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Unknown, devices[0].Kind);
+        }
+
+        [Fact]
+        public void EnumerateDevices_MultipleGpus_DifferentTypes()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "Integrated GPU", "Discrete GPU" },
+                GpuUniqueIds = new List<int> { 11111, 22222 },
+                GpuTypes = new List<int> { 1, 2 }, // Integrated, Discrete
+                GpuTemperatureSupported = new List<bool> { true, true }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Equal(2, devices.Count);
+            Assert.Equal(GpuKind.Integrated, devices[0].Kind);
+            Assert.Equal(GpuKind.Discrete, devices[1].Kind);
         }
 
         [Fact]
