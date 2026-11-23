@@ -12,6 +12,55 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
     const int ADLX_ORPHAN_OBJECTS = 0xB;
 
+    private enum AdlxVtableIndex : int
+    {
+        // IADLXInterface (ADLXDefines.h) - base interface for all ADLX objects
+        // Standard COM layout: Acquire=0, Release=1, QueryInterface=2
+        // Source: AMD ADLX SDK 2.0.0 build 125 - ADLXDefines.h
+        IAdlxInterface_Release = 1,
+
+        // IADLXSystem (ISystem.h) - does NOT inherit from IADLXInterface (Inherits: N/A)
+        // Vtable starts directly with IADLXSystem methods; no Acquire/Release/QueryInterface at indices 0-2
+        // Index 0: GetHybridGraphicsType | Index 1: GetGPUs | Index 9: GetPerformanceMonitoringServices
+        // System object is managed by ADLX; do NOT call Release on it.
+        // Source: AMD ADLX SDK 2.0.0 build 125 - ISystem.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:641-642)
+        IADLXSystem_GetGPUs = 1,
+        IADLXSystem_GetPerformanceMonitoringServices = 9,
+
+        // IADLXGPUList (ICollections.h) - inherits from IADLXList which inherits from IADLXInterface
+        // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
+        // IADLXList adds methods; Size at index 3, typed At at index 11
+        // Source: AMD ADLX SDK 2.0.0 build 125 - ICollections.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:671-672)
+        IADLXGPUList_Size = 3,
+        IADLXGPUList_At = 11,
+
+        // IADLXGPU (IGPU.h) - inherits from IADLXInterface
+        // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
+        // Index 7: Name | Index 18: UniqueId
+        // Source: AMD ADLX SDK 2.0.0 build 125 - IGPU.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:697 for Name; UniqueId retained from existing implementation)
+        IADLXGPU_Name = 7,
+        IADLXGPU_UniqueId = 18,
+
+        // IADLXPerformanceMonitoringServices (IPerformanceMonitoringServices.h) - inherits from IADLXInterface
+        // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
+        // Index 18: GetCurrentGPUMetrics | Index 21: GetSupportedGPUMetrics
+        // Source: AMD ADLX SDK 2.0.0 build 125 - IPerformanceMonitoringServices.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:737-738)
+        IADLXPerformanceMonitoringServices_GetCurrentGPUMetrics = 18,
+        IADLXPerformanceMonitoringServices_GetSupportedGPUMetrics = 21,
+
+        // IADLXGPUMetricsSupport (IPerformanceMonitoring.h) - inherits from IADLXInterface
+        // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
+        // Index 6: IsSupportedGPUTemperature
+        // Source: AMD ADLX SDK 2.0.0 build 125 - IPerformanceMonitoring.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:762)
+        IADLXGPUMetricsSupport_IsSupportedGPUTemperature = 6,
+
+        // IADLXGPUMetrics (IGPUMetrics.h) - inherits from IADLXInterface
+        // IADLXInterface provides indices 0-2 (Acquire, Release, QueryInterface)
+        // Index 7: GPUTemperature
+        // Source: AMD ADLX SDK 2.0.0 build 125 - IGPUMetrics.h (verified in diagnostics/BlackIceGPUTemp.Diagnostics/Program.cs:793)
+        IADLXGPUMetrics_GPUTemperature = 7,
+    }
+
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto, BestFitMapping = false, ThrowOnUnmappableChar = true)]
     private static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
 
@@ -163,7 +212,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("System pointer cannot be zero.", nameof(system));
         }
 
-        var del = GetVtableDelegate<GetGPUsDelegate>(system, 1);
+        var del = GetVtableDelegate<GetGPUsDelegate>(system, AdlxVtableIndex.IADLXSystem_GetGPUs);
         return del(system, out gpuList);
     }
 
@@ -183,7 +232,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
         }
 
-        var del = GetVtableDelegate<SizeDelegate>(gpuList, 3);
+        var del = GetVtableDelegate<SizeDelegate>(gpuList, AdlxVtableIndex.IADLXGPUList_Size);
         uint uCount = del(gpuList);
         if (uCount > int.MaxValue)
         {
@@ -210,7 +259,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("GPU list pointer cannot be zero.", nameof(gpuList));
         }
 
-        var del = GetVtableDelegate<AtGpuListDelegate>(gpuList, 11);
+        var del = GetVtableDelegate<AtGpuListDelegate>(gpuList, AdlxVtableIndex.IADLXGPUList_At);
         return del(gpuList, index, out gpu);
     }
 
@@ -230,7 +279,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("GPU pointer cannot be zero.", nameof(gpu));
         }
 
-        var del = GetVtableDelegate<GpuNameDelegate>(gpu, 7);
+        var del = GetVtableDelegate<GpuNameDelegate>(gpu, AdlxVtableIndex.IADLXGPU_Name);
         int hr = del(gpu, out IntPtr cstrPtr);
         if (hr == 0 && cstrPtr != IntPtr.Zero)
         {
@@ -255,7 +304,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("GPU pointer cannot be zero.", nameof(gpu));
         }
 
-        var del = GetVtableDelegate<GpuUniqueIdDelegate>(gpu, 18);
+        var del = GetVtableDelegate<GpuUniqueIdDelegate>(gpu, AdlxVtableIndex.IADLXGPU_UniqueId);
         return del(gpu, out uniqueId);
     }
 
@@ -275,7 +324,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("System pointer cannot be zero.", nameof(system));
         }
 
-        var del = GetVtableDelegate<GetPerfServicesDelegate>(system, 9);
+        var del = GetVtableDelegate<GetPerfServicesDelegate>(system, AdlxVtableIndex.IADLXSystem_GetPerformanceMonitoringServices);
         return del(system, out services);
     }
 
@@ -295,7 +344,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("Services and GPU pointers cannot be zero.");
         }
 
-        var del = GetVtableDelegate<GetCurrentMetricsDelegate>(services, 18);
+        var del = GetVtableDelegate<GetCurrentMetricsDelegate>(services, AdlxVtableIndex.IADLXPerformanceMonitoringServices_GetCurrentGPUMetrics);
         return del(services, gpu, out metrics);
     }
 
@@ -315,7 +364,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("Services and GPU pointers cannot be zero.");
         }
 
-        var del = GetVtableDelegate<GetSupportedMetricsDelegate>(services, 21);
+        var del = GetVtableDelegate<GetSupportedMetricsDelegate>(services, AdlxVtableIndex.IADLXPerformanceMonitoringServices_GetSupportedGPUMetrics);
         return del(services, gpu, out metricsSupport);
     }
 
@@ -335,7 +384,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("Metrics support pointer cannot be zero.", nameof(metricsSupport));
         }
 
-        var del = GetVtableDelegate<IsSupportedTempDelegate>(metricsSupport, 6);
+        var del = GetVtableDelegate<IsSupportedTempDelegate>(metricsSupport, AdlxVtableIndex.IADLXGPUMetricsSupport_IsSupportedGPUTemperature);
         int hr = del(metricsSupport, out byte bSupported);
         supported = bSupported != 0;
         return hr;
@@ -357,7 +406,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             throw new ArgumentException("Metrics pointer cannot be zero.", nameof(metrics));
         }
 
-        var del = GetVtableDelegate<GpuTempDelegate>(metrics, 7);
+        var del = GetVtableDelegate<GpuTempDelegate>(metrics, AdlxVtableIndex.IADLXGPUMetrics_GPUTemperature);
         return del(metrics, out celsius);
     }
 
@@ -374,15 +423,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
         Logger.LogInfo($"Release: entry adlxInterface=0x{adlxInterface:X}");
 
-        Logger.LogInfo($"Release: reading vtable at 0x{adlxInterface:X}");
-        IntPtr vtablePtr = Marshal.ReadIntPtr(adlxInterface);
-        Logger.LogInfo($"Release: vtablePtr=0x{vtablePtr:X}");
-
-        Logger.LogInfo($"Release: reading method pointer at vtable index 1");
-        IntPtr methodPtr = Marshal.ReadIntPtr(vtablePtr, 1 * IntPtr.Size);
-        Logger.LogInfo($"Release: methodPtr=0x{methodPtr:X}");
-
-        var del = Marshal.GetDelegateForFunctionPointer<ReleaseDelegate>(methodPtr);
+        var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
         Logger.LogInfo($"Release: calling delegate");
         int result = del(adlxInterface);
         Logger.LogInfo($"Release: returned reference count={result}");
@@ -390,10 +431,34 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return result;
     }
 
-    private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, int vtableIndex) where TDelegate : Delegate
+    private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, AdlxVtableIndex vtableIndex) where TDelegate : Delegate
     {
+        // Safety checks: these ONLY validate that pointers are non-zero.
+        // They do NOT verify:
+        //   - Function signature compatibility (calling convention, parameter types, return type)
+        //   - Validity of non-zero addresses (could point to arbitrary code/data)
+        //   - Full vtable layout or ABI compliance
+        //   - Interface identity (that instancePtr is actually the expected ADLX interface type)
+        // These are defense-in-depth against null/corrupted pointers, not signature validation.
+
+        if (instancePtr == IntPtr.Zero)
+        {
+            throw new ArgumentException("Instance pointer cannot be zero.", nameof(instancePtr));
+        }
+
         IntPtr vtablePtr = Marshal.ReadIntPtr(instancePtr);
-        IntPtr methodPtr = Marshal.ReadIntPtr(vtablePtr, vtableIndex * IntPtr.Size);
+        if (vtablePtr == IntPtr.Zero)
+        {
+            throw new InvalidOperationException($"Vtable pointer is zero for instance 0x{instancePtr:X}. The ADLX interface may be invalid or corrupted.");
+        }
+
+        int index = (int)vtableIndex;
+        IntPtr methodPtr = Marshal.ReadIntPtr(vtablePtr, index * IntPtr.Size);
+        if (methodPtr == IntPtr.Zero)
+        {
+            throw new InvalidOperationException($"Vtable method pointer at index {index} (AdlxVtableIndex.{vtableIndex}) is zero for instance 0x{instancePtr:X}. The ADLX interface vtable may be incomplete or corrupted.");
+        }
+
         return Marshal.GetDelegateForFunctionPointer<TDelegate>(methodPtr);
     }
 
