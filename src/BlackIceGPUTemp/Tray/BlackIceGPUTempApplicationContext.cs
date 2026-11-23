@@ -151,10 +151,15 @@ namespace BlackIceGPUTemp.Tray
                     return;
                 }
 
-                if (result.HardwareMonitorService == null ||
-                    string.IsNullOrWhiteSpace(result.ProviderId) ||
-                    string.IsNullOrWhiteSpace(result.DeviceId) ||
-                    string.IsNullOrWhiteSpace(result.DeviceName))
+                var monitorService = result.HardwareMonitorService;
+                var providerId = result.ProviderId;
+                var deviceId = result.DeviceId;
+                var deviceName = result.DeviceName;
+
+                if (monitorService == null ||
+                    string.IsNullOrWhiteSpace(providerId) ||
+                    string.IsNullOrWhiteSpace(deviceId) ||
+                    string.IsNullOrWhiteSpace(deviceName))
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
@@ -166,7 +171,7 @@ namespace BlackIceGPUTemp.Tray
                     return;
                 }
 
-                Logger.LogInfo($"Selected GPU: {result.DeviceName} (Provider: {result.ProviderId}, Device: {result.DeviceId})");
+                Logger.LogInfo($"Selected GPU: {deviceName} (Provider: {providerId}, Device: {deviceId})");
                 Logger.LogInfo("HardwareMonitorService created");
 
                 if (cancellationToken.IsCancellationRequested)
@@ -175,10 +180,10 @@ namespace BlackIceGPUTemp.Tray
                 }
 
                 var session = new MonitoringSession(
-                    result.HardwareMonitorService,
-                    result.ProviderId,
-                    result.DeviceId,
-                    result.DeviceName);
+                    monitorService,
+                    providerId,
+                    deviceId,
+                    deviceName);
 
                 InvokeOnUiThread(() =>
                 {
