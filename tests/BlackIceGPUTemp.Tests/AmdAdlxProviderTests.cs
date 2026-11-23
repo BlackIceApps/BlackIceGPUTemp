@@ -835,6 +835,25 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void EnumerateDevices_GpuTypeReadThrowsException_DefaultsToUnknown()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuTypeHandler = (IntPtr gpu, out int gpuType) =>
+                {
+                    gpuType = 0;
+                    throw new InvalidOperationException("Simulated GetGpuType failure");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Single(devices);
+            Assert.Equal(GpuKind.Unknown, devices[0].Kind);
+        }
+
+        [Fact]
         public void EnumerateDevices_MultipleGpus_DifferentTypes()
         {
             var fake = new FakeAdlxNative

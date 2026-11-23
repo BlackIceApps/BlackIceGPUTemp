@@ -164,21 +164,29 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                 }
 
                                 GpuKind gpuKind = GpuKind.Unknown;
-                                int typeResult = session.GetGpuType(gpu, out int gpuType);
-                                if (typeResult == 0)
+                                try
                                 {
-                                    switch (gpuType)
+                                    int typeResult = session.GetGpuType(gpu, out int gpuType);
+                                    if (typeResult == 0)
                                     {
-                                        case 1:
-                                            gpuKind = GpuKind.Integrated;
-                                            break;
-                                        case 2:
-                                            gpuKind = GpuKind.Discrete;
-                                            break;
-                                        default:
-                                            gpuKind = GpuKind.Unknown;
-                                            break;
+                                        switch (gpuType)
+                                        {
+                                            case 1:
+                                                gpuKind = GpuKind.Integrated;
+                                                break;
+                                            case 2:
+                                                gpuKind = GpuKind.Discrete;
+                                                break;
+                                            default:
+                                                gpuKind = GpuKind.Unknown;
+                                                break;
+                                        }
                                     }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.LogError("ADLX EnumerateDevices: exception while reading GPU type", ex);
+                                    gpuKind = GpuKind.Unknown;
                                 }
 
                                 if (session.IsTemperatureSupported(gpu, out bool tempSupported) && tempSupported)
