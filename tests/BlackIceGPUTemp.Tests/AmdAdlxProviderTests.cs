@@ -1211,5 +1211,367 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(native.IsDisposed);
             Assert.Equal(IntPtr.Zero, native.LibHandle);
         }
+
+        [Fact]
+        public void Terminate_OrphanObjects_DisposesLibrary()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = 0xB };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_OtherError_RetainsNativeAndDoesNotDispose()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = -1 };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_Exception_RetainsNativeAndDoesNotDispose()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void NextCall_RetriesTerminate_OnSuccess_DisposesAndAllowsNewInit()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = -1 };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            var result = provider.Probe();
+
+            Assert.True(result.IsAvailable);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
+        }
+
+        [Fact]
+        public void NextCall_RetriesTerminate_OnFailure_ReturnsErrorAndDoesNotInit()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = -1 };
+            var fake2 = new TerminateFailingFake { TerminateHResult = -1 };
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+        }
+
+        [Fact]
+        public void NextCall_RetriesTerminate_OnException_ReturnsErrorAndDoesNotInit()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var fake2 = new TerminateFailingFake { ThrowOnTerminate = true };
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+        }
+
+        [Fact]
+        public void RetryTerminate_ThrowsException_RetainsNativeAndDoesNotDispose()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal("Failed to initialize ADLX after retry.", result.Message);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+        }
+
+        [Fact]
+        public void FactoryThrowsException_Probe_ReturnsError()
+        {
+            var provider = new AmdAdlxProvider(() => throw new InvalidOperationException("Factory failed"));
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains("Factory failed", result.Message);
+        }
+
+        [Fact]
+        public void InitializeThrowsException_Probe_ReturnsError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    throw new InvalidOperationException("Initialize failed");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains("Initialize failed", result.Message);
+        }
+
+        [Fact]
+        public void InitializeThrowsException_EnumerateDevices_ReturnsEmpty()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    throw new InvalidOperationException("Initialize failed");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var devices = provider.EnumerateDevices();
+
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void InitializeThrowsException_TryReadTemperatureInternal_ReturnsError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    throw new InvalidOperationException("Initialize failed");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Contains("Initialize failed", error);
+        }
+
+        [Fact]
+        public void Initialize_ReturnsZeroWithNullSystem_CallsTerminateAndDisposes()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            Assert.Contains("Result code: 0", result.Message);
+        }
+
+        [Fact]
+        public void Initialize_ReturnsNonZero_ReturnsErrorCode()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return -5;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Contains("Result code: -5", result.Message);
+        }
+
+        [Fact]
+        public void Initialize_ZeroWithNullSystem_GetGpuListNotCalled()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return 0;
+                },
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    list = IntPtr.Zero;
+                    throw new InvalidOperationException("GetGpuList should not be called");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains("Result code: 0", result.Message);
+        }
+
+        [Fact]
+        public void Initialize_ZeroWithNullSystem_TerminateFailure_RetainsNative()
+        {
+            var fake = new TerminateFailingFake 
+            { 
+                ThrowOnTerminate = true,
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Contains("Result code: 0", result.Message);
+
+            var result2 = provider.Probe();
+
+            Assert.False(result2.IsAvailable);
+            Assert.Equal("Failed to initialize ADLX after retry.", result2.Message);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Initialize_ZeroWithNullSystem_TerminateErrorHResult_RetainsNative()
+        {
+            var fake = new TerminateFailingFake 
+            { 
+                TerminateHResult = -1,
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = provider.Probe();
+
+            Assert.False(result.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Contains("Result code: 0", result.Message);
+
+            var result2 = provider.Probe();
+
+            Assert.False(result2.IsAvailable);
+            Assert.Equal("Failed to initialize ADLX after retry.", result2.Message);
+            Assert.Equal(2, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Initialize_ZeroWithNullSystem_TerminateSuccess_AllowsNewInit()
+        {
+            var fake = new FakeAdlxNative
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = IntPtr.Zero;
+                    return 0;
+                }
+            };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            var result1 = provider.Probe();
+
+            Assert.False(result1.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            var result2 = provider.Probe();
+
+            Assert.True(result2.IsAvailable);
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
+        }
     }
 }

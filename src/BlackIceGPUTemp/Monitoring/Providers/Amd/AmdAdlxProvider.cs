@@ -12,6 +12,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
     public sealed class AmdAdlxProvider : IGpuProvider
     {
         private readonly Func<IAdlxNative> _nativeFactory;
+        private IAdlxNative? _pendingNative;
+        private IDisposable? _pendingDisposable;
+        private readonly object _lock = new object();
 
         public string Id => "amd-adlx";
         public string DisplayName => "AMD ADLX";
@@ -21,29 +24,49 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _nativeFactory = nativeFactory ?? (() => new AdlxNative());
         }
 
+        private const int ADLX_ORPHAN_OBJECTS = 0xB;
+
         public ProviderProbeResult Probe()
+        {
+            lock (_lock)
+            {
+                return ProbeInternal();
+            }
+        }
+
+        private ProviderProbeResult ProbeInternal()
         {
             IAdlxNative? native = null;
             IDisposable? disposableNative = null;
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            int initResult = 0;
+            bool retryAttempted = false;
 
             try
             {
-                native = _nativeFactory();
-                disposableNative = native as IDisposable;
-
-                int initResult = native.Initialize(out system);
-                if (initResult == 0)
+                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
                 {
-                    initialized = true;
-                }
-                if (system == IntPtr.Zero || initResult != 0)
-                {
+                    if (retryAttempted)
+                    {
+                        return new ProviderProbeResult(false, "Failed to initialize ADLX after retry.");
+                    }
                     return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
                 }
+            }
+            catch (Exception ex)
+            {
+                return new ProviderProbeResult(false, $"ADLX probe failed with exception: {ex.Message}");
+            }
 
+            if (system == IntPtr.Zero)
+            {
+                return new ProviderProbeResult(false, $"Failed to initialize ADLX. Result code: {initResult}");
+            }
+
+            try
+            {
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
@@ -109,7 +132,96 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
+        private bool TryAcquireNative(
+            out IAdlxNative? native,
+            out IDisposable? disposableNative,
+            out IntPtr system,
+            out IntPtr gpuList,
+            out bool initialized,
+            out int initResult,
+            out bool retryAttempted)
+        {
+            native = null;
+            disposableNative = null;
+            system = IntPtr.Zero;
+            gpuList = IntPtr.Zero;
+            initialized = false;
+            initResult = 0;
+            retryAttempted = false;
+
+            if (_pendingNative != null)
+            {
+                retryAttempted = true;
+                int retryResult = 0;
+                Exception? retryException = null;
+                try
+                {
+                    retryResult = _pendingNative.Terminate();
+                }
+                catch (Exception ex)
+                {
+                    retryException = ex;
+                }
+
+                if (retryException == null && (retryResult == 0 || retryResult == ADLX_ORPHAN_OBJECTS))
+                {
+                    Logger.LogInfo($"Retry Terminate succeeded with HRESULT: 0x{retryResult:X}");
+                    try
+                    {
+                        _pendingDisposable?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
+                    }
+                    _pendingNative = null;
+                    _pendingDisposable = null;
+                }
+                else
+                {
+                    Logger.LogError($"Retry Terminate failed with HRESULT: 0x{retryResult:X}" + (retryException != null ? $", exception: {retryException.Message}" : ""));
+                    return false;
+                }
+            }
+
+            native = _nativeFactory();
+            disposableNative = native as IDisposable;
+
+            try
+            {
+                initResult = native.Initialize(out system);
+            }
+            catch
+            {
+                if (disposableNative != null)
+                {
+                    try { disposableNative.Dispose(); } catch { }
+                }
+                throw;
+            }
+
+            if (initResult == 0)
+            {
+                initialized = true;
+                return true;
+            }
+
+            if (disposableNative != null)
+            {
+                try { disposableNative.Dispose(); } catch { }
+            }
+            return false;
+        }
+
         public IReadOnlyList<IGpuDevice> EnumerateDevices()
+        {
+            lock (_lock)
+            {
+                return EnumerateDevicesInternal();
+            }
+        }
+
+        private IReadOnlyList<IGpuDevice> EnumerateDevicesInternal()
         {
             var devices = new List<IGpuDevice>();
             var seenUniqueIds = new HashSet<int>();
@@ -119,22 +231,28 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            int initResult = 0;
+            bool retryAttempted = false;
 
             try
             {
-                native = _nativeFactory();
-                disposableNative = native as IDisposable;
-
-                int initResult = native.Initialize(out system);
-                if (initResult == 0)
-                {
-                    initialized = true;
-                }
-                if (system == IntPtr.Zero || initResult != 0)
+                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
                 {
                     return devices;
                 }
+            }
+            catch (Exception)
+            {
+                return devices;
+            }
 
+            if (system == IntPtr.Zero)
+            {
+                return devices;
+            }
+
+            try
+            {
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
@@ -199,6 +317,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         internal bool TryReadTemperatureInternal(int targetUniqueId, out TemperatureReading? reading, out string? error)
         {
+            lock (_lock)
+            {
+                return TryReadTemperatureInternalImpl(targetUniqueId, out reading, out error);
+            }
+        }
+
+        private bool TryReadTemperatureInternalImpl(int targetUniqueId, out TemperatureReading? reading, out string? error)
+        {
             reading = null;
             error = null;
 
@@ -207,23 +333,38 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IntPtr system = IntPtr.Zero;
             IntPtr gpuList = IntPtr.Zero;
             bool initialized = false;
+            int initResult = 0;
+            bool retryAttempted = false;
 
             try
             {
-                native = _nativeFactory();
-                disposableNative = native as IDisposable;
-
-                int initResult = native.Initialize(out system);
-                if (initResult == 0)
+                if (!TryAcquireNative(out native, out disposableNative, out system, out gpuList, out initialized, out initResult, out retryAttempted))
                 {
-                    initialized = true;
-                }
-                if (system == IntPtr.Zero || initResult != 0)
-                {
-                    error = $"Failed to initialize ADLX. Result code: {initResult}";
+                    if (retryAttempted)
+                    {
+                        error = "Failed to initialize ADLX after retry.";
+                    }
+                    else
+                    {
+                        error = $"Failed to initialize ADLX. Result code: {initResult}";
+                    }
                     return false;
                 }
+            }
+            catch (Exception ex)
+            {
+                error = $"Exception during temperature read: {ex.Message}";
+                return false;
+            }
 
+            if (system == IntPtr.Zero)
+            {
+                error = $"Failed to initialize ADLX. Result code: {initResult}";
+                return false;
+            }
+
+            try
+            {
                 int gpuListResult = native.GetGpuList(system, out gpuList);
                 if (gpuListResult != 0 || gpuList == IntPtr.Zero)
                 {
@@ -332,7 +473,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
-        private static void Cleanup(
+        private void Cleanup(
             IAdlxNative? native,
             ref IntPtr gpuList,
             ref IntPtr system,
@@ -365,16 +506,34 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     Logger.LogError("ADLX Terminate threw exception", ex);
                 }
 
-                if (terminateResult != 0)
+                if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
                 {
-                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
+                    Logger.LogInfo($"Cleanup: Terminate succeeded with HRESULT: 0x{terminateResult:X}");
+                    if (disposableNative != null)
+                    {
+                        Logger.LogInfo("Cleanup: Dispose start");
+                        try
+                        {
+                            disposableNative.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("AdlxNative Dispose threw exception", ex);
+                        }
+                        Logger.LogInfo("Cleanup: Dispose end");
+                    }
+                }
+                else
+                {
+                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}" + (terminateException != null ? $", exception: {terminateException.Message}" : ""));
+                    _pendingNative = native;
+                    _pendingDisposable = disposableNative;
                 }
                 Logger.LogInfo("Cleanup: Terminate end");
             }
-
-            if (disposableNative != null)
+            else if (disposableNative != null)
             {
-                Logger.LogInfo("Cleanup: Dispose start");
+                Logger.LogInfo("Cleanup: Dispose start (not initialized)");
                 try
                 {
                     disposableNative.Dispose();
