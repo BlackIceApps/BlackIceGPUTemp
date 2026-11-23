@@ -2656,6 +2656,7 @@ namespace BlackIceGPUTemp.Tests
             var nativeCalls = new List<string>();
             var fake = new FakeAdlxNative
             {
+                GpuTemperatureSupported = new List<bool> { false, true, true },
                 InitializeHandler = (out IntPtr sys) =>
                 {
                     nativeCalls.Add("Initialize");
