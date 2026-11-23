@@ -523,17 +523,13 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void SessionCreation_NotInitialized_DisposeThrows_RetainsReferencesAndRetriesOnNextCall()
         {
+            // Initialize fails with error code -> CleanupRef runs with initialized=false
             var fake = new DisposeThrowsOnceThenSucceedsFake
             {
                 InitializeHandler = (out IntPtr sys) =>
                 {
                     sys = new IntPtr(0x1000);
-                    return 0;
-                },
-                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
-                {
-                    list = IntPtr.Zero;
-                    return -1; // Fail to get GPU list - triggers CleanupRef with initialized=true
+                    return -5; // Initialize fails - triggers CleanupRef with initialized=false
                 }
             };
             var fake2 = new FakeAdlxNative();
@@ -544,18 +540,17 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // First call: Initialize succeeds, but GetGpuList fails -> CleanupRef runs with initialized=true
-            // Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
+            // First call: Initialize fails, Dispose throws -> retained in _pendingDisposeNative
             var result1 = provider.Probe();
             Assert.False(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Next Probe() should retry Dispose before creating new instance
             var result2 = provider.Probe();
             Assert.True(result2.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.True(fake.IsDisposed);
             Assert.Equal(1, fake2.TerminateCalls);
@@ -566,17 +561,13 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void SessionCreation_NotInitialized_DisposeThrowsTwice_RetainsReferencesAndDoesNotInitNew()
         {
+            // Initialize fails with error code -> CleanupRef runs with initialized=false
             var fake = new DisposeFailsAndRetainsFake
             {
                 InitializeHandler = (out IntPtr sys) =>
                 {
                     sys = new IntPtr(0x1000);
-                    return 0;
-                },
-                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
-                {
-                    list = IntPtr.Zero;
-                    return -1; // Fail to get GPU list - triggers CleanupRef with initialized=true
+                    return -5; // Initialize fails - triggers CleanupRef with initialized=false
                 }
             };
             var fake2 = new FakeAdlxNative();
@@ -587,18 +578,17 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            // First call: Initialize succeeds, but GetGpuList fails -> CleanupRef runs with initialized=true
-            // Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
+            // First call: Initialize fails, Dispose throws -> retained in _pendingDisposeNative
             var result1 = provider.Probe();
             Assert.False(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Next Probe() should retry Dispose, still fails -> no new instance
             var result2 = provider.Probe();
             Assert.False(result2.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
@@ -1676,6 +1666,151 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, freeCallCount);
             Assert.False(native.IsDisposed);
             Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenNotInitialized_FreeLibraryThrows_RetainsHandleAndState()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; throw new InvalidOperationException("Simulated FreeLibrary failure"); }, false);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => native.Dispose());
+
+            Assert.Equal(1, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+            Assert.Equal("Simulated FreeLibrary failure", ex.Message);
+        }
+
+        private class FreeLibraryCallCounter
+        {
+            public int Count { get; set; }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static FreeLibraryCallCounter CreateAdlxNativeForFinalizerTest(bool isInitialized, Func<IntPtr, bool> freeLibraryOverride)
+        {
+            var counter = new FreeLibraryCallCounter();
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                h =>
+                {
+                    counter.Count++;
+                    return freeLibraryOverride(h);
+                },
+                isInitialized);
+            // Do not return native - let it become eligible for finalization
+            GC.KeepAlive(native);
+            return counter;
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_FreesLibrary_WhenNotInitialized()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(false, _ => true);
+
+            // Force GC - finalizer should run and free the library
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.Equal(1, counter.Count);
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_DoesNotFreeLibrary_WhenInitialized()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(true, _ => true);
+
+            // Force GC - finalizer should run but NOT free the library
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.Equal(0, counter.Count);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static FreeLibraryCallCounter CreateDisposedAdlxNative()
+        {
+            var counter = new FreeLibraryCallCounter();
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                h =>
+                {
+                    counter.Count++;
+                    return true;
+                },
+                false);
+            native.Dispose();
+            return counter;
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_SuppressesFinalizer()
+        {
+            var counter = CreateDisposedAdlxNative();
+
+            // Force GC - finalizer should not run because it was suppressed
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // FreeLibrary should have been called once by Dispose, not again by finalizer
+            Assert.Equal(1, counter.Count);
+        }
+
+        [Fact]
+        public void AdlxNative_Finalizer_IgnoresFreeLibraryFailure()
+        {
+            var counter = CreateAdlxNativeForFinalizerTest(false, _ =>
+            {
+                throw new InvalidOperationException("Simulated FreeLibrary failure in finalizer");
+            });
+
+            // Force GC - finalizer should run but not throw
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // Finalizer should not throw, even though FreeLibrary threw
+            Assert.Equal(1, counter.Count);
+        }
+
+        [Fact]
+        public void Terminate_OrphanObjects_DisposesLibrary()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = 0xB };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_OtherError_RetainsNativeAndDoesNotDispose()
+        {
+            var fake = new TerminateFailingFake { TerminateHResult = -1 };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void Terminate_Exception_RetainsNativeAndDoesNotDispose()
+        {
+            var fake = new TerminateFailingFake { ThrowOnTerminate = true };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            provider.Probe();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
