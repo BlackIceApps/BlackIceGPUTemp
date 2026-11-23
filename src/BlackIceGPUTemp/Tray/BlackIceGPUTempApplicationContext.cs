@@ -15,16 +15,29 @@ namespace BlackIceGPUTemp.Tray
     {
         private readonly NotifyIcon _notifyIcon;
         private readonly Timer _timer;
-        private HardwareMonitorService? _monitorService;
-        private string? _providerId;
-        private string? _deviceId;
-        private string _deviceName = "Starting...";
         private Icon? _currentIcon;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
         private bool _disposing;
         private bool _readInProgress;
+        private MonitoringSession? _session;
+
+        private sealed class MonitoringSession
+        {
+            public HardwareMonitorService MonitorService { get; }
+            public string ProviderId { get; }
+            public string DeviceId { get; }
+            public string DeviceName { get; }
+
+            public MonitoringSession(HardwareMonitorService monitorService, string providerId, string deviceId, string deviceName)
+            {
+                MonitorService = monitorService;
+                ProviderId = providerId;
+                DeviceId = deviceId;
+                DeviceName = deviceName;
+            }
+        }
 
         private const int MenuExitId = 1001;
         private const uint TPM_RIGHTALIGN = 0x0008;
@@ -136,14 +149,14 @@ namespace BlackIceGPUTemp.Tray
                     if (devices != null && devices.Count > 0)
                     {
                         var firstDevice = devices[0];
-                        _providerId = provider.Id;
-                        _deviceId = firstDevice.Id;
-                        _deviceName = firstDevice.Name;
-                        Logger.LogInfo($"Selected GPU: {_deviceName} (Provider: {_providerId}, Device: {_deviceId})");
+                        var providerId = provider.Id;
+                        var deviceId = firstDevice.Id;
+                        var deviceName = firstDevice.Name;
+                        Logger.LogInfo($"Selected GPU: {deviceName} (Provider: {providerId}, Device: {deviceId})");
 
                         var registry = new GpuProviderRegistry(new[] { provider });
                         var selector = new DeviceSelector(registry);
-                        _monitorService = new HardwareMonitorService(selector);
+                        var monitorService = new HardwareMonitorService(selector);
                         Logger.LogInfo("HardwareMonitorService created");
 
                         if (cancellationToken.IsCancellationRequested)
@@ -151,8 +164,11 @@ namespace BlackIceGPUTemp.Tray
                             return;
                         }
 
+                        var session = new MonitoringSession(monitorService, providerId, deviceId, deviceName);
+
                         InvokeOnUiThread(() =>
                         {
+                            _session = session;
                             _timer.Start();
                             UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
                         });
@@ -163,7 +179,6 @@ namespace BlackIceGPUTemp.Tray
                         {
                             return;
                         }
-                        _deviceName = "No supported GPU detected";
                         Logger.LogWarn("No supported GPU devices found");
                         InvokeOnUiThread(() => _notifyIcon.Text = "BlackIceGPUTemp: No supported GPU");
                     }
@@ -174,7 +189,6 @@ namespace BlackIceGPUTemp.Tray
                     {
                         return;
                     }
-                    _deviceName = "ADLX not available";
                     string reason = string.IsNullOrWhiteSpace(probeResult.Message)
                         ? "Unknown error"
                         : probeResult.Message!;
@@ -229,15 +243,13 @@ namespace BlackIceGPUTemp.Tray
 
         private void OnTimerTick(object? sender, EventArgs e)
         {
-            if (_monitorService == null)
+            var session = _session;
+            if (session == null)
             {
                 return;
             }
 
-            string providerId = _providerId ?? string.Empty;
-            string deviceId = _deviceId ?? string.Empty;
-
-            if (string.IsNullOrEmpty(providerId) || string.IsNullOrEmpty(deviceId))
+            if (string.IsNullOrEmpty(session.ProviderId) || string.IsNullOrEmpty(session.DeviceId))
             {
                 return;
             }
@@ -251,8 +263,6 @@ namespace BlackIceGPUTemp.Tray
                 _readInProgress = true;
             }
 
-            var capturedProviderId = providerId;
-            var capturedDeviceId = deviceId;
             var token = _cancellationTokenSource.Token;
 
             Task.Run(() =>
@@ -264,7 +274,7 @@ namespace BlackIceGPUTemp.Tray
                         return;
                     }
 
-                    bool success = _monitorService!.TryReadTemperature(capturedProviderId, capturedDeviceId, out var reading, out var error);
+                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error);
 
                     lock (_disposeLock)
                     {
@@ -278,7 +288,7 @@ namespace BlackIceGPUTemp.Tray
                     {
                         InvokeOnUiThread(() =>
                         {
-                            UpdateTooltip($"{_deviceName}: {reading.Celsius:F1}°C");
+                            UpdateTooltip($"{session.DeviceName}: {reading.Celsius:F1}°C");
                             UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
                         });
                     }
@@ -286,7 +296,7 @@ namespace BlackIceGPUTemp.Tray
                     {
                         InvokeOnUiThread(() =>
                         {
-                            UpdateTooltip($"{_deviceName}: Temp unavailable");
+                            UpdateTooltip($"{session.DeviceName}: Temp unavailable");
                             UpdateIcon("--");
                         });
                     }
@@ -304,7 +314,7 @@ namespace BlackIceGPUTemp.Tray
                     Logger.LogError("Error reading temperature", ex);
                     InvokeOnUiThread(() =>
                     {
-                        UpdateTooltip($"{_deviceName}: Temp unavailable");
+                        UpdateTooltip($"{session.DeviceName}: Temp unavailable");
                         UpdateIcon("--");
                     });
                 }
