@@ -47,7 +47,7 @@ namespace BlackIceGPUTemp.Monitoring
         /// Initializes a new instance of the <see cref="GpuMonitoringInitializationResult"/> class for a failed initialization.
         /// </summary>
         /// <param name="message">The reason for the failure.</param>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="message"/> is null or empty.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="message"/> is null, empty, or consists entirely of white-space characters.</exception>
         public GpuMonitoringInitializationResult(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
