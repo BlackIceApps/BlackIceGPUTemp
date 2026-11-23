@@ -190,6 +190,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     catch (Exception ex)
                     {
                         Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
+                        _pendingDisposeNative = _pendingNative;
+                        _pendingDisposeDisposable = _pendingDisposable;
+                        _pendingNative = null;
+                        _pendingDisposable = null;
+                        return false;
                     }
                     _pendingNative = null;
                     _pendingDisposable = null;
@@ -212,7 +217,13 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             {
                 if (disposableNative != null)
                 {
-                    try { disposableNative.Dispose(); } catch { }
+                    try { disposableNative.Dispose(); }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("AdlxNative Dispose threw exception after Initialize exception", ex);
+                        _pendingDisposeNative = native;
+                        _pendingDisposeDisposable = disposableNative;
+                    }
                 }
                 throw;
             }
@@ -225,7 +236,13 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             if (disposableNative != null)
             {
-                try { disposableNative.Dispose(); } catch { }
+                try { disposableNative.Dispose(); }
+                catch (Exception ex)
+                {
+                    Logger.LogError("AdlxNative Dispose threw exception after Initialize error", ex);
+                    _pendingDisposeNative = native;
+                    _pendingDisposeDisposable = disposableNative;
+                }
             }
             return false;
         }
@@ -560,6 +577,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 catch (Exception ex)
                 {
                     Logger.LogError("AdlxNative Dispose threw exception", ex);
+                    _pendingDisposeNative = native;
+                    _pendingDisposeDisposable = disposableNative;
                 }
                 Logger.LogInfo("Cleanup: Dispose end");
             }
