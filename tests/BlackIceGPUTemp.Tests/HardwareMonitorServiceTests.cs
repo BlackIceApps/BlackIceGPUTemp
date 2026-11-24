@@ -75,10 +75,12 @@ namespace BlackIceGPUTemp.Tests
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateDevicesCallCount++;
-                return _devices.AsReadOnly();
+                devices = _devices.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 

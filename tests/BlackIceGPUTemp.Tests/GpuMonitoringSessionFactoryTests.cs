@@ -22,9 +22,11 @@ namespace BlackIceGPUTemp.Tests
                 return false;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -39,9 +41,11 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -58,12 +62,14 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return new List<IGpuDevice>
+                devices = new List<IGpuDevice>
                 {
                     new FakeDevice("device-1", "Fake GPU")
                 }.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
@@ -82,9 +88,11 @@ namespace BlackIceGPUTemp.Tests
                 return false;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -101,12 +109,14 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
                 TokenSource?.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -121,7 +131,7 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 throw new InvalidOperationException("Enumerate failed");
             }
@@ -340,9 +350,11 @@ namespace BlackIceGPUTemp.Tests
                 throw new InvalidOperationException("Probe failed");
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -376,13 +388,15 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return new List<IGpuDevice>
+                devices = new List<IGpuDevice>
                 {
                     new FakeDevice("device-1", "Fake GPU")
                 }.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
@@ -415,10 +429,12 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -451,10 +467,12 @@ namespace BlackIceGPUTemp.Tests
                 return false;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -487,10 +505,12 @@ namespace BlackIceGPUTemp.Tests
                 throw new InvalidOperationException("Probe exception");
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -523,7 +543,7 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
                 throw new InvalidOperationException("Enumerate exception");
@@ -562,10 +582,12 @@ namespace BlackIceGPUTemp.Tests
                 return false;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -599,12 +621,14 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
                 TokenSource?.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -635,13 +659,15 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 Events.Add("Enumerate");
-                return new List<IGpuDevice>
+                devices = new List<IGpuDevice>
                 {
                     new FakeDevice("device-1", "Fake GPU")
                 }.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
@@ -673,7 +699,7 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
                 throw new InvalidOperationException("Enumerate exception");
@@ -708,13 +734,15 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateCalled = true;
-                return new List<IGpuDevice>
+                devices = new List<IGpuDevice>
                 {
                     new FakeDevice("device-1", "Fake GPU")
                 }.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
@@ -748,9 +776,11 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -784,9 +814,11 @@ namespace BlackIceGPUTemp.Tests
                 return false;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                return Array.Empty<IGpuDevice>();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
             }
         }
 
@@ -1058,13 +1090,15 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
                 EnumerateDevicesCallCount++;
-                return new List<IGpuDevice>
+                devices = new List<IGpuDevice>
                 {
                     new TrackingFakeDevice("device-1", "Tracking GPU")
                 }.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
