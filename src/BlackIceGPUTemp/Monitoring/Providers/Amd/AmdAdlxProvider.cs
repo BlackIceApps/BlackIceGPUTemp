@@ -88,76 +88,75 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
-        public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+        public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
         {
             lock (_lock)
             {
-                return ProbeInternal(cancellationToken);
+                return TryProbeInternal(cancellationToken, out error);
             }
         }
 
-        private ProviderProbeResult ProbeInternal(CancellationToken cancellationToken)
+        private bool TryProbeInternal(CancellationToken cancellationToken, out string? error)
         {
+            error = null;
+
             cancellationToken.ThrowIfCancellationRequested();
 
-            var session = EnsureSession(out string? error);
+            var session = EnsureSession(out error);
             if (session == null)
             {
-                return new ProviderProbeResult(false, error);
+                return false;
             }
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            ProviderProbeResult result;
             try
             {
                 int sizeResult = session.GetGpuListSize(out int count);
                 if (sizeResult != 0)
                 {
-                    result = new ProviderProbeResult(false, $"Failed to get GPU list size. Result code: {sizeResult}");
+                    error = $"Failed to get GPU list size. Result code: {sizeResult}";
+                    return false;
                 }
-                else
+
+                bool hasSupportedGpu = false;
+                for (int i = 0; i < count; i++)
                 {
-                    bool hasSupportedGpu = false;
-                    for (int i = 0; i < count; i++)
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    IntPtr gpu = IntPtr.Zero;
+                    try
                     {
+                        if (session.GetGpuAt(i, out gpu) != 0 || gpu == IntPtr.Zero)
+                        {
+                            continue;
+                        }
+
                         cancellationToken.ThrowIfCancellationRequested();
-                        
-                        IntPtr gpu = IntPtr.Zero;
-                        try
-                        {
-                            if (session.GetGpuAt(i, out gpu) != 0 || gpu == IntPtr.Zero)
-                            {
-                                continue;
-                            }
 
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
-                            {
-                                hasSupportedGpu = true;
-                            }
-                        }
-                        finally
+                        if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
                         {
-                            session.ReleaseInterface(ref gpu);
-                        }
-
-                        if (hasSupportedGpu)
-                        {
-                            break;
+                            hasSupportedGpu = true;
                         }
                     }
-
-                    if (!hasSupportedGpu)
+                    finally
                     {
-                        result = new ProviderProbeResult(false, "No GPU supports temperature monitoring via ADLX.");
+                        session.ReleaseInterface(ref gpu);
                     }
-                    else
+
+                    if (hasSupportedGpu)
                     {
-                        result = new ProviderProbeResult(true, null);
+                        break;
                     }
                 }
+
+                if (!hasSupportedGpu)
+                {
+                    error = "No GPU supports temperature monitoring via ADLX.";
+                    return false;
+                }
+
+                return true;
             }
             catch (OperationCanceledException)
             {
@@ -165,11 +164,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             catch (Exception ex)
             {
-                Logger.LogError("ADLX Probe: exception during GPU enumeration", ex);
-                result = new ProviderProbeResult(false, $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}");
+                Logger.LogError("ADLX TryProbe: exception during GPU enumeration", ex);
+                error = $"ADLX probe failed: {ex.GetType().Name}: {ex.Message}";
+                return false;
             }
-
-            return result;
         }
 
         public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)

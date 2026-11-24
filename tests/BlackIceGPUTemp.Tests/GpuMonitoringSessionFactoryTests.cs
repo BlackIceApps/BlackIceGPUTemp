@@ -16,9 +16,10 @@ namespace BlackIceGPUTemp.Tests
             public string Id => "unavailable";
             public string DisplayName => "Unavailable Provider";
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
-                return new ProviderProbeResult(false, "Provider not available");
+                error = "Provider not available";
+                return false;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -32,9 +33,10 @@ namespace BlackIceGPUTemp.Tests
             public string Id => "available-no-devices";
             public string DisplayName => "Available No Devices Provider";
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -49,10 +51,11 @@ namespace BlackIceGPUTemp.Tests
             public string DisplayName => "Available With Devices Provider";
             public bool ProbeCalled { get; private set; }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -71,11 +74,12 @@ namespace BlackIceGPUTemp.Tests
             public CancellationTokenSource? TokenSource { get; set; }
             public bool ProbeCalled { get; private set; }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
                 TokenSource?.Cancel();
-                return new ProviderProbeResult(false, "Cancelled");
+                error = "Cancelled";
+                return false;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -91,9 +95,10 @@ namespace BlackIceGPUTemp.Tests
             public CancellationTokenSource? TokenSource { get; set; }
             public bool EnumerateCalled { get; private set; }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -110,9 +115,10 @@ namespace BlackIceGPUTemp.Tests
             public string Id => "throwing-enumerate";
             public string DisplayName => "Throwing Enumerate Provider";
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -328,8 +334,9 @@ namespace BlackIceGPUTemp.Tests
             public string Id => "throwing-probe";
             public string DisplayName => "Throwing Probe Provider";
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
+                error = null;
                 throw new InvalidOperationException("Probe failed");
             }
 
@@ -362,10 +369,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -400,10 +408,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -435,10 +444,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(false, "Probe failed");
+                error = "Probe failed";
+                return false;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -470,9 +480,10 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
+                error = null;
                 throw new InvalidOperationException("Probe exception");
             }
 
@@ -505,10 +516,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -541,12 +553,13 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
                 TokenSource?.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
-                return new ProviderProbeResult(false, "Cancelled");
+                error = "Cancelled";
+                return false;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -579,10 +592,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -614,10 +628,11 @@ namespace BlackIceGPUTemp.Tests
                 Events.Add("Disconnect");
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 Events.Add("Probe");
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -651,10 +666,11 @@ namespace BlackIceGPUTemp.Tests
                 throw new InvalidOperationException("Disconnect exception");
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -685,10 +701,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -724,10 +741,11 @@ namespace BlackIceGPUTemp.Tests
                 DisconnectCalled = true;
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -759,10 +777,11 @@ namespace BlackIceGPUTemp.Tests
                 throw new InvalidOperationException("Disconnect exception during cleanup");
             }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
                 ProbeCalled = true;
-                return new ProviderProbeResult(false, "Probe unavailable");
+                error = "Probe unavailable";
+                return false;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
@@ -1033,9 +1052,10 @@ namespace BlackIceGPUTemp.Tests
             public string DisplayName => "Tracking Enumerate Provider";
             public int EnumerateDevicesCallCount { get; private set; }
 
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
             {
-                return new ProviderProbeResult(true, null);
+                error = null;
+                return true;
             }
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
