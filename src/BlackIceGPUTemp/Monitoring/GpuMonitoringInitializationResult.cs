@@ -1,4 +1,5 @@
 using System;
+using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Monitoring
 {
@@ -14,9 +15,10 @@ namespace BlackIceGPUTemp.Monitoring
         /// <param name="providerId">The ID of the selected provider.</param>
         /// <param name="deviceId">The ID of the selected device.</param>
         /// <param name="deviceName">The name of the selected device.</param>
+        /// <param name="providerLifecycle">The lifecycle interface of the provider, if supported.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="monitorService"/> is null.</exception>
         /// <exception cref="ArgumentException">Thrown when <paramref name="providerId"/>, <paramref name="deviceId"/>, or <paramref name="deviceName"/> is null, empty, or consists entirely of white-space characters.</exception>
-        public GpuMonitoringInitializationResult(HardwareMonitorService monitorService, string providerId, string deviceId, string deviceName)
+        public GpuMonitoringInitializationResult(HardwareMonitorService monitorService, string providerId, string deviceId, string deviceName, IGpuProviderLifecycle? providerLifecycle = null)
         {
             if (monitorService == null)
             {
@@ -41,6 +43,7 @@ namespace BlackIceGPUTemp.Monitoring
             DeviceId = deviceId;
             DeviceName = deviceName;
             Message = null;
+            ProviderLifecycle = providerLifecycle;
         }
 
         /// <summary>
@@ -92,5 +95,10 @@ namespace BlackIceGPUTemp.Monitoring
         /// Gets the failure message. Only non-null when <see cref="IsSuccess"/> is false.
         /// </summary>
         public string? Message { get; }
+
+        /// <summary>
+        /// Gets the provider lifecycle interface for explicit session management, if supported by the provider.
+        /// </summary>
+        public IGpuProviderLifecycle? ProviderLifecycle { get; }
     }
 }

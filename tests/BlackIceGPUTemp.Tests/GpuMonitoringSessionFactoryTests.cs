@@ -337,5 +337,415 @@ namespace BlackIceGPUTemp.Tests
                 return Array.Empty<IGpuDevice>();
             }
         }
+
+        // Lifecycle-aware provider fakes
+        private class LifecycleProvider : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-provider";
+            public string DisplayName => "Lifecycle Provider";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                return new ProviderProbeResult(true, null);
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                EnumerateCalled = true;
+                return new List<IGpuDevice>
+                {
+                    new FakeDevice("device-1", "Fake GPU")
+                }.AsReadOnly();
+            }
+        }
+
+        private class LifecycleProviderNoDevices : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-provider-no-devices";
+            public string DisplayName => "Lifecycle Provider No Devices";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                return new ProviderProbeResult(true, null);
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                EnumerateCalled = true;
+                return Array.Empty<IGpuDevice>();
+            }
+        }
+
+        private class LifecycleProviderProbeFails : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-provider-probe-fails";
+            public string DisplayName => "Lifecycle Provider Probe Fails";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                return new ProviderProbeResult(false, "Probe failed");
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                return Array.Empty<IGpuDevice>();
+            }
+        }
+
+        private class LifecycleProviderThrowsInProbe : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-throws-probe";
+            public string DisplayName => "Lifecycle Throws Probe";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                throw new InvalidOperationException("Probe exception");
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                return Array.Empty<IGpuDevice>();
+            }
+        }
+
+        private class LifecycleProviderThrowsInEnumerate : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-throws-enumerate";
+            public string DisplayName => "Lifecycle Throws Enumerate";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                return new ProviderProbeResult(true, null);
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                EnumerateCalled = true;
+                throw new InvalidOperationException("Enumerate exception");
+            }
+        }
+
+        private class LifecycleProviderCancelsInProbe : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-cancels-probe";
+            public string DisplayName => "Lifecycle Cancels Probe";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public CancellationTokenSource? TokenSource { get; set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                TokenSource?.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return new ProviderProbeResult(false, "Cancelled");
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                return Array.Empty<IGpuDevice>();
+            }
+        }
+
+        private class LifecycleProviderCancelsInEnumerate : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-cancels-enumerate";
+            public string DisplayName => "Lifecycle Cancels Enumerate";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
+            public CancellationTokenSource? TokenSource { get; set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                return new ProviderProbeResult(true, null);
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                EnumerateCalled = true;
+                TokenSource?.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return Array.Empty<IGpuDevice>();
+            }
+        }
+
+        [Fact]
+        public void Create_LifecycleProvider_ConnectThenProbeThenEnumerateInOrder()
+        {
+            var provider = new LifecycleProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.True(provider.EnumerateCalled);
+            Assert.Equal(0, provider.DisconnectCalled ? 1 : 0); // Not disconnected on success
+            Assert.Equal("lifecycle-provider", result.ProviderId);
+            Assert.NotNull(result.ProviderLifecycle);
+            Assert.Same(provider, result.ProviderLifecycle);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderConnectFails_NoProbeNoEnumerate_NoDisconnect()
+        {
+            var provider = new LifecycleProvider { ConnectError = "Connect failed" };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.True(provider.ConnectCalled);
+            Assert.False(provider.ProbeCalled);
+            Assert.False(provider.EnumerateCalled);
+            Assert.False(provider.DisconnectCalled); // Connect didn't establish session, no Disconnect
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderProbeFails_DisconnectCalled()
+        {
+            var provider = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.False(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderNoDevices_DisconnectCalled()
+        {
+            var provider = new LifecycleProviderNoDevices();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("No supported GPU devices found.", result.Message);
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.True(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderSuccess_LifecycleNotDisconnectedAndPassedInResult()
+        {
+            var provider = new LifecycleProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.False(provider.DisconnectCalled);
+            Assert.NotNull(result.ProviderLifecycle);
+            Assert.Same(provider, result.ProviderLifecycle);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderThrowsInProbe_DisconnectCalledAndExceptionRethrown()
+        {
+            var provider = new LifecycleProviderThrowsInProbe();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var ex = Assert.Throws<InvalidOperationException>(() => factory.Create(CancellationToken.None));
+            Assert.Equal("Probe exception", ex.Message);
+
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.False(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderThrowsInEnumerate_DisconnectCalledAndExceptionRethrown()
+        {
+            var provider = new LifecycleProviderThrowsInEnumerate();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var ex = Assert.Throws<InvalidOperationException>(() => factory.Create(CancellationToken.None));
+            Assert.Equal("Enumerate exception", ex.Message);
+
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.True(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderCancelsInProbe_DisconnectCalledAndOperationCanceledRethrown()
+        {
+            var cts = new CancellationTokenSource();
+            var provider = new LifecycleProviderCancelsInProbe { TokenSource = cts };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            Assert.Throws<OperationCanceledException>(() => factory.Create(cts.Token));
+
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.False(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderCancelsInEnumerate_DisconnectCalledAndOperationCanceledRethrown()
+        {
+            var cts = new CancellationTokenSource();
+            var provider = new LifecycleProviderCancelsInEnumerate { TokenSource = cts };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            Assert.Throws<OperationCanceledException>(() => factory.Create(cts.Token));
+
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.True(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_NonLifecycleProvider_OldBehaviorPreserved()
+        {
+            var provider = new AvailableWithDevicesProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.Null(result.ProviderLifecycle);
+            Assert.Equal("available-with-devices", result.ProviderId);
+        }
     }
 }
