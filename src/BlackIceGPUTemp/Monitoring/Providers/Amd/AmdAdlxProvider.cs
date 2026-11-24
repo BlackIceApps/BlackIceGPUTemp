@@ -257,7 +257,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                 if (seenUniqueIds.Add(uniqueId))
                                 {
                                     string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
-                                    devices.Add(new AmdAdlxDevice(this, deviceId, name!, gpuKind));
+                                    devices.Add(new AmdAdlxDevice(this, Id, deviceId, name!, gpuKind));
                                 }
                             }
                         }

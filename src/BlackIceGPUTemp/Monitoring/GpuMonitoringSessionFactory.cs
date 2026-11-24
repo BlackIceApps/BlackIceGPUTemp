@@ -76,9 +76,7 @@ namespace BlackIceGPUTemp.Monitoring
                             if (devices != null && devices.Count > 0)
                             {
                                 var firstDevice = devices[0];
-                                var registry = new GpuProviderRegistry(providers);
-                                var selector = new DeviceSelector(registry);
-                                var monitorService = new HardwareMonitorService(selector);
+                                var monitorService = new HardwareMonitorService(firstDevice);
 
                                 return new GpuMonitoringInitializationResult(
                                     monitorService,
@@ -87,19 +85,19 @@ namespace BlackIceGPUTemp.Monitoring
                                     firstDevice.Name,
                                     lifecycleProvider);
                             }
-else
+                            else
+                            {
+                                // No devices - disconnect (normal cleanup, propagate Disconnect exception)
+                                disconnectCalled = true;
+                                lifecycleProvider.Disconnect();
+                            }
+                        }
+                        else
                         {
-                            // No devices - disconnect (normal cleanup, propagate Disconnect exception)
+                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
                             disconnectCalled = true;
                             lifecycleProvider.Disconnect();
                         }
-                    }
-                    else
-                    {
-                        // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
-                        disconnectCalled = true;
-                        lifecycleProvider.Disconnect();
-                    }
                     }
                     catch
                     {
@@ -133,9 +131,7 @@ else
                         if (devices != null && devices.Count > 0)
                         {
                             var firstDevice = devices[0];
-                            var registry = new GpuProviderRegistry(providers);
-                            var selector = new DeviceSelector(registry);
-                            var monitorService = new HardwareMonitorService(selector);
+                            var monitorService = new HardwareMonitorService(firstDevice);
 
                             return new GpuMonitoringInitializationResult(
                                 monitorService,

@@ -12,6 +12,7 @@ namespace BlackIceGPUTemp.Tests
         private class TestGpuDevice : IGpuDevice
         {
             public string Id { get; }
+            public string ProviderId => "test-provider";
             public string Name => "Test Device";
             public GpuVendor Vendor => GpuVendor.Unknown;
             public GpuKind Kind => GpuKind.Discrete;

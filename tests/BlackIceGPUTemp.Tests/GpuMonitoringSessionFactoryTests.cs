@@ -124,6 +124,7 @@ namespace BlackIceGPUTemp.Tests
         private class FakeDevice : IGpuDevice
         {
             public string Id { get; }
+            public string ProviderId => "available-with-devices";
             public string Name { get; }
             public GpuVendor Vendor => GpuVendor.Amd;
             public GpuKind Kind => GpuKind.Discrete;
@@ -1023,6 +1024,85 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(provider.ConnectCalled);
             Assert.True(provider.ProbeCalled);
             Assert.Equal(1, provider.DisconnectCallCount);
+        }
+
+        [Fact]
+        public void Create_DirectDeviceMode_MultipleReads_DoesNotReEnumerate()
+        {
+            // Provider that tracks how many times EnumerateDevices is called
+            var provider = new TrackingEnumerateProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider> { provider }));
+
+            // Create session - this should call EnumerateDevices once
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.HardwareMonitorService);
+            Assert.Equal(1, provider.EnumerateDevicesCallCount); // EnumerateDevices called once during Create
+
+            // Perform multiple reads through HardwareMonitorService
+            var service = result.HardwareMonitorService!;
+            var providerId = result.ProviderId!;
+            var deviceId = result.DeviceId!;
+
+            // First read
+            bool result1 = service.TryReadTemperature(providerId, deviceId, out var reading1, out var error1, CancellationToken.None);
+            // Second read
+            bool result2 = service.TryReadTemperature(providerId, deviceId, out var reading2, out var error2, CancellationToken.None);
+            // Third read
+            bool result3 = service.TryReadTemperature(providerId, deviceId, out var reading3, out var error3, CancellationToken.None);
+
+            Assert.True(result1);
+            Assert.True(result2);
+            Assert.True(result3);
+            Assert.Equal(1, provider.EnumerateDevicesCallCount); // Still 1 - no re-enumeration on reads
+        }
+
+        private class TrackingEnumerateProvider : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator
+        {
+            public string Id => "tracking-enumerate";
+            public string DisplayName => "Tracking Enumerate Provider";
+            public int EnumerateDevicesCallCount { get; private set; }
+
+            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
+            {
+                return new ProviderProbeResult(true, null);
+            }
+
+            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            {
+                EnumerateDevicesCallCount++;
+                return new List<IGpuDevice>
+                {
+                    new TrackingFakeDevice("device-1", "Tracking GPU")
+                }.AsReadOnly();
+            }
+        }
+
+        private class TrackingFakeDevice : IGpuDevice
+        {
+            public string Id { get; }
+            public string ProviderId => "tracking-enumerate";
+            public string Name { get; }
+            public GpuVendor Vendor => GpuVendor.Amd;
+            public GpuKind Kind => GpuKind.Discrete;
+
+            public int ReadCallCount { get; private set; }
+
+            public TrackingFakeDevice(string id, string name)
+            {
+                Id = id;
+                Name = name;
+            }
+
+            public bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
+            {
+                ReadCallCount++;
+                reading = new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow);
+                error = null;
+                return true;
+            }
         }
     }
 }

@@ -3190,21 +3190,28 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Constructor_NullTemperatureReader_ThrowsArgumentNullException()
         {
-            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(null!, "id", "name", GpuKind.Discrete));
+            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(null!, "provider-id", "id", "name", GpuKind.Discrete));
+        }
+
+        [Fact]
+        public void Constructor_NullProviderId_ThrowsArgumentNullException()
+        {
+            var reader = new FakeTemperatureReader(true, new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow), null);
+            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(reader, null!, "id", "name", GpuKind.Discrete));
         }
 
         [Fact]
         public void Constructor_NullId_ThrowsArgumentNullException()
         {
             var reader = new FakeTemperatureReader(true, new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow), null);
-            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(reader, null!, "name", GpuKind.Discrete));
+            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(reader, "provider-id", null!, "name", GpuKind.Discrete));
         }
 
         [Fact]
         public void Constructor_NullName_ThrowsArgumentNullException()
         {
             var reader = new FakeTemperatureReader(true, new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow), null);
-            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(reader, "id", null!, GpuKind.Discrete));
+            Assert.Throws<ArgumentNullException>(() => new AmdAdlxDevice(reader, "provider-id", "id", null!, GpuKind.Discrete));
         }
 
         [Fact]
@@ -3212,7 +3219,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var expectedReading = new TemperatureReading(75.5, "GPU Core", DateTimeOffset.UtcNow);
             var reader = new FakeTemperatureReader(true, expectedReading, null);
-            var device = new AmdAdlxDevice(reader, "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
+            var device = new AmdAdlxDevice(reader, "amd-adlx", "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
 
             bool success = device.TryReadTemperature(out var reading, out var error);
 
@@ -3227,7 +3234,7 @@ namespace BlackIceGPUTemp.Tests
         public void TryReadTemperature_Failure_ReturnsError()
         {
             var reader = new FakeTemperatureReader(false, null, "Hardware failure");
-            var device = new AmdAdlxDevice(reader, "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
+            var device = new AmdAdlxDevice(reader, "amd-adlx", "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
 
             bool success = device.TryReadTemperature(out var reading, out var error);
 
@@ -3240,7 +3247,7 @@ namespace BlackIceGPUTemp.Tests
         public void TryReadTemperature_PassesCancellationToken()
         {
             var reader = new FakeTemperatureReader(true, new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow), null);
-            var device = new AmdAdlxDevice(reader, "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
+            var device = new AmdAdlxDevice(reader, "amd-adlx", "amd-adlx:12345", "Test GPU", GpuKind.Discrete);
             var cts = new CancellationTokenSource();
 
             device.TryReadTemperature(out _, out _, cts.Token);
@@ -3252,7 +3259,7 @@ namespace BlackIceGPUTemp.Tests
         public void TryReadTemperature_WorksWithAnyIGpuTemperatureReaderImplementation()
         {
             var mockReader = new FakeTemperatureReader(true, new TemperatureReading(60.0, "Mock Sensor", DateTimeOffset.UtcNow), null);
-            var device = new AmdAdlxDevice(mockReader, "amd-adlx:99999", "Mock GPU", GpuKind.Integrated);
+            var device = new AmdAdlxDevice(mockReader, "amd-adlx", "amd-adlx:99999", "Mock GPU", GpuKind.Integrated);
 
             bool success = device.TryReadTemperature(out var reading, out var error);
 

@@ -9,16 +9,27 @@ namespace BlackIceGPUTemp.Monitoring
     /// </summary>
     public class HardwareMonitorService
     {
-        private readonly DeviceSelector _deviceSelector;
+        private readonly DeviceSelector? _deviceSelector;
+        private readonly IGpuDevice? _directDevice;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="HardwareMonitorService"/> class.
+        /// Initializes a new instance of the <see cref="HardwareMonitorService"/> class using a device selector.
         /// </summary>
         /// <param name="deviceSelector">The device selector used to find GPU devices.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="deviceSelector"/> is null.</exception>
         public HardwareMonitorService(DeviceSelector deviceSelector)
         {
             _deviceSelector = deviceSelector ?? throw new ArgumentNullException(nameof(deviceSelector));
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="HardwareMonitorService"/> class using a directly specified GPU device.
+        /// </summary>
+        /// <param name="directDevice">The GPU device to read temperature from directly.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="directDevice"/> is null.</exception>
+        public HardwareMonitorService(IGpuDevice directDevice)
+        {
+            _directDevice = directDevice ?? throw new ArgumentNullException(nameof(directDevice));
         }
 
         /// <summary>
@@ -30,14 +41,45 @@ namespace BlackIceGPUTemp.Monitoring
         /// <param name="error">When this method returns, contains the error message if unsuccessful; otherwise, <c>null</c>.</param>
         /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns><c>true</c> if the temperature was successfully read; otherwise, <c>false</c>.</returns>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="providerId"/> or <paramref name="deviceId"/> is null, empty, or consists entirely of white-space characters.</exception>
         public bool TryReadTemperature(string providerId, string deviceId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
         {
-            var device = _deviceSelector.FindDevice(providerId, deviceId, cancellationToken);
-            if (device == null)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(providerId))
             {
-                reading = null;
-                error = "Device not found.";
-                return false;
+                throw new ArgumentException("Provider ID cannot be null, empty, or consist entirely of white-space characters.", nameof(providerId));
+            }
+
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("Device ID cannot be null, empty, or consist entirely of white-space characters.", nameof(deviceId));
+            }
+
+            IGpuDevice? device;
+
+            if (_directDevice != null)
+            {
+                // Direct device mode - validate identifiers match the stored device
+                if (!string.Equals(_directDevice.ProviderId, providerId, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(_directDevice.Id, deviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    reading = null;
+                    error = "Provider ID or Device ID does not match the configured device.";
+                    return false;
+                }
+                device = _directDevice;
+            }
+            else
+            {
+                // Selector mode - find device via registry
+                device = _deviceSelector!.FindDevice(providerId, deviceId, cancellationToken);
+                if (device == null)
+                {
+                    reading = null;
+                    error = "Device not found.";
+                    return false;
+                }
             }
 
             bool success = device.TryReadTemperature(out var deviceReading, out var deviceError, cancellationToken);
