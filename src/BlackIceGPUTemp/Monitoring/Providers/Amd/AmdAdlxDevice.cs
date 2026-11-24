@@ -9,13 +9,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private readonly IGpuTemperatureReader _temperatureReader;
 
         public string Id { get; }
+        public string ProviderId { get; }
         public string Name { get; }
         public GpuVendor Vendor => GpuVendor.Amd;
         public GpuKind Kind { get; }
 
-        internal AmdAdlxDevice(IGpuTemperatureReader temperatureReader, string id, string name, GpuKind kind)
+        internal AmdAdlxDevice(IGpuTemperatureReader temperatureReader, string providerId, string id, string name, GpuKind kind)
         {
             _temperatureReader = temperatureReader ?? throw new ArgumentNullException(nameof(temperatureReader));
+            ProviderId = providerId ?? throw new ArgumentNullException(nameof(providerId));
             Id = id ?? throw new ArgumentNullException(nameof(id));
             Name = name ?? throw new ArgumentNullException(nameof(name));
             Kind = kind;

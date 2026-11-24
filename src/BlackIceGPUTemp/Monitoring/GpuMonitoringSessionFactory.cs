@@ -37,27 +37,108 @@ namespace BlackIceGPUTemp.Monitoring
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
+                // Check if provider supports explicit lifecycle management
+                var lifecycleProvider = provider as IGpuProviderLifecycle;
 
-                if (probeResult.IsAvailable)
+                if (lifecycleProvider != null)
                 {
-                    hasAvailableProvider = true;
-
-                    var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (devices != null && devices.Count > 0)
+                    // Call Connect first - handle exceptions from Connect itself
+                    try
                     {
-                        var firstDevice = devices[0];
-                        var registry = new GpuProviderRegistry(providers);
-                        var selector = new DeviceSelector(registry);
-                        var monitorService = new HardwareMonitorService(selector);
+                        if (!lifecycleProvider.Connect(out _))
+                        {
+                            // Connect failed - skip this provider, no Disconnect needed
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // Connect threw - no session established, no Disconnect needed
+                        throw;
+                    }
 
-                        return new GpuMonitoringInitializationResult(
-                            monitorService,
-                            provider.Id,
-                            firstDevice.Id,
-                            firstDevice.Name);
+                    bool disconnectCalled = false;
+
+                    try
+                    {
+                        // Check cancellation after successful Connect
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
+
+                        if (probeResult.IsAvailable)
+                        {
+                            hasAvailableProvider = true;
+
+                            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            if (devices != null && devices.Count > 0)
+                            {
+                                var firstDevice = devices[0];
+                                var monitorService = new HardwareMonitorService(firstDevice);
+
+                                return new GpuMonitoringInitializationResult(
+                                    monitorService,
+                                    provider.Id,
+                                    firstDevice.Id,
+                                    firstDevice.Name,
+                                    lifecycleProvider);
+                            }
+                            else
+                            {
+                                // No devices - disconnect (normal cleanup, propagate Disconnect exception)
+                                disconnectCalled = true;
+                                lifecycleProvider.Disconnect();
+                            }
+                        }
+                        else
+                        {
+                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                        }
+                    }
+                    catch
+                    {
+                        // Any exception (including OperationCanceledException) - disconnect if not already done
+                        if (!disconnectCalled)
+                        {
+                            try
+                            {
+                                lifecycleProvider.Disconnect();
+                            }
+                            catch
+                            {
+                                // Suppress cleanup exceptions, rethrow original
+                            }
+                        }
+                        throw;
+                    }
+                }
+                else
+                {
+                    // Provider without lifecycle - old behavior
+                    var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
+
+                    if (probeResult.IsAvailable)
+                    {
+                        hasAvailableProvider = true;
+
+                        var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (devices != null && devices.Count > 0)
+                        {
+                            var firstDevice = devices[0];
+                            var monitorService = new HardwareMonitorService(firstDevice);
+
+                            return new GpuMonitoringInitializationResult(
+                                monitorService,
+                                provider.Id,
+                                firstDevice.Id,
+                                firstDevice.Name);
+                        }
                     }
                 }
             }

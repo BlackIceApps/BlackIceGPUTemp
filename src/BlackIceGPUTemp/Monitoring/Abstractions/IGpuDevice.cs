@@ -14,6 +14,11 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         string Id { get; }
 
         /// <summary>
+        /// Gets the unique identifier of the provider that owns this device.
+        /// </summary>
+        string ProviderId { get; }
+
+        /// <summary>
         /// Gets the display name of the GPU device.
         /// </summary>
         string Name { get; }
