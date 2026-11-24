@@ -548,6 +548,9 @@ namespace BlackIceGPUTemp.Tests
             {
                 return Array.Empty<IGpuDevice>();
             }
+        }
+
+        private class LifecycleProviderCancelsInEnumerate : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
         {
             public string Id => "lifecycle-cancels-enumerate";
             public string DisplayName => "Lifecycle Cancels Enumerate";
