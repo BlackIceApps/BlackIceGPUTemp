@@ -163,13 +163,7 @@ namespace BlackIceGPUTemp.Tray
                     deviceId == null || string.IsNullOrWhiteSpace(deviceId) ||
                     deviceName == null || string.IsNullOrWhiteSpace(deviceName))
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    Logger.LogError("GPU monitoring initialization succeeded but returned invalid data.");
-                    // If we got a lifecycle provider but data is invalid, disconnect it
+                    // Always disconnect provider lifecycle if present, regardless of cancellation
                     if (providerLifecycle != null)
                     {
                         try
@@ -181,6 +175,13 @@ namespace BlackIceGPUTemp.Tray
                             Logger.LogError("Error disconnecting provider after invalid initialization data", ex);
                         }
                     }
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    Logger.LogError("GPU monitoring initialization succeeded but returned invalid data.");
                     InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initialization error"));
                     return;
                 }
