@@ -1221,9 +1221,9 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryEnumerateDevices_AdlxError_GetGpuAtFails_ContinuesEnumeration()
+        public void TryEnumerateDevices_AdlxError_GetGpuAtFails_ReturnsFalseWithError()
         {
-            // GetGpuAt fails for one GPU but succeeds for another
+            // GetGpuAt fails for first GPU - enumeration should fail completely
             var fake = new FakeAdlxNative
             {
                 GpuNames = new List<string> { "GPU1", "GPU2" },
@@ -1232,23 +1232,148 @@ namespace BlackIceGPUTemp.Tests
                 GpuTemperatureSupported = new List<bool> { true, true },
                 GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
                 {
-                    if (index == 0)
-                    {
-                        gpu = new IntPtr(0x3000);
-                        return -1; // Fail first GPU
-                    }
-                    gpu = new IntPtr(0x3001);
-                    return 0; // Succeed second GPU
+                    gpu = IntPtr.Zero;
+                    return -1; // Fail first GPU
                 }
             };
             var provider = new AmdAdlxProvider(() => fake);
 
             bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
-            Assert.True(success); // Overall enumeration succeeds
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuUniqueIdFails_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
+                {
+                    uid = 0;
+                    return -1; // Fail to get unique ID
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get unique ID or name for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuNameFails_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetGpuNameHandler = (IntPtr gpu, out string? name) =>
+                {
+                    name = null;
+                    return -1; // Fail to get name
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get unique ID or name for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_IsTemperatureSupportedFails_ReturnsFalseWithError()
+        {
+            // API error during IsTemperatureSupported should fail enumeration
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
+                {
+                    ms = IntPtr.Zero;
+                    return -1; // API error getting supported metrics
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to check temperature support for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_GpuWithoutTemperatureSupport_ReturnsEmptyListWithSuccess()
+        {
+            // When GPU doesn't support temperature (valid result, not error), enumeration succeeds with empty list
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { false } // Not supported, not an error
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.True(success); // Enumeration succeeded
             Assert.Null(error);
-            Assert.Single(devices); // Only second GPU enumerated
-            Assert.Equal("amd-adlx:222", devices[0].Id);
+            Assert.Empty(devices); // But no devices support temperature
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_ErrorAfterSuccessfulGpu_ReturnsEmptyList()
+        {
+            // First GPU succeeds, second GPU fails - should return empty list, not partial
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2" },
+                GpuUniqueIds = new List<int> { 111, 222 },
+                GpuTypes = new List<int> { 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true },
+                GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+                {
+                    gpu = new IntPtr(0x3000 + index);
+                    if (index == 1)
+                    {
+                        return -1; // Second GPU fails
+                    }
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU at index 1", error);
+            Assert.Empty(devices); // Must be empty, not partial
         }
 
         [Fact]

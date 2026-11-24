@@ -134,10 +134,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
+                        int tempResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        if (tempResult == 0 && tempSupported)
                         {
                             hasSupportedGpu = true;
                         }
+                        // If tempResult != 0, treat as "not supported" for this GPU and continue
                     }
                     finally
                     {
@@ -211,24 +213,38 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     IntPtr gpu = IntPtr.Zero;
                     try
                     {
-                        if (session.GetGpuAt(i, out gpu) != 0 || gpu == IntPtr.Zero)
+                        int gpuAtResult = session.GetGpuAt(i, out gpu);
+                        if (gpuAtResult != 0)
                         {
-                            continue;
+                            error = $"Failed to get GPU at index {i}. Result code: {gpuAtResult}";
+                            devices = Array.Empty<IGpuDevice>();
+                            return false;
+                        }
+                        if (gpu == IntPtr.Zero)
+                        {
+                            error = $"GPU at index {i} returned null handle.";
+                            devices = Array.Empty<IGpuDevice>();
+                            return false;
                         }
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (!session.GetUniqueIdAndName(gpu, out int uniqueId, out string? name, cancellationToken))
+                        int uniqueIdAndNameResult = session.GetUniqueIdAndName(gpu, out int uniqueId, out string? name, cancellationToken);
+                        if (uniqueIdAndNameResult != 0)
                         {
-                            continue;
+                            error = $"Failed to get unique ID or name for GPU at index {i}. Result code: {uniqueIdAndNameResult}";
+                            devices = Array.Empty<IGpuDevice>();
+                            return false;
                         }
-
-                        cancellationToken.ThrowIfCancellationRequested();
 
                         if (uniqueId <= 0 || string.IsNullOrWhiteSpace(name))
                         {
-                            continue;
+                            error = $"GPU at index {i} returned invalid unique ID ({uniqueId}) or name ('{name}').";
+                            devices = Array.Empty<IGpuDevice>();
+                            return false;
                         }
+
+                        cancellationToken.ThrowIfCancellationRequested();
 
                         GpuKind gpuKind = GpuKind.Unknown;
                         try
@@ -258,7 +274,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken) && tempSupported)
+                        int tempSupportedResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        if (tempSupportedResult != 0)
+                        {
+                            error = $"Failed to check temperature support for GPU at index {i}. Result code: {tempSupportedResult}";
+                            devices = Array.Empty<IGpuDevice>();
+                            return false;
+                        }
+
+                        if (tempSupported)
                         {
                             if (seenUniqueIds.Add(uniqueId))
                             {

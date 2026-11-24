@@ -136,30 +136,35 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return _native.GetGpuAt(_gpuList, index, out gpu);
         }
 
-        public bool GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name, CancellationToken cancellationToken = default)
+        public int GetUniqueIdAndName(IntPtr gpu, out int uniqueId, out string? name, CancellationToken cancellationToken = default)
         {
             uniqueId = 0;
             name = null;
             if (_disposed)
             {
-                return false;
+                return -1;
             }
 
             int idResult = _native.GetGpuUniqueId(gpu, out uniqueId);
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (idResult != 0)
+            {
+                return idResult;
+            }
+
             int nameResult = _native.GetGpuName(gpu, out name);
 
-            return idResult == 0 && nameResult == 0;
+            return nameResult;
         }
 
-        public bool IsTemperatureSupported(IntPtr gpu, out bool supported, CancellationToken cancellationToken = default)
+        public int IsTemperatureSupported(IntPtr gpu, out bool supported, CancellationToken cancellationToken = default)
         {
             supported = false;
             if (_disposed)
             {
-                return false;
+                return -1;
             }
 
             IntPtr services = IntPtr.Zero;
@@ -167,27 +172,30 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             try
             {
-                if (_native.GetPerformanceMonitoringServices(_system, out services) != 0 || services == IntPtr.Zero)
+                int perfResult = _native.GetPerformanceMonitoringServices(_system, out services);
+                if (perfResult != 0 || services == IntPtr.Zero)
                 {
-                    return false;
+                    return perfResult != 0 ? perfResult : -1;
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (_native.GetSupportedGpuMetrics(services, gpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
+                int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
+                if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
                 {
-                    return false;
+                    return metricsResult != 0 ? metricsResult : -1;
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (_native.IsSupportedGpuTemperature(metricsSupport, out supported) != 0)
+                int tempResult = _native.IsSupportedGpuTemperature(metricsSupport, out supported);
+                if (tempResult != 0)
                 {
                     supported = false;
-                    return false;
+                    return tempResult;
                 }
 
-                return true;
+                return 0;
             }
             finally
             {
