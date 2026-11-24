@@ -462,8 +462,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation creates session, monitoring succeeds
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result1);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(0, fake.DisposeCallCount);
@@ -477,7 +477,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed);
 
             // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Cleanup incomplete, Connect fails
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
@@ -525,8 +525,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation creates session, monitoring succeeds
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result1);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(0, fake.DisposeCallCount);
@@ -540,7 +540,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed);
 
             // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Cleanup incomplete, Connect fails
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
@@ -580,14 +580,14 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation: Initialize fails, Dispose throws (Terminate not called since Initialize failed)
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.False(result1);
             Assert.Equal(1, fake.DisposeCallCount); // Dispose called to clean up failed init
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called when Initialize fails
 
             // Explicit Connect retries Dispose (succeeds), creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
@@ -624,15 +624,15 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation: Initialize throws, Dispose throws (Terminate not called since Initialize failed)
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result1.IsAvailable);
-            Assert.Contains("Initialize failed", result1.Message);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.False(result1);
+            Assert.Contains("Initialize failed", error);
             Assert.Equal(1, fake.DisposeCallCount); // Dispose called to clean up failed init
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called when Initialize fails
 
             // Explicit Connect retries Dispose (succeeds), creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
@@ -669,14 +669,14 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation: Initialize fails with error code, Dispose throws (Terminate not called since not initialized)
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.False(result1);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Explicit Connect retries Dispose (succeeds), creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called since not initialized
@@ -714,14 +714,14 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation: Initialize fails with error code, Dispose throws
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.False(result1);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
             // Explicit Connect retries Dispose (throws again)
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult);
             Assert.NotNull(error);
             Assert.Equal(0, fake.TerminateCalls);
@@ -755,10 +755,10 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
-            Assert.Null(result.Message);
+            Assert.True(result);
+            Assert.Null(error);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -778,10 +778,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.False(result);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", error);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -805,13 +805,13 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", error);
 
             provider.Disconnect();
 
@@ -833,9 +833,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
@@ -860,9 +860,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
             Assert.Equal(0, fake.TerminateCalls);
@@ -886,9 +886,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             Assert.Contains(42, fake.ReleaseReturnCodes);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -909,10 +909,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.False(result);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", error);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
 
@@ -923,13 +923,15 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_ReturnsValidDevices()
+        public void TryEnumerateDevices_ReturnsValidDevices()
         {
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             var device = devices[0];
             Assert.Equal("amd-adlx:12345", device.Id);
@@ -939,7 +941,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_GpuKindIntegrated_MapsCorrectly()
+        public void TryEnumerateDevices_GpuKindIntegrated_MapsCorrectly()
         {
             var fake = new FakeAdlxNative
             {
@@ -947,14 +949,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Integrated, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_GpuKindDiscrete_MapsCorrectly()
+        public void TryEnumerateDevices_GpuKindDiscrete_MapsCorrectly()
         {
             var fake = new FakeAdlxNative
             {
@@ -962,14 +966,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Discrete, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_GpuKindUnknown_MapsCorrectly()
+        public void TryEnumerateDevices_GpuKindUnknown_MapsCorrectly()
         {
             var fake = new FakeAdlxNative
             {
@@ -977,14 +983,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Unknown, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_GpuTypeReadError_DefaultsToUnknown()
+        public void TryEnumerateDevices_GpuTypeReadError_DefaultsToUnknown()
         {
             var fake = new FakeAdlxNative
             {
@@ -996,14 +1004,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Unknown, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_GpuTypeUnknownValue_DefaultsToUnknown()
+        public void TryEnumerateDevices_GpuTypeUnknownValue_DefaultsToUnknown()
         {
             var fake = new FakeAdlxNative
             {
@@ -1011,14 +1021,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Unknown, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_GpuTypeReadThrowsException_DefaultsToUnknown()
+        public void TryEnumerateDevices_GpuTypeReadThrowsException_DefaultsToUnknown()
         {
             var fake = new FakeAdlxNative
             {
@@ -1030,14 +1042,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(GpuKind.Unknown, devices[0].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_MultipleGpus_DifferentTypes()
+        public void TryEnumerateDevices_MultipleGpus_DifferentTypes()
         {
             var fake = new FakeAdlxNative
             {
@@ -1048,15 +1062,17 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Equal(2, devices.Count);
             Assert.Equal(GpuKind.Integrated, devices[0].Kind);
             Assert.Equal(GpuKind.Discrete, devices[1].Kind);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenInitializeFailsWithNullSystem_ReleasesNothing()
+        public void TryEnumerateDevices_WhenInitializeFailsWithNullSystem_ReleasesNothing()
         {
             var fake = new FakeAdlxNative
             {
@@ -1068,15 +1084,17 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.False(success);
+            Assert.NotNull(error);
             Assert.Empty(devices);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.ReleaseCalls);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenInitializeFailsWithNonZeroSystem_ZeroesSystem()
+        public void TryEnumerateDevices_WhenInitializeFailsWithNonZeroSystem_ZeroesSystem()
         {
             var fake = new FakeAdlxNative
             {
@@ -1088,15 +1106,17 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.False(success);
+            Assert.NotNull(error);
             Assert.Empty(devices);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenGpuListFails_ReleasesGpuList()
+        public void TryEnumerateDevices_WhenGpuListFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -1108,14 +1128,16 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.False(success);
+            Assert.NotNull(error);
             Assert.Empty(devices);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
-        public void EnumerateDevices_WhenGpuListSizeFails_ReleasesGpuList()
+        public void TryEnumerateDevices_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
             {
@@ -1127,8 +1149,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.False(success);
+            Assert.NotNull(error);
             Assert.Empty(devices);
             // Temporary interfaces released immediately, gpuList (0x2000) is persistent session resource
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
@@ -1142,7 +1166,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_ReleaseFailureDoesNotMaskOriginalResult()
+        public void TryEnumerateDevices_ReleaseFailureDoesNotMaskOriginalResult()
         {
             var fake = new FakeAdlxNative
             {
@@ -1150,9 +1174,264 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_NoTemperatureSupported_ReturnsEmptyWithSuccess()
+        {
+            // When no GPU supports temperature monitoring, enumeration succeeds but returns empty list
+            var fake = new FakeAdlxNative
+            {
+                GpuTemperatureSupported = new List<bool> { false }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.True(success);
+            Assert.Null(error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuListSizeFails_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    count = 0;
+                    return -1; // ADLX error code
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU list size", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuAtFails_ReturnsFalseWithError()
+        {
+            // GetGpuAt fails for first GPU - enumeration should fail completely
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2" },
+                GpuUniqueIds = new List<int> { 111, 222 },
+                GpuTypes = new List<int> { 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true },
+                GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+                {
+                    gpu = IntPtr.Zero;
+                    return -1; // Fail first GPU
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuUniqueIdFails_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetGpuUniqueIdHandler = (IntPtr gpu, out int uid) =>
+                {
+                    uid = 0;
+                    return -1; // Fail to get unique ID
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get unique ID or name for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_GetGpuNameFails_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetGpuNameHandler = (IntPtr gpu, out string? name) =>
+                {
+                    name = null;
+                    return -1; // Fail to get name
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get unique ID or name for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_AdlxError_IsTemperatureSupportedFails_ReturnsFalseWithError()
+        {
+            // API error during IsTemperatureSupported should fail enumeration
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
+                {
+                    ms = IntPtr.Zero;
+                    return -1; // API error getting supported metrics
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to check temperature support for GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_GpuWithoutTemperatureSupport_ReturnsEmptyListWithSuccess()
+        {
+            // When GPU doesn't support temperature (valid result, not error), enumeration succeeds with empty list
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1" },
+                GpuUniqueIds = new List<int> { 111 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { false } // Not supported, not an error
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.True(success); // Enumeration succeeded
+            Assert.Null(error);
+            Assert.Empty(devices); // But no devices support temperature
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_ErrorAfterSuccessfulGpu_ReturnsEmptyList()
+        {
+            // First GPU succeeds, second GPU fails - should return empty list, not partial
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2" },
+                GpuUniqueIds = new List<int> { 111, 222 },
+                GpuTypes = new List<int> { 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true },
+                GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+                {
+                    gpu = new IntPtr(0x3000 + index);
+                    if (index == 1)
+                    {
+                        return -1; // Second GPU fails
+                    }
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU at index 1", error);
+            Assert.Empty(devices); // Must be empty, not partial
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_ExceptionDuringEnumeration_ReturnsFalseWithError()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListSizeHandler = (IntPtr list, out int count) =>
+                {
+                    count = 1;
+                    throw new InvalidOperationException("Simulated ADLX exception");
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Exception during GPU enumeration", error);
+            Assert.Contains("InvalidOperationException", error);
+            Assert.Empty(devices);
+        }
+
+        [Fact]
+        public void TryEnumerateDevices_CancellationDuringEnumeration_ThrowsOperationCanceledException()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU1", "GPU2", "GPU3" },
+                GpuUniqueIds = new List<int> { 111, 222, 333 },
+                GpuTypes = new List<int> { 2, 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true, true }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+            var cts = new CancellationTokenSource();
+
+            // Cancel on second GPU during GetGpuAt
+            fake.GetGpuAtHandler = (IntPtr list, int index, out IntPtr gpu) =>
+            {
+                gpu = new IntPtr(0x3000 + index);
+                if (index == 1)
+                {
+                    cts.Cancel();
+                }
+                return 0;
+            };
+
+            Assert.Throws<OperationCanceledException>(() => ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out _, out _, cts.Token));
+
+            // Shared session should still be active after cancellation
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            // GPU handles acquired before cancellation should be released
+            Assert.Contains(0x3000, fake.ReleasedPointers); // GPU 0
+            Assert.Contains(0x3001, fake.ReleasedPointers); // GPU 1
+            // GPU list should NOT be released (owned by persistent session)
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1161,10 +1440,11 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
             var device = devices[0];
 
-            bool success = device.TryReadTemperature(out var reading, out var error);
+            success = device.TryReadTemperature(out var reading, out error);
 
             Assert.True(success);
             Assert.Null(error);
@@ -1488,10 +1768,11 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
             var device = devices[0];
 
-            bool success = device.TryReadTemperature(out var reading, out var error);
+            success = device.TryReadTemperature(out var reading, out error);
 
             Assert.True(success);
             Assert.Contains(0x6000, fake.ReleasedPointers);
@@ -1504,7 +1785,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
             provider.Disconnect();
 
             int gpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
@@ -1546,7 +1827,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
             provider.Disconnect();
 
             int gpuListIdx = fake.Events.IndexOf("Release:0x2000");
@@ -1567,9 +1848,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             // Temporary interfaces released immediately despite exception
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
@@ -1621,9 +1902,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             Assert.Equal(1, fake.ReleaseFailCount);
         }
 
@@ -1653,9 +1934,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
         }
 
         [Fact]
@@ -1682,9 +1963,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             Assert.Contains(0, fake.ReleaseReturnCodes);
         }
 
@@ -1697,9 +1978,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             Assert.Contains(2, fake.ReleaseReturnCodes);
         }
 
@@ -1712,9 +1993,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             // All temporary interfaces should still be released despite negative return
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
@@ -1738,9 +2019,9 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             // All temporary interfaces should still be released despite one throwing
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
@@ -1824,8 +2105,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Operation succeeds, session stays active
-            var result = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result.IsAvailable);
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result);
 
             // Disconnect triggers Terminate, which fails - error retained for retry
             provider.Disconnect();
@@ -1834,7 +2115,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Session not disposed, error retained
 
             // Explicit Connect triggers retry -> Terminate succeeds, then Dispose old session, creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
@@ -1873,13 +2154,15 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Terminate_ReturnsErrorHResult_EnumerateDevices_ReturnsDevicesAndLogsError()
+        public void Terminate_ReturnsErrorHResult_TryEnumerateDevices_ReturnsDevicesAndLogsError()
         {
             var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -1896,9 +2179,9 @@ namespace BlackIceGPUTemp.Tests
             var fake = new TerminateFailingFake { ThrowOnTerminate = true };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.True(result.IsAvailable);
+            Assert.True(result);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
 
@@ -1928,13 +2211,15 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Terminate_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        public void Terminate_ThrowsException_TryEnumerateDevices_ReturnsDevicesAndLogsError()
         {
             var fake = new TerminateFailingFake { ThrowOnTerminate = true };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -1962,8 +2247,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Operation succeeds, session stays active
-            var result = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result.IsAvailable);
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result);
 
             // Disconnect triggers Terminate (success) then Dispose (throws) - error retained for retry
             provider.Disconnect();
@@ -1972,7 +2257,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
             // Explicit Connect triggers retry -> Dispose succeeds, creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried (already succeeded)
@@ -2039,7 +2324,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Dispose_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
+        public void Dispose_ThrowsException_TryEnumerateDevices_ReturnsDevicesAndLogsError()
         {
             // Terminate succeeds, Dispose throws first, succeeds on retry
             var fake = new DisposeSequenceFake();
@@ -2055,7 +2340,9 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Operation succeeds, session stays active
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
 
             // Disconnect triggers Terminate (success) then Dispose (throws) - error retained for retry
@@ -2065,7 +2352,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
             // Explicit Connect triggers retry -> Dispose succeeds, creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
@@ -2094,10 +2381,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.False(result);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", error);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
 
             provider.Disconnect();
@@ -2144,10 +2431,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.False(result);
+            Assert.Equal("No GPU supports temperature monitoring via ADLX.", error);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
 
             provider.Disconnect();
@@ -2192,7 +2479,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -2413,7 +2700,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new TerminateFailingFake { TerminateHResult = 0xB };
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -2430,7 +2717,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new TerminateFailingFake { TerminateHResult = -1 };
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -2447,7 +2734,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new TerminateFailingFake { ThrowOnTerminate = true };
             var provider = new AmdAdlxProvider(() => fake);
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -2470,7 +2757,7 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -2482,16 +2769,16 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
 
             // Next Probe should NOT auto-reconnect (explicit disconnect blocks auto-reconnect)
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Contains("disconnected", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(result);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
 
             // Explicit Connect should retry Terminate
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Retry Terminate still fails
             Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
@@ -2512,7 +2799,7 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -2524,16 +2811,16 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
 
             // Next Probe should NOT auto-reconnect
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Contains("disconnected", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(result);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
 
             // Explicit Connect should retry Terminate
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Retry Terminate still throws
             Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
@@ -2554,7 +2841,7 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            ((IGpuProviderProbe)provider).Probe();
+            ((IGpuProviderProbe)provider).TryProbe(out _);
 
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -2580,10 +2867,10 @@ namespace BlackIceGPUTemp.Tests
         {
             var provider = new AmdAdlxProvider(() => throw new InvalidOperationException("Factory failed"));
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Contains("Factory failed", result.Message);
+            Assert.False(result);
+            Assert.Contains("Factory failed", error);
         }
 
         [Fact]
@@ -2599,14 +2886,14 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Contains("Initialize failed", result.Message);
+            Assert.False(result);
+            Assert.Contains("Initialize failed", error);
         }
 
         [Fact]
-        public void InitializeThrowsException_EnumerateDevices_ReturnsEmpty()
+        public void InitializeThrowsException_TryEnumerateDevices_ReturnsError()
         {
             var fake = new FakeAdlxNative
             {
@@ -2618,8 +2905,11 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
 
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Initialize failed", error);
             Assert.Empty(devices);
         }
 
@@ -2655,11 +2945,11 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.Equal(0, fake.TerminateCalls);
-            Assert.Contains("Result code: -5", result.Message);
+            Assert.Contains("Result code: -5", error);
         }
 
         [Fact]
@@ -2680,10 +2970,10 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
+            Assert.False(result);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", error);
         }
 
         [Fact]
@@ -2700,12 +2990,12 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.False(fake.IsDisposed);
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", error);
 
             // Disconnect triggers Terminate which throws
             provider.Disconnect();
@@ -2714,15 +3004,15 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
 
             // Next Probe should NOT auto-reconnect
-            var result2 = ((IGpuProviderProbe)provider).Probe();
+            var result2 = ((IGpuProviderProbe)provider).TryProbe(out error);
 
-            Assert.False(result2.IsAvailable);
-            Assert.Contains("disconnected", result2.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(result2);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
 
             // Explicit Connect should retry Terminate
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Retry Terminate still throws
             Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
@@ -2743,12 +3033,12 @@ namespace BlackIceGPUTemp.Tests
             };
             var provider = new AmdAdlxProvider(() => fake);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result.IsAvailable);
+            Assert.False(result);
             Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.False(fake.IsDisposed);
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", error);
 
             // Disconnect triggers Terminate which fails with error HRESULT
             provider.Disconnect();
@@ -2757,15 +3047,15 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
 
             // Next Probe should NOT auto-reconnect
-            var result2 = ((IGpuProviderProbe)provider).Probe();
+            var result2 = ((IGpuProviderProbe)provider).TryProbe(out error);
 
-            Assert.False(result2.IsAvailable);
-            Assert.Contains("disconnected", result2.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(result2);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
 
             // Explicit Connect should retry Terminate
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Retry Terminate still fails
             Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
@@ -2791,12 +3081,12 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
-            var result1 = ((IGpuProviderProbe)provider).Probe();
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
-            Assert.False(result1.IsAvailable);
+            Assert.False(result1);
             Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result1.Message);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", error);
 
             // Disconnect - no active session, does nothing
             provider.Disconnect();
@@ -2805,7 +3095,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(fake.IsDisposed);
 
             // Explicit Connect creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(1, fake2.InitializeCalls); // New session created
@@ -2841,8 +3131,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result1);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.Equal(0, fake.DisposeCallCount); // Dispose not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -2855,7 +3145,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Dispose threw, retained
 
             // Explicit Connect retries Dispose (succeeds), creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
@@ -2894,8 +3184,8 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
-            var result1 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result1.IsAvailable);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
+            Assert.True(result1);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.Equal(0, fake.DisposeCallCount); // Dispose not called after normal operation
             Assert.False(fake.IsDisposed);
@@ -2908,7 +3198,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Dispose threw, retained
 
             // Explicit Connect retries Dispose (still fails)
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult);
             Assert.NotNull(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
@@ -2936,7 +3226,7 @@ namespace BlackIceGPUTemp.Tests
             var cts = new CancellationTokenSource();
             cts.Cancel();
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).Probe(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).TryProbe(out _, cts.Token));
             Assert.Equal(0, fake.InitializeCalls);
         }
 
@@ -2960,7 +3250,7 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             };
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).Probe(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).TryProbe(out _, cts.Token));
             
             // Verify Initialize and GetGpuListSize were called, but no further GPUs processed
             Assert.Equal(1, fake.InitializeCalls);
@@ -2976,14 +3266,14 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_CancellationBeforeStart_ThrowsOperationCanceledException()
+        public void TryEnumerateDevices_CancellationBeforeStart_ThrowsOperationCanceledException()
         {
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
             var cts = new CancellationTokenSource();
             cts.Cancel();
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuDeviceEnumerator)provider).EnumerateDevices(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out _, out _, cts.Token));
             Assert.Equal(0, fake.InitializeCalls);
         }
 
@@ -3009,7 +3299,7 @@ namespace BlackIceGPUTemp.Tests
 
             try
             {
-                ((IGpuProviderProbe)provider).Probe(cts.Token);
+                ((IGpuProviderProbe)provider).TryProbe(out _, cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -3020,7 +3310,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_Cancellation_DoesNotLeakResources()
+        public void TryEnumerateDevices_Cancellation_DoesNotLeakResources()
         {
             var fake = new FakeAdlxNative();
             var provider = new AmdAdlxProvider(() => fake);
@@ -3029,7 +3319,7 @@ namespace BlackIceGPUTemp.Tests
 
             try
             {
-                ((IGpuDeviceEnumerator)provider).EnumerateDevices(cts.Token);
+                ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out _, out _, cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -3086,7 +3376,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void EnumerateDevices_CancellationDuringGetGpuUniqueId_ThrowsOperationCanceledException()
+        public void TryEnumerateDevices_CancellationDuringGetGpuUniqueId_ThrowsOperationCanceledException()
         {
             // Cancellation occurs from GetGpuUniqueId handler - verify GetGpuName is NOT called after cancellation
             var nativeCalls = new List<string>();
@@ -3139,7 +3429,7 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             };
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuDeviceEnumerator)provider).EnumerateDevices(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out _, out _, cts.Token));
 
             // Verify calls made before cancellation
             Assert.Contains("GetGpuListSize", nativeCalls);
@@ -3335,7 +3625,7 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             };
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).Probe(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).TryProbe(out _, cts.Token));
 
             // Initialize and GetGpuListSize should have been called
             Assert.Contains("Initialize", nativeCalls);
@@ -3378,11 +3668,14 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("AMD ADLX", aggregateProvider.DisplayName);
 
             // Should be able to call Probe (from IGpuProviderProbe)
-            var probeResult = ((IGpuProviderProbe)aggregateProvider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)aggregateProvider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
 
             // Should be able to call EnumerateDevices (from IGpuDeviceEnumerator)
-            var devices = ((IGpuDeviceEnumerator)aggregateProvider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)aggregateProvider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal("amd-adlx:12345", devices[0].Id);
         }
@@ -3394,17 +3687,20 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // First operation: Probe (lazy creates session)
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
             Assert.Equal(1, fake.InitializeCalls);
 
             // Second operation: EnumerateDevices (reuses session)
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(1, fake.InitializeCalls); // No new Initialize
 
             // Third operation: TryReadTemperature (reuses session)
-            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var reading, out var error);
+            success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var reading, out error);
             Assert.True(success);
             Assert.NotNull(reading);
             Assert.Equal(1, fake.InitializeCalls); // Still no new Initialize
@@ -3418,17 +3714,20 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // First operation: EnumerateDevices (lazy creates session)
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(1, fake.InitializeCalls);
 
             // Second operation: Probe (reuses session)
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
             Assert.Equal(1, fake.InitializeCalls);
 
             // Third operation: TryReadTemperature (reuses session)
-            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
+            success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
             Assert.True(success);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
@@ -3446,12 +3745,15 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.InitializeCalls);
 
             // Second operation: Probe (reuses session)
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
             Assert.Equal(1, fake.InitializeCalls);
 
             // Third operation: EnumerateDevices (reuses session)
-            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+            Assert.True(success);
+            Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
@@ -3490,8 +3792,9 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // Lazy connect via Probe
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
             Assert.Equal(1, fake.InitializeCalls);
 
             provider.Disconnect();
@@ -3520,21 +3823,23 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // Lazy connect
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
 
             var cts = new CancellationTokenSource();
             cts.Cancel();
 
-            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).Probe(cts.Token));
+            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).TryProbe(out _, cts.Token));
 
             // Session should still be active
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake.TerminateCalls);
 
             // Next operation should work
-            var result = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result.IsAvailable);
+            var result = ((IGpuProviderProbe)provider).TryProbe(out probeError);
+            Assert.True(result);
+            Assert.Null(probeError);
         }
 
         [Fact]
@@ -3544,8 +3849,9 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // Create persistent session via lazy operation
-            var probeResult = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult.IsAvailable);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
+            Assert.True(probeResult);
+            Assert.Null(probeError);
 
             // Session is active
             Assert.Equal(1, fake.InitializeCalls);
@@ -3624,9 +3930,9 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
 
             // Probe after Disconnect should NOT reinitialize
-            var probeResult = provider.Probe(CancellationToken.None);
-            Assert.False(probeResult.IsAvailable);
-            Assert.Contains("disconnected", probeResult.Message, StringComparison.OrdinalIgnoreCase);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError, CancellationToken.None);
+            Assert.False(probeResult);
+            Assert.Contains("disconnected", probeError, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.InitializeCalls); // No new initialization
         }
 
@@ -3647,7 +3953,10 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
 
             // EnumerateDevices after Disconnect should NOT reinitialize
-            var devices = provider.EnumerateDevices(CancellationToken.None);
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error, CancellationToken.None);
+            Assert.False(success); // Should fail because disconnected
+            Assert.NotNull(error);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(devices);
             Assert.Equal(1, fake.InitializeCalls); // No new initialization
         }
@@ -3737,9 +4046,9 @@ namespace BlackIceGPUTemp.Tests
             lifecycle.Disconnect();
 
             // Probe should NOT reinitialize
-            var probeResult = provider.Probe(CancellationToken.None);
-            Assert.False(probeResult.IsAvailable);
-            Assert.Contains("disconnected", probeResult.Message, StringComparison.OrdinalIgnoreCase);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError, CancellationToken.None);
+            Assert.False(probeResult);
+            Assert.Contains("disconnected", probeError, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(0, fake.InitializeCalls); // No initialization at all
         }
 
@@ -3755,7 +4064,10 @@ namespace BlackIceGPUTemp.Tests
             lifecycle.Disconnect();
 
             // EnumerateDevices should NOT reinitialize
-            var devices = provider.EnumerateDevices(CancellationToken.None);
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error, CancellationToken.None);
+            Assert.False(success); // Should fail because disconnected
+            Assert.NotNull(error);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(devices);
             Assert.Equal(0, fake.InitializeCalls); // No initialization at all
         }

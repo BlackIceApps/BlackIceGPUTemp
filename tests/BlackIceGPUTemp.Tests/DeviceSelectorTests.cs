@@ -34,20 +34,33 @@ namespace BlackIceGPUTemp.Tests
         {
             public string Id { get; }
             public string DisplayName => Id;
-            public int EnumerateDevicesCallCount { get; private set; }
+            public int TryEnumerateDevicesCallCount { get; private set; }
 
             private readonly List<IGpuDevice> _devices;
+            private readonly bool _shouldSucceed;
+            private readonly string? _errorMessage;
 
-            public TestGpuProvider(string id, IEnumerable<IGpuDevice>? devices = null)
+            public TestGpuProvider(string id, IEnumerable<IGpuDevice>? devices = null, bool shouldSucceed = true, string? errorMessage = null)
             {
                 Id = id;
                 _devices = devices != null ? new List<IGpuDevice>(devices) : new List<IGpuDevice>();
+                _shouldSucceed = shouldSucceed;
+                _errorMessage = errorMessage;
             }
 
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
             {
-                EnumerateDevicesCallCount++;
-                return _devices.AsReadOnly();
+                TryEnumerateDevicesCallCount++;
+                if (!_shouldSucceed)
+                {
+                    devices = Array.Empty<IGpuDevice>();
+                    error = _errorMessage ?? "Enumeration failed";
+                    return false;
+                }
+
+                devices = _devices.AsReadOnly();
+                error = null;
+                return true;
             }
         }
 
@@ -97,7 +110,7 @@ namespace BlackIceGPUTemp.Tests
             var result = selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
 
             Assert.Null(result);
-            Assert.Equal(0, provider.EnumerateDevicesCallCount);
+            Assert.Equal(0, provider.TryEnumerateDevicesCallCount);
         }
 
         [Fact]
@@ -111,7 +124,46 @@ namespace BlackIceGPUTemp.Tests
             var result = selector.FindDevice("nvidia", "gpu-999", CancellationToken.None);
 
             Assert.Null(result);
-            Assert.Equal(1, provider.EnumerateDevicesCallCount);
+            Assert.Equal(1, provider.TryEnumerateDevicesCallCount);
+        }
+
+        [Fact]
+        public void FindDevice_EnumerationReturnsEmptyList_ReturnsNull()
+        {
+            var provider = new TestGpuProvider("nvidia", Array.Empty<IGpuDevice>());
+            var registry = new GpuProviderRegistry(new[] { provider });
+            var selector = new DeviceSelector(registry);
+
+            var result = selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
+
+            Assert.Null(result);
+            Assert.Equal(1, provider.TryEnumerateDevicesCallCount);
+        }
+
+        [Fact]
+        public void FindDevice_EnumerationFails_ReturnsNull()
+        {
+            var provider = new TestGpuProvider("nvidia", new[] { new TestGpuDevice("gpu-001") }, shouldSucceed: false, errorMessage: "ADLX init failed");
+            var registry = new GpuProviderRegistry(new[] { provider });
+            var selector = new DeviceSelector(registry);
+
+            var result = selector.FindDevice("nvidia", "gpu-001", CancellationToken.None);
+
+            Assert.Null(result);
+            Assert.Equal(1, provider.TryEnumerateDevicesCallCount);
+        }
+
+        [Fact]
+        public void FindDevice_CancellationRequested_ThrowsOperationCanceledException()
+        {
+            var cts = new CancellationTokenSource();
+            var provider = new TestGpuProvider("nvidia", new[] { new TestGpuDevice("gpu-001") });
+            var registry = new GpuProviderRegistry(new[] { provider });
+            var selector = new DeviceSelector(registry);
+
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => selector.FindDevice("nvidia", "gpu-001", cts.Token));
         }
     }
 }

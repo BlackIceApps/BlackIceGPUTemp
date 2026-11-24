@@ -32,6 +32,7 @@ namespace BlackIceGPUTemp.Monitoring
             }
 
             bool hasAvailableProvider = false;
+            string? lastEnumerationError = null;
 
             foreach (var provider in providers)
             {
@@ -64,37 +65,45 @@ namespace BlackIceGPUTemp.Monitoring
                         // Check cancellation after successful Connect
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
-
-                        if (probeResult.IsAvailable)
+                        if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                         {
-                            hasAvailableProvider = true;
+                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                            continue;
+                        }
 
-                            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
-                            cancellationToken.ThrowIfCancellationRequested();
+                        hasAvailableProvider = true;
 
-                            if (devices != null && devices.Count > 0)
+                        if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
+                        {
+                            // TryEnumerateDevices failed - remember error, disconnect, continue to next provider
+                            if (lastEnumerationError == null)
                             {
-                                var firstDevice = devices[0];
-                                var monitorService = new HardwareMonitorService(firstDevice);
+                                lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
+                            }
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                            continue;
+                        }
 
-                                return new GpuMonitoringInitializationResult(
-                                    monitorService,
-                                    provider.Id,
-                                    firstDevice.Id,
-                                    firstDevice.Name,
-                                    lifecycleProvider);
-                            }
-                            else
-                            {
-                                // No devices - disconnect (normal cleanup, propagate Disconnect exception)
-                                disconnectCalled = true;
-                                lifecycleProvider.Disconnect();
-                            }
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (devices != null && devices.Count > 0)
+                        {
+                            var firstDevice = devices[0];
+                            var monitorService = new HardwareMonitorService(firstDevice);
+
+                            return new GpuMonitoringInitializationResult(
+                                monitorService,
+                                provider.Id,
+                                firstDevice.Id,
+                                firstDevice.Name,
+                                lifecycleProvider);
                         }
                         else
                         {
-                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            // No devices - disconnect (normal cleanup, propagate Disconnect exception)
                             disconnectCalled = true;
                             lifecycleProvider.Disconnect();
                         }
@@ -119,32 +128,44 @@ namespace BlackIceGPUTemp.Monitoring
                 else
                 {
                     // Provider without lifecycle - old behavior
-                    var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
-
-                    if (probeResult.IsAvailable)
+                    if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                     {
-                        hasAvailableProvider = true;
+                        continue;
+                    }
 
-                        var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
-                        cancellationToken.ThrowIfCancellationRequested();
+                    hasAvailableProvider = true;
 
-                        if (devices != null && devices.Count > 0)
+                    if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
+                    {
+                        if (lastEnumerationError == null)
                         {
-                            var firstDevice = devices[0];
-                            var monitorService = new HardwareMonitorService(firstDevice);
-
-                            return new GpuMonitoringInitializationResult(
-                                monitorService,
-                                provider.Id,
-                                firstDevice.Id,
-                                firstDevice.Name);
+                            lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
                         }
+                        continue;
+                    }
+
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (devices != null && devices.Count > 0)
+                    {
+                        var firstDevice = devices[0];
+                        var monitorService = new HardwareMonitorService(firstDevice);
+
+                        return new GpuMonitoringInitializationResult(
+                            monitorService,
+                            provider.Id,
+                            firstDevice.Id,
+                            firstDevice.Name);
                     }
                 }
             }
 
             if (hasAvailableProvider)
             {
+                if (lastEnumerationError != null)
+                {
+                    return new GpuMonitoringInitializationResult(lastEnumerationError);
+                }
                 return new GpuMonitoringInitializationResult("No supported GPU devices found.");
             }
 
