@@ -3155,6 +3155,193 @@ namespace BlackIceGPUTemp.Tests
             lifecycle.Disconnect();
             Assert.Equal(1, fake.TerminateCalls);
         }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_Disconnect_PreventsAutoReconnectOnProbe()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Connect
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+
+            // Probe after Disconnect should NOT reinitialize
+            var probeResult = provider.Probe(CancellationToken.None);
+            Assert.False(probeResult.IsAvailable);
+            Assert.Contains("disconnected", probeResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.InitializeCalls); // No new initialization
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_Disconnect_PreventsAutoReconnectOnEnumerateDevices()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Connect
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+
+            // EnumerateDevices after Disconnect should NOT reinitialize
+            var devices = provider.EnumerateDevices(CancellationToken.None);
+            Assert.Empty(devices);
+            Assert.Equal(1, fake.InitializeCalls); // No new initialization
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_Disconnect_PreventsAutoReconnectOnTryReadTemperature()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Connect
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+
+            // TryReadTemperature after Disconnect should NOT reinitialize
+            bool result = provider.TryReadTemperature("amd-adlx:12345", out var reading, out var error, CancellationToken.None);
+            Assert.False(result);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.InitializeCalls); // No new initialization
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_ConnectAfterDisconnect_Reinitializes()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Connect
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+
+            // Connect again - should reinitialize
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(2, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_MultipleConnectWithoutDisconnect_Idempotent()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // First Connect
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Second Connect - should be idempotent
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Third Connect - should be idempotent
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+
+            // Connect after Disconnect - should reinitialize
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(2, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_DisconnectBeforeConnect_PreventsAutoReconnectOnProbe()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Disconnect BEFORE any Connect
+            lifecycle.Disconnect();
+
+            // Probe should NOT reinitialize
+            var probeResult = provider.Probe(CancellationToken.None);
+            Assert.False(probeResult.IsAvailable);
+            Assert.Contains("disconnected", probeResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, fake.InitializeCalls); // No initialization at all
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_DisconnectBeforeConnect_PreventsAutoReconnectOnEnumerateDevices()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Disconnect BEFORE any Connect
+            lifecycle.Disconnect();
+
+            // EnumerateDevices should NOT reinitialize
+            var devices = provider.EnumerateDevices(CancellationToken.None);
+            Assert.Empty(devices);
+            Assert.Equal(0, fake.InitializeCalls); // No initialization at all
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_DisconnectBeforeConnect_PreventsAutoReconnectOnTryReadTemperature()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Disconnect BEFORE any Connect
+            lifecycle.Disconnect();
+
+            // TryReadTemperature should NOT reinitialize
+            bool result = provider.TryReadTemperature("amd-adlx:12345", out var reading, out var error, CancellationToken.None);
+            Assert.False(result);
+            Assert.Contains("disconnected", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, fake.InitializeCalls); // No initialization at all
+        }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_ConnectAfterEarlyDisconnect_Reinitializes()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            IGpuProviderLifecycle lifecycle = provider;
+
+            // Disconnect BEFORE any Connect
+            lifecycle.Disconnect();
+
+            // Connect should now work and initialize
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+        }
     }
 
     public class AmdAdlxDeviceTests

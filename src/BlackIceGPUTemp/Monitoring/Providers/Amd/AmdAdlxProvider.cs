@@ -18,6 +18,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private IAdlxNative? _pendingDisposeNative;
         private IDisposable? _pendingDisposeDisposable;
         private AdlxSession? _activeSession;
+        private bool _disconnected;
         private readonly object _lock = new object();
 
         public string Id => "amd-adlx";
@@ -53,6 +54,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
 
                 _activeSession = session;
+                _disconnected = false; // Reset disconnected state on successful Connect
                 return true;
             }
         }
@@ -61,22 +63,23 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         {
             lock (_lock)
             {
-                if (_activeSession == null)
-                {
-                    return;
-                }
+                // Always mark as explicitly disconnected
+                _disconnected = true;
 
                 var session = _activeSession;
                 _activeSession = null;
 
-                try
+                if (session != null)
                 {
-                    session.Dispose();
-                }
-                finally
-                {
-                    // Capture any pending state for retry on next Connect or lazy operation
-                    CaptureSessionPendingState(session);
+                    try
+                    {
+                        session.Dispose();
+                    }
+                    finally
+                    {
+                        // Capture any pending state for retry on next Connect
+                        CaptureSessionPendingState(session);
+                    }
                 }
             }
         }
@@ -532,6 +535,13 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             {
                 error = null;
                 return _activeSession;
+            }
+
+            // If explicitly disconnected, do not auto-recreate session
+            if (_disconnected)
+            {
+                error = "Provider has been disconnected. Call Connect() to reinitialize.";
+                return null;
             }
 
             // Handle any pending cleanup from previous disconnect/failed session
