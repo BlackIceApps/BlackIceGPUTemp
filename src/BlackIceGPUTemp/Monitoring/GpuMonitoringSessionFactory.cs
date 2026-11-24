@@ -64,37 +64,41 @@ namespace BlackIceGPUTemp.Monitoring
                         // Check cancellation after successful Connect
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
-
-                        if (probeResult.IsAvailable)
+                        if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                         {
-                            hasAvailableProvider = true;
+                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                            continue;
+                        }
 
-                            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
-                            cancellationToken.ThrowIfCancellationRequested();
+                        hasAvailableProvider = true;
 
-                            if (devices != null && devices.Count > 0)
-                            {
-                                var firstDevice = devices[0];
-                                var monitorService = new HardwareMonitorService(firstDevice);
+                        if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
+                        {
+                            // EnumerateDevices failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                            continue;
+                        }
 
-                                return new GpuMonitoringInitializationResult(
-                                    monitorService,
-                                    provider.Id,
-                                    firstDevice.Id,
-                                    firstDevice.Name,
-                                    lifecycleProvider);
-                            }
-                            else
-                            {
-                                // No devices - disconnect (normal cleanup, propagate Disconnect exception)
-                                disconnectCalled = true;
-                                lifecycleProvider.Disconnect();
-                            }
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (devices != null && devices.Count > 0)
+                        {
+                            var firstDevice = devices[0];
+                            var monitorService = new HardwareMonitorService(firstDevice);
+
+                            return new GpuMonitoringInitializationResult(
+                                monitorService,
+                                provider.Id,
+                                firstDevice.Id,
+                                firstDevice.Name,
+                                lifecycleProvider);
                         }
                         else
                         {
-                            // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                            // No devices - disconnect (normal cleanup, propagate Disconnect exception)
                             disconnectCalled = true;
                             lifecycleProvider.Disconnect();
                         }
@@ -119,26 +123,30 @@ namespace BlackIceGPUTemp.Monitoring
                 else
                 {
                     // Provider without lifecycle - old behavior
-                    var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
-
-                    if (probeResult.IsAvailable)
+                    if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                     {
-                        hasAvailableProvider = true;
+                        continue;
+                    }
 
-                        var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
-                        cancellationToken.ThrowIfCancellationRequested();
+                    hasAvailableProvider = true;
 
-                        if (devices != null && devices.Count > 0)
-                        {
-                            var firstDevice = devices[0];
-                            var monitorService = new HardwareMonitorService(firstDevice);
+                    if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
+                    {
+                        continue;
+                    }
 
-                            return new GpuMonitoringInitializationResult(
-                                monitorService,
-                                provider.Id,
-                                firstDevice.Id,
-                                firstDevice.Name);
-                        }
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (devices != null && devices.Count > 0)
+                    {
+                        var firstDevice = devices[0];
+                        var monitorService = new HardwareMonitorService(firstDevice);
+
+                        return new GpuMonitoringInitializationResult(
+                            monitorService,
+                            provider.Id,
+                            firstDevice.Id,
+                            firstDevice.Name);
                     }
                 }
             }
