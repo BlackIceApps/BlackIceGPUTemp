@@ -32,8 +32,8 @@ namespace BlackIceGPUTemp.Monitoring
                 return null;
             }
 
-            var devices = provider.EnumerateDevices(cancellationToken);
-            if (devices == null)
+            bool success = provider.TryEnumerateDevices(out IReadOnlyList<IGpuDevice>? devices, out _, cancellationToken);
+            if (!success || devices == null)
             {
                 return null;
             }
