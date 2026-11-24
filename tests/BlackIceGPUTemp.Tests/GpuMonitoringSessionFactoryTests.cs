@@ -548,47 +548,6 @@ namespace BlackIceGPUTemp.Tests
             {
                 return Array.Empty<IGpuDevice>();
             }
-        }
-
-        private class LifecycleProviderCancelsInEnumerate : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
-        {
-            public string Id => "lifecycle-cancels-enumerate";
-            public string DisplayName => "Lifecycle Cancels Enumerate";
-            public bool ConnectCalled { get; private set; }
-            public bool DisconnectCalled { get; private set; }
-            public bool ProbeCalled { get; private set; }
-            public bool EnumerateCalled { get; private set; }
-            public CancellationTokenSource? TokenSource { get; set; }
-            public string? ConnectError { get; set; }
-
-            public bool Connect(out string? error)
-            {
-                ConnectCalled = true;
-                error = ConnectError;
-                return ConnectError == null;
-            }
-
-            public void Disconnect()
-            {
-                DisconnectCalled = true;
-            }
-
-            public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
-            {
-                ProbeCalled = true;
-                return new ProviderProbeResult(true, null);
-            }
-
-            public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
-            {
-                EnumerateCalled = true;
-                TokenSource?.Cancel();
-                cancellationToken.ThrowIfCancellationRequested();
-                return Array.Empty<IGpuDevice>();
-            }
-        }
-
-        private class LifecycleProviderCancelsInEnumerate : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
         {
             public string Id => "lifecycle-cancels-enumerate";
             public string DisplayName => "Lifecycle Cancels Enumerate";
