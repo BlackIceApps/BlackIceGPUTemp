@@ -2376,12 +2376,13 @@ namespace BlackIceGPUTemp.Tests
             
             // Verify Initialize and GetGpuListSize were called, but no further GPUs processed
             Assert.Equal(1, fake.InitializeCalls);
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            // Shared session should still be active after cancellation
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
             // GPU handle from GetGpuAt should be released
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            // GPU list should be released
-            Assert.Contains(0x2000, fake.ReleasedPointers);
+            // GPU list should NOT be released (owned by persistent session)
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             // System should NOT be released (managed by ADLX)
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
@@ -2575,13 +2576,14 @@ namespace BlackIceGPUTemp.Tests
             int getGpuTypeCallCount = nativeCalls.Count(c => c == "GetGpuType");
             Assert.Equal(1, getGpuTypeCallCount); // Only GPU 0's type read
 
-            // Resources should be cleaned up
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            // Shared session should still be active after cancellation
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
             // GPU handles released
             Assert.Contains(0x3000, fake.ReleasedPointers); // GPU 0
             Assert.Contains(0x3001, fake.ReleasedPointers); // GPU 1
-            Assert.Contains(0x2000, fake.ReleasedPointers); // GPU list
+            // GPU list should NOT be released (owned by persistent session)
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
         }
 
@@ -2659,13 +2661,14 @@ namespace BlackIceGPUTemp.Tests
             Assert.DoesNotContain("GetCurrentGpuMetrics", nativeCalls);
             Assert.DoesNotContain("GetGpuTemperature", nativeCalls);
 
-            // Resources should be cleaned up
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
-            // All acquired interfaces released: targetGpu, gpuList, services (acquired before cancel)
+            // Shared session should still be active after cancellation
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            // All acquired interfaces released: targetGpu, services (acquired before cancel)
             Assert.Contains(0x3000, fake.ReleasedPointers); // targetGpu
-            Assert.Contains(0x2000, fake.ReleasedPointers); // gpuList
             Assert.Contains(0x4000, fake.ReleasedPointers); // services
+            // GPU list should NOT be released (owned by persistent session)
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
         }
 
