@@ -19,10 +19,11 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// <exception cref="OperationCanceledException">
         /// Thrown when the operation is cancelled via <paramref name="cancellationToken"/>.
         /// </exception>
-        /// <exception cref="Exception">
-        /// Any other exception encountered during probing is caught and reported via the <paramref name="error"/> parameter,
-        /// resulting in a <see langword="false"/> return value.
-        /// </exception>
+        /// <remarks>
+        /// Errors other than cancellation are caught internally and reported via the <paramref name="error"/> parameter,
+        /// resulting in a <see langword="false"/> return value. No exceptions other than <see cref="OperationCanceledException"/>
+        /// are thrown by this method.
+        /// </remarks>
         bool TryProbe(out string? error, CancellationToken cancellationToken = default);
     }
 }
