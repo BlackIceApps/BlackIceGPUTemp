@@ -262,6 +262,8 @@ namespace BlackIceGPUTemp.Tests
             private readonly Queue<int> _terminateResults = new Queue<int>();
             private readonly Queue<bool> _throwOnTerminate = new Queue<bool>();
 
+            public int DisposeCallCount { get; private set; }
+
             public void EnqueueTerminate(int result, bool throwEx = false)
             {
                 _terminateResults.Enqueue(result);
@@ -281,6 +283,12 @@ namespace BlackIceGPUTemp.Tests
                     return _terminateResults.Dequeue();
                 }
                 return 0;
+            }
+
+            public override void Dispose()
+            {
+                DisposeCallCount++;
+                base.Dispose();
             }
         }
 
@@ -3175,7 +3183,7 @@ namespace BlackIceGPUTemp.Tests
             // Probe after Disconnect should NOT reinitialize
             var probeResult = provider.Probe(CancellationToken.None);
             Assert.False(probeResult.IsAvailable);
-            Assert.Contains("disconnected", probeResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("disconnected", probeResult.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, fake.InitializeCalls); // No new initialization
         }
 
@@ -3288,7 +3296,7 @@ namespace BlackIceGPUTemp.Tests
             // Probe should NOT reinitialize
             var probeResult = provider.Probe(CancellationToken.None);
             Assert.False(probeResult.IsAvailable);
-            Assert.Contains("disconnected", probeResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("disconnected", probeResult.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(0, fake.InitializeCalls); // No initialization at all
         }
 

@@ -420,6 +420,7 @@ namespace BlackIceGPUTemp.Tests
             public bool ConnectCalled { get; private set; }
             public bool DisconnectCalled { get; private set; }
             public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
             public string? ConnectError { get; set; }
 
             public bool Connect(out string? error)
@@ -442,6 +443,7 @@ namespace BlackIceGPUTemp.Tests
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
             {
+                EnumerateCalled = true;
                 return Array.Empty<IGpuDevice>();
             }
         }
@@ -453,6 +455,7 @@ namespace BlackIceGPUTemp.Tests
             public bool ConnectCalled { get; private set; }
             public bool DisconnectCalled { get; private set; }
             public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
             public string? ConnectError { get; set; }
 
             public bool Connect(out string? error)
@@ -475,6 +478,7 @@ namespace BlackIceGPUTemp.Tests
 
             public IReadOnlyList<IGpuDevice> EnumerateDevices(CancellationToken cancellationToken = default)
             {
+                EnumerateCalled = true;
                 return Array.Empty<IGpuDevice>();
             }
         }
