@@ -78,7 +78,10 @@ namespace BlackIceGPUTemp.Monitoring
                         if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
                         {
                             // TryEnumerateDevices failed - remember error, disconnect, continue to next provider
-                            lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
+                            if (lastEnumerationError == null)
+                            {
+                                lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
+                            }
                             disconnectCalled = true;
                             lifecycleProvider.Disconnect();
                             continue;
@@ -134,7 +137,10 @@ namespace BlackIceGPUTemp.Monitoring
 
                     if (!((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var enumError, cancellationToken))
                     {
-                        lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
+                        if (lastEnumerationError == null)
+                        {
+                            lastEnumerationError = string.IsNullOrWhiteSpace(enumError) ? "GPU device enumeration failed." : enumError;
+                        }
                         continue;
                     }
 
