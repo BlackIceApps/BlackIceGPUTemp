@@ -2790,6 +2790,155 @@ namespace BlackIceGPUTemp.Tests
             Assert.Single(devices);
             Assert.Equal("amd-adlx:12345", devices[0].Id);
         }
+
+        [Fact]
+        public void LazyConnection_ProbeCreatesSession_ReusedByEnumerateAndRead()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First operation: Probe (lazy creates session)
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Second operation: EnumerateDevices (reuses session)
+            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            Assert.Single(devices);
+            Assert.Equal(1, fake.InitializeCalls); // No new Initialize
+
+            // Third operation: TryReadTemperature (reuses session)
+            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var reading, out var error);
+            Assert.True(success);
+            Assert.NotNull(reading);
+            Assert.Equal(1, fake.InitializeCalls); // Still no new Initialize
+            Assert.Equal(0, fake.TerminateCalls); // Session not terminated
+        }
+
+        [Fact]
+        public void LazyConnection_EnumerateCreatesSession_ReusedByProbeAndRead()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First operation: EnumerateDevices (lazy creates session)
+            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            Assert.Single(devices);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Second operation: Probe (reuses session)
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Third operation: TryReadTemperature (reuses session)
+            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
+            Assert.True(success);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+        }
+
+        [Fact]
+        public void LazyConnection_ReadCreatesSession_ReusedByProbeAndEnumerate()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First operation: TryReadTemperature (lazy creates session)
+            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
+            Assert.True(success);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Second operation: Probe (reuses session)
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Third operation: EnumerateDevices (reuses session)
+            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            Assert.Single(devices);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+        }
+
+        [Fact]
+        public void Connect_Explicit_IsIdempotent()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            Assert.True(provider.Connect(out _));
+            Assert.True(provider.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void Disconnect_ClosesSession_PendingRetryOnNextOperation()
+        {
+            // Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
+            var fake = new DisposeThenSucceedsFake
+            {
+                InitializeHandler = (out IntPtr sys) =>
+                {
+                    sys = new IntPtr(0x1000);
+                    return 0;
+                },
+                TerminateHandler = () => 0,
+            };
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
+
+            // Lazy connect via Probe
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed); // Dispose threw, retained
+
+            // Next lazy operation retries Dispose, succeeds
+            var probeResult2 = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult2.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls);
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
+        }
+
+        [Fact]
+        public void Cancellation_DoesNotCloseSharedSession()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Lazy connect
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() => ((IGpuProviderProbe)provider).Probe(cts.Token));
+
+            // Session should still be active
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake.TerminateCalls);
+
+            // Next operation should work
+            var result = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(result.IsAvailable);
+        }
     }
 
     public class AmdAdlxDeviceTests

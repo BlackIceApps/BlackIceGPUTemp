@@ -17,6 +17,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private IDisposable? _pendingDisposable;
         private IAdlxNative? _pendingDisposeNative;
         private IDisposable? _pendingDisposeDisposable;
+        private AdlxSession? _activeSession;
         private readonly object _lock = new object();
 
         public string Id => "amd-adlx";
@@ -25,6 +26,59 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         public AmdAdlxProvider(Func<IAdlxNative>? nativeFactory = null)
         {
             _nativeFactory = nativeFactory ?? (() => new AdlxNative());
+        }
+
+        public bool Connect(out string? error)
+        {
+            lock (_lock)
+            {
+                error = null;
+
+                // Idempotent: already connected
+                if (_activeSession != null && !_activeSession.IsDisposed)
+                {
+                    return true;
+                }
+
+                // Handle any pending cleanup from previous disconnect
+                if (!TryHandlePendingCleanup(out error))
+                {
+                    return false;
+                }
+
+                var session = TryCreateSession(out error);
+                if (session == null)
+                {
+                    return false;
+                }
+
+                _activeSession = session;
+                return true;
+            }
+        }
+
+        public void Disconnect()
+        {
+            lock (_lock)
+            {
+                if (_activeSession == null)
+                {
+                    return;
+                }
+
+                var session = _activeSession;
+                _activeSession = null;
+
+                try
+                {
+                    session.Dispose();
+                }
+                finally
+                {
+                    // Capture any pending state for retry on next Connect or lazy operation
+                    CaptureSessionPendingState(session);
+                }
+            }
         }
 
         public ProviderProbeResult Probe(CancellationToken cancellationToken = default)
@@ -38,13 +92,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private ProviderProbeResult ProbeInternal(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            
-            if (!TryHandlePendingCleanup(out string? error))
-            {
-                return new ProviderProbeResult(false, error);
-            }
 
-            var session = TryCreateSession(out error);
+            var session = EnsureSession(out string? error);
             if (session == null)
             {
                 return new ProviderProbeResult(false, error);
@@ -55,7 +104,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             ProviderProbeResult result;
             try
             {
-                using (session)
+                // Session is managed externally; do not dispose here
                 {
                     try
                     {
@@ -120,7 +169,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                CaptureSessionPendingState(session);
+                // Do not capture pending state; session persists
             }
 
             return result;
@@ -140,13 +189,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             var seenUniqueIds = new HashSet<int>();
 
             cancellationToken.ThrowIfCancellationRequested();
-            
-            if (!TryHandlePendingCleanup(out string? error))
-            {
-                return devices;
-            }
 
-            var session = TryCreateSession(out error);
+            var session = EnsureSession(out string? error);
             if (session == null)
             {
                 return devices;
@@ -157,7 +201,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             IReadOnlyList<IGpuDevice> result;
             try
             {
-                using (session)
+                // Session is managed externally; do not dispose here
                 {
                     try
                     {
@@ -253,7 +297,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                CaptureSessionPendingState(session);
+                // Do not capture pending state; session persists
             }
 
             return result;
@@ -309,22 +353,19 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             error = null;
 
             cancellationToken.ThrowIfCancellationRequested();
-            
-            if (!TryHandlePendingCleanup(out error))
-            {
-                return false;
-            }
 
-            var session = TryCreateSession(out error);
+            var session = EnsureSession(out error);
             if (session == null)
             {
                 return false;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             bool result;
             try
             {
-                using (session)
+                // Session is managed externally; do not dispose here
                 {
                     try
                     {
@@ -425,7 +466,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             finally
             {
-                CaptureSessionPendingState(session);
+                // Do not capture pending state; session persists
             }
 
             return result;
@@ -511,6 +552,31 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _pendingDisposeNative = pendingDisposeNative;
             _pendingDisposeDisposable = pendingDisposeDisposable;
 
+            return session;
+        }
+
+        private AdlxSession? EnsureSession(out string? error)
+        {
+            // Return existing valid session
+            if (_activeSession != null && !_activeSession.IsDisposed)
+            {
+                error = null;
+                return _activeSession;
+            }
+
+            // Handle any pending cleanup from previous disconnect/failed session
+            if (!TryHandlePendingCleanup(out error))
+            {
+                return null;
+            }
+
+            var session = TryCreateSession(out error);
+            if (session == null)
+            {
+                return null;
+            }
+
+            _activeSession = session;
             return session;
         }
 
