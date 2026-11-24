@@ -809,14 +809,14 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.InitializeCalls);
-            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             provider.Disconnect();
 
             // No active session (creation failed), Disconnect does nothing
-            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
 
@@ -837,13 +837,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
-            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
 
             provider.Disconnect();
 
             // No active session (creation failed), Disconnect does nothing
-            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
 
