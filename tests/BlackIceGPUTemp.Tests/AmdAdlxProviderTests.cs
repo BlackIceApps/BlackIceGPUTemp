@@ -477,7 +477,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed);
 
             // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Cleanup incomplete, Connect fails
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
@@ -540,7 +540,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed);
 
             // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.False(connectResult); // Cleanup incomplete, Connect fails
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
@@ -669,7 +669,7 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First operation: Initialize fails with error code, Dispose throws (Terminate not called since not initialized)
-            var result1 = ((IGpuProviderProbe)provider).TryProbe(out error);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
             Assert.False(result1);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
@@ -2352,7 +2352,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
             // Explicit Connect triggers retry -> Dispose succeeds, creates new session
-            var connectResult = provider.Connect(out var error);
+            var connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
@@ -3131,7 +3131,7 @@ namespace BlackIceGPUTemp.Tests
             });
 
             // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
-            var result1 = ((IGpuProviderProbe)provider).TryProbe(out error);
+            var result1 = ((IGpuProviderProbe)provider).TryProbe(out var error);
             Assert.True(result1);
             Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.Equal(0, fake.DisposeCallCount); // Dispose not called after normal operation
@@ -3693,7 +3693,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.InitializeCalls);
 
             // Second operation: EnumerateDevices (reuses session)
-            success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out devices, out error);
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
             Assert.True(success);
             Assert.Null(error);
             Assert.Single(devices);
@@ -3714,14 +3714,14 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // First operation: EnumerateDevices (lazy creates session)
-            success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out devices, out error);
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
             Assert.True(success);
             Assert.Null(error);
             Assert.Single(devices);
             Assert.Equal(1, fake.InitializeCalls);
 
             // Second operation: Probe (reuses session)
-            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out probeError);
+            var probeResult = ((IGpuProviderProbe)provider).TryProbe(out var probeError);
             Assert.True(probeResult);
             Assert.Null(probeError);
             Assert.Equal(1, fake.InitializeCalls);
@@ -3740,7 +3740,7 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // First operation: TryReadTemperature (lazy creates session)
-            success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
+            bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _);
             Assert.True(success);
             Assert.Equal(1, fake.InitializeCalls);
 
@@ -3751,7 +3751,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.InitializeCalls);
 
             // Third operation: EnumerateDevices (reuses session)
-            success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out devices, out error);
+            success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
             Assert.True(success);
             Assert.Null(error);
             Assert.Single(devices);
