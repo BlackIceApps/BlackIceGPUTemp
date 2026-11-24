@@ -284,6 +284,46 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
+        private class DisposeSequenceFake : FakeAdlxNative
+        {
+            private readonly Queue<int> _terminateResults = new Queue<int>();
+            private readonly Queue<Exception?> _disposeExceptions = new Queue<Exception?>();
+
+            public int DisposeCallCount { get; private set; }
+
+            public void EnqueueTerminate(int result)
+            {
+                _terminateResults.Enqueue(result);
+            }
+
+            public void EnqueueDispose(Exception? ex = null)
+            {
+                _disposeExceptions.Enqueue(ex);
+            }
+
+            public override int Terminate()
+            {
+                TerminateCalls++;
+                Events.Add("Terminate");
+                if (_terminateResults.Count > 0)
+                {
+                    return _terminateResults.Dequeue();
+                }
+                return 0;
+            }
+
+            public override void Dispose()
+            {
+                DisposeCallCount++;
+                var ex = _disposeExceptions.Count > 0 ? _disposeExceptions.Dequeue() : null;
+                if (ex != null)
+                {
+                    throw ex;
+                }
+                IsDisposed = true;
+            }
+        }
+
         private class DisposeThrowingFake : FakeAdlxNative
         {
             public bool ThrowOnDispose { get; set; } = false;
@@ -1544,14 +1584,39 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Terminate_ReturnsErrorHResult_Probe_ReturnsSuccessAndLogsError()
         {
-            var fake = new TerminateFailingFake { TerminateHResult = unchecked((int)0x80004005) };
-            var provider = new AmdAdlxProvider(() => fake);
+            // Terminate fails first, succeeds on retry
+            var fake = new TerminateSequenceFake();
+            fake.EnqueueTerminate(unchecked((int)0x80004005)); // First Disconnect: fails
+            fake.EnqueueTerminate(0); // Retry on next operation: succeeds
+            var fake2 = new FakeAdlxNative(); // New instance after retry
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
 
+            // Operation succeeds, session stays active
             var result = ((IGpuProviderProbe)provider).Probe();
-
             Assert.True(result.IsAvailable);
+
+            // Disconnect triggers Terminate, which fails - error retained for retry
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed);
+            Assert.False(fake.IsDisposed); // Session not disposed, error retained
+
+            // Next operation triggers retry via EnsureSession -> Terminate succeeds, then Dispose old session
+            var result2 = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(result2.IsAvailable);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose called once after successful Terminate retry
+            Assert.True(fake.IsDisposed); // Old session disposed after successful retry
+            // New session created and stays active after operation
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls);
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -1624,41 +1689,119 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Dispose_ThrowsException_Probe_ReturnsSuccessAndLogsError()
         {
-            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
-            var provider = new AmdAdlxProvider(() => fake);
+            // Terminate succeeds, Dispose throws first, succeeds on retry
+            var fake = new DisposeSequenceFake();
+            fake.EnqueueTerminate(0); // Terminate succeeds
+            fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
+            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
 
+            // Operation succeeds, session stays active
             var result = ((IGpuProviderProbe)provider).Probe();
-
             Assert.True(result.IsAvailable);
+
+            // Disconnect triggers Terminate (success) then Dispose (throws) - error retained for retry
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
+
+            // Next operation triggers retry via EnsureSession -> Dispose succeeds
+            var result2 = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(result2.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate not retried (already succeeded)
+            Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
+            Assert.True(fake.IsDisposed); // Now disposed after successful retry
+            // New session created and stays active after operation
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls);
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
         public void Dispose_ThrowsException_TryReadTemperatureInternal_ReturnsSuccessAndLogsError()
         {
-            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
-            var provider = new AmdAdlxProvider(() => fake);
+            // Terminate succeeds, Dispose throws first, succeeds on retry
+            var fake = new DisposeSequenceFake();
+            fake.EnqueueTerminate(0); // Terminate succeeds
+            fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
+            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
 
+            // Operation succeeds, session stays active
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
-
             Assert.True(success);
             Assert.NotNull(reading);
+
+            // Disconnect triggers Terminate (success) then Dispose (throws) - error retained for retry
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
+
+            // Next operation triggers retry via EnsureSession -> Dispose succeeds
+            var success2 = provider.TryReadTemperatureInternal(12345, out _, out _);
+            Assert.True(success2);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
+            Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
+            Assert.True(fake.IsDisposed); // Now disposed after successful retry
+            // New session created and stays active after operation
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls);
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
         public void Dispose_ThrowsException_EnumerateDevices_ReturnsDevicesAndLogsError()
         {
-            var fake = new DisposeThrowingFake { ThrowOnDispose = true };
-            var provider = new AmdAdlxProvider(() => fake);
+            // Terminate succeeds, Dispose throws first, succeeds on retry
+            var fake = new DisposeSequenceFake();
+            fake.EnqueueTerminate(0); // Terminate succeeds
+            fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
+            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            var fake2 = new FakeAdlxNative();
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake : fake2;
+            });
 
+            // Operation succeeds, session stays active
             var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
-
             Assert.Single(devices);
+
+            // Disconnect triggers Terminate (success) then Dispose (throws) - error retained for retry
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
+
+            // Next operation triggers retry via EnsureSession -> Dispose succeeds
+            var devices2 = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
+            Assert.Single(devices2);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
+            Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
+            Assert.True(fake.IsDisposed); // Now disposed after successful retry
+            // New session created and stays active after operation
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls);
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
