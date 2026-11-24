@@ -27,7 +27,7 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
         /// <remarks>
         /// On success (<see langword="true"/>), <paramref name="reading"/> is non-null and <paramref name="error"/> is <see langword="null"/>.
         /// On failure (<see langword="false"/>), <paramref name="reading"/> is <see langword="null"/> and <paramref name="error"/> contains the failure reason.
-        /// Cancellation propagates <see cref="OperationCanceledException"/> and does not set the output parameters.
+        /// Cancellation propagates <see cref="OperationCanceledException"/>; no success or failure result is returned.
         /// </remarks>
         bool TryReadTemperature(string deviceId, out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default);
     }
