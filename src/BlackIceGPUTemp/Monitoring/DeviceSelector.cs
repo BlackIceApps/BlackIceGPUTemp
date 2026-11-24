@@ -29,7 +29,8 @@ namespace BlackIceGPUTemp.Monitoring
         /// Thrown when <paramref name="providerId"/> or <paramref name="deviceId"/> is null, empty, or consists only of white-space characters.
         /// </exception>
         /// <exception cref="OperationCanceledException">
-        /// Thrown when the operation is cancelled via <paramref name="cancellationToken"/>.
+        /// Thrown when the operation is cancelled via <paramref name="cancellationToken"/> before or during device enumeration.
+        /// Provider lookup returns <see langword="null"/> without throwing if the provider is not found.
         /// </exception>
         public IGpuDevice? FindDevice(string providerId, string deviceId, CancellationToken cancellationToken = default)
         {
