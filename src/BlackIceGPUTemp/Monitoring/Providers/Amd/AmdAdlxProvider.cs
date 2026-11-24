@@ -268,7 +268,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         }
                         catch (Exception ex)
                         {
-                            Logger.LogError("ADLX EnumerateDevices: exception while reading GPU type", ex);
+                            Logger.LogError("ADLX TryEnumerateDevices: exception while reading GPU type", ex);
                             gpuKind = GpuKind.Unknown;
                         }
 
