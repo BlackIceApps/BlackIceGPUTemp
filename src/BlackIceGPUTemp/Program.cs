@@ -15,7 +15,6 @@ namespace BlackIceGPUTemp
         [STAThread]
         static void Main()
         {
-            Logger.Initialize();
             SetupExceptionHandlers();
 
             Application.EnableVisualStyles();
