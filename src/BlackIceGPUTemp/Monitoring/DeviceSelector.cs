@@ -15,6 +15,22 @@ namespace BlackIceGPUTemp.Monitoring
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         }
 
+        /// <summary>
+        /// Finds a GPU device by its provider ID and device ID.
+        /// </summary>
+        /// <param name="providerId">The provider in which to search for the device.</param>
+        /// <param name="deviceId">The identifier of the device to find.</param>
+        /// <param name="cancellationToken">A token to observe while waiting for the operation to complete.</param>
+        /// <returns>
+        /// The found <see cref="IGpuDevice"/> if the provider exists, enumeration succeeds, and the device is found;
+        /// otherwise, <see langword="null"/>.
+        /// </returns>
+        /// <exception cref="ArgumentException">
+        /// Thrown when <paramref name="providerId"/> or <paramref name="deviceId"/> is null, empty, or consists only of white-space characters.
+        /// </exception>
+        /// <exception cref="OperationCanceledException">
+        /// Thrown when the operation is cancelled via <paramref name="cancellationToken"/>.
+        /// </exception>
         public IGpuDevice? FindDevice(string providerId, string deviceId, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(providerId))
