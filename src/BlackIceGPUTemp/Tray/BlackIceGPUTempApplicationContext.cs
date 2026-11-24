@@ -23,6 +23,7 @@ namespace BlackIceGPUTemp.Tray
         private bool _readInProgress;
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
+        private IGpuProviderLifecycle? _providerLifecycle;
 
         private sealed class MonitoringSession
         {
@@ -155,6 +156,7 @@ namespace BlackIceGPUTemp.Tray
                 var providerId = result.ProviderId;
                 var deviceId = result.DeviceId;
                 var deviceName = result.DeviceName;
+                var providerLifecycle = result.ProviderLifecycle;
 
                 if (monitorService == null ||
                     providerId == null || string.IsNullOrWhiteSpace(providerId) ||
@@ -167,6 +169,18 @@ namespace BlackIceGPUTemp.Tray
                     }
 
                     Logger.LogError("GPU monitoring initialization succeeded but returned invalid data.");
+                    // If we got a lifecycle provider but data is invalid, disconnect it
+                    if (providerLifecycle != null)
+                    {
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider after invalid initialization data", ex);
+                        }
+                    }
                     InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initialization error"));
                     return;
                 }
@@ -176,6 +190,18 @@ namespace BlackIceGPUTemp.Tray
 
                 if (cancellationToken.IsCancellationRequested)
                 {
+                    // If cancelled after successful creation but before publishing, disconnect the provider
+                    if (providerLifecycle != null)
+                    {
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider after cancellation", ex);
+                        }
+                    }
                     return;
                 }
 
@@ -184,6 +210,42 @@ namespace BlackIceGPUTemp.Tray
                     providerId,
                     deviceId,
                     deviceName);
+
+                // Take ownership of the lifecycle provider before publishing the session
+                IGpuProviderLifecycle? lifecycleToStore = null;
+                bool shouldDisconnect = false;
+                lock (_disposeLock)
+                {
+                    if (_disposing)
+                    {
+                        // Context is already disposing - don't store, will disconnect after lock
+                        shouldDisconnect = providerLifecycle != null;
+                    }
+                    else
+                    {
+                        lifecycleToStore = providerLifecycle;
+                        _providerLifecycle = providerLifecycle;
+                    }
+                }
+
+                if (shouldDisconnect && providerLifecycle != null)
+                {
+                    try
+                    {
+                        providerLifecycle.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Error disconnecting provider during disposal race", ex);
+                    }
+                    return;
+                }
+
+                // If we couldn't store the lifecycle (context disposing), don't publish session
+                if (lifecycleToStore == null && providerLifecycle != null)
+                {
+                    return;
+                }
 
                 InvokeOnUiThread(() =>
                 {
@@ -443,15 +505,20 @@ namespace BlackIceGPUTemp.Tray
             if (disposing)
             {
                 Logger.LogInfo("Application shutting down");
+                
+                // Mark as disposing and stop timer under lock to prevent new reads
+                IGpuProviderLifecycle? lifecycleToDisconnect = null;
                 lock (_disposeLock)
                 {
                     _disposing = true;
+                    _timer?.Stop();
+                    lifecycleToDisconnect = _providerLifecycle;
+                    _providerLifecycle = null;
                 }
 
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
 
-                _timer?.Stop();
                 _timer?.Dispose();
 
                 if (_notifyIcon != null)
@@ -462,6 +529,20 @@ namespace BlackIceGPUTemp.Tray
 
                 _currentIcon?.Dispose();
                 _uiDispatcher.Dispose();
+
+                // Disconnect provider after other resources are cleaned up
+                // This avoids holding the lock during Disconnect() which could deadlock with UI
+                if (lifecycleToDisconnect != null)
+                {
+                    try
+                    {
+                        lifecycleToDisconnect.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Error disconnecting GPU provider during shutdown", ex);
+                    }
+                }
             }
             base.Dispose(disposing);
         }
