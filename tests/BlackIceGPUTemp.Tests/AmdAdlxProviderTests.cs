@@ -810,12 +810,13 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.Equal(1, fake.InitializeCalls);
             Assert.Equal(0, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed);
+            Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             provider.Disconnect();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            // No active session (creation failed), Disconnect does nothing
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
 
@@ -837,11 +838,12 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(0, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed);
+            Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
 
             provider.Disconnect();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            // No active session (creation failed), Disconnect does nothing
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
 
@@ -1247,13 +1249,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(success);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
-            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList not acquired (GetGpuList failed)
 
             provider.Disconnect();
 
-            // gpuList released on Disconnect
-            Assert.Contains(0x2000, fake.ReleasedPointers);
+            // No active session (creation failed), nothing released on Disconnect
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
