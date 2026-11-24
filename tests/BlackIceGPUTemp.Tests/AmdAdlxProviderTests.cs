@@ -461,28 +461,38 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation creates session, monitoring succeeds
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.True(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(0, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result2.IsAvailable);
-            Assert.Equal(2, fake.TerminateCalls);
-            Assert.Equal(1, fake.DisposeCallCount);
-            Assert.False(fake.IsDisposed);
-            Assert.Equal(0, fake2.InitializeCalls);
-            Assert.Equal(1, factoryCallCount);
+            // Disconnect triggers Terminate (fails first, succeeds on retry) then Dispose (throws)
+            provider.Disconnect();
 
-            var result3 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result3.IsAvailable);
-            Assert.Equal(2, fake.TerminateCalls);
-            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.Equal(1, fake.TerminateCalls); // First Terminate call (failed)
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose threw
+            Assert.False(fake.IsDisposed);
+
+            // Explicit Connect retries Terminate (succeeds), retries Dispose (succeeds), creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls); // New session created
+            Assert.Equal(0, fake2.TerminateCalls); // New session not terminated yet
+            Assert.False(fake2.IsDisposed);
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
-            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -504,20 +514,37 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation creates session, monitoring succeeds
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.True(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
-
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result2.IsAvailable);
-            Assert.Equal(2, fake.TerminateCalls);
-            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(0, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            var result3 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result3.IsAvailable);
-            Assert.Equal(2, fake.TerminateCalls);
-            Assert.Equal(2, fake.DisposeCallCount);
+            // Disconnect triggers Terminate (fails first, succeeds on retry) then Dispose (throws)
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls); // First Terminate call (failed)
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose threw
+            Assert.False(fake.IsDisposed);
+
+            // Explicit Connect retries Terminate (succeeds), retries Dispose (throws again)
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Connect fails because Dispose still fails
+            Assert.NotNull(error);
+            Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and threw again
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls); // New session NOT created
+            Assert.Equal(1, factoryCallCount);
+
+            // Second Connect attempt - Dispose throws again
+            connectResult = provider.Connect(out error);
+            Assert.False(connectResult);
+            Assert.NotNull(error);
+            Assert.Equal(2, fake.TerminateCalls); // Terminate not retried (already succeeded)
+            Assert.Equal(3, fake.DisposeCallCount); // Dispose retried and threw again
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
@@ -542,18 +569,29 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation: Initialize fails, Dispose throws (Terminate not called since Initialize failed)
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.False(result1.IsAvailable);
-            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose called to clean up failed init
             Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called when Initialize fails
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
-            Assert.Equal(2, fake.DisposeCallCount);
+            // Explicit Connect retries Dispose (succeeds), creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls); // New session created
+            Assert.Equal(1, fake2.TerminateCalls); // New session terminated after Connect? No, Connect shouldn't terminate
+            Assert.False(fake2.IsDisposed); // New session stays active
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
-            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -575,19 +613,30 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation: Initialize throws, Dispose throws (Terminate not called since Initialize failed)
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.False(result1.IsAvailable);
             Assert.Contains("Initialize failed", result1.Message);
-            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose called to clean up failed init
             Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called when Initialize fails
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
-            Assert.Equal(2, fake.DisposeCallCount);
+            // Explicit Connect retries Dispose (succeeds), creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls); // New session created
+            Assert.Equal(0, fake2.TerminateCalls); // New session not terminated yet
+            Assert.False(fake2.IsDisposed); // New session stays active
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
-            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -609,20 +658,30 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation: Initialize fails with error code, Dispose throws (Terminate not called since not initialized)
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.False(result1.IsAvailable);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
-            Assert.Equal(0, fake.TerminateCalls);
+            // Explicit Connect retries Dispose (succeeds), creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called since not initialized
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls);
+            Assert.Equal(0, fake2.TerminateCalls); // New session not terminated yet
+            Assert.False(fake2.IsDisposed); // New session stays active
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
-            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -644,16 +703,29 @@ namespace BlackIceGPUTemp.Tests
                 return factoryCallCount == 1 ? fake : fake2;
             });
 
+            // First operation: Initialize fails with error code, Dispose throws
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.False(result1.IsAvailable);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result2.IsAvailable);
+            // Explicit Connect retries Dispose (throws again)
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult);
+            Assert.NotNull(error);
             Assert.Equal(0, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls); // New session NOT created
+            Assert.Equal(1, factoryCallCount);
+
+            // Second Connect attempt - Dispose throws again
+            connectResult = provider.Connect(out error);
+            Assert.False(connectResult);
+            Assert.NotNull(error);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.Equal(3, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
@@ -678,7 +750,13 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(result.IsAvailable);
             Assert.Null(result.Message);
             Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -694,6 +772,14 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -712,9 +798,15 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
-            Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
         }
 
         [Fact]
@@ -734,7 +826,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -755,7 +853,13 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(result.IsAvailable);
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -771,6 +875,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(result.IsAvailable);
             Assert.Contains(42, fake.ReleaseReturnCodes);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -787,6 +898,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
         }
 
         [Fact]
@@ -1316,6 +1434,7 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             ((IGpuProviderProbe)provider).Probe();
+            provider.Disconnect();
 
             int gpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
             int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
@@ -1335,6 +1454,7 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+            provider.Disconnect();
 
             int metricsIdx = fake.ReleaseOrder.IndexOf(0x5000);
             int metricsSupportIdx = fake.ReleaseOrder.IndexOf(0x6000);
@@ -1356,6 +1476,7 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             ((IGpuProviderProbe)provider).Probe();
+            provider.Disconnect();
 
             int gpuListIdx = fake.Events.IndexOf("Release:0x2000");
             int terminateIdx = fake.Events.IndexOf("Terminate");
@@ -1595,7 +1716,7 @@ namespace BlackIceGPUTemp.Tests
             // Terminate fails first, succeeds on retry
             var fake = new TerminateSequenceFake();
             fake.EnqueueTerminate(unchecked((int)0x80004005)); // First Disconnect: fails
-            fake.EnqueueTerminate(0); // Retry on next operation: succeeds
+            fake.EnqueueTerminate(0); // Retry on Connect: succeeds
             var fake2 = new FakeAdlxNative(); // New instance after retry
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1614,17 +1735,24 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed); // Session not disposed, error retained
 
-            // Next operation triggers retry via EnsureSession -> Terminate succeeds, then Dispose old session
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
+            // Explicit Connect triggers retry -> Terminate succeeds, then Dispose old session, creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
             Assert.Equal(2, fake.TerminateCalls); // Retry called
             Assert.Equal(1, fake.DisposeCallCount); // Dispose called once after successful Terminate retry
             Assert.True(fake.IsDisposed); // Old session disposed after successful retry
-            // New session created and stays active after operation
+            // New session created and stays active after Connect
             Assert.Equal(1, fake2.InitializeCalls);
             Assert.Equal(0, fake2.TerminateCalls);
             Assert.False(fake2.IsDisposed);
             Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
         }
 
         [Fact]
@@ -1637,8 +1765,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(success);
             Assert.NotNull(reading);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
         }
 
         [Fact]
@@ -1650,8 +1783,13 @@ namespace BlackIceGPUTemp.Tests
             var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
 
             Assert.Single(devices);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
         }
 
         [Fact]
@@ -1663,8 +1801,13 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.True(result.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
         }
 
         [Fact]
@@ -1677,8 +1820,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(success);
             Assert.NotNull(reading);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
         }
 
         [Fact]
@@ -1690,8 +1838,13 @@ namespace BlackIceGPUTemp.Tests
             var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
 
             Assert.Single(devices);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
         }
 
         [Fact]
@@ -1701,7 +1854,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new DisposeSequenceFake();
             fake.EnqueueTerminate(0); // Terminate succeeds
             fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
-            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            fake.EnqueueDispose(null); // Retry on Connect: Dispose succeeds
             var fake2 = new FakeAdlxNative();
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1720,17 +1873,24 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
-            // Next operation triggers retry via EnsureSession -> Dispose succeeds
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
+            // Explicit Connect triggers retry -> Dispose succeeds, creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried (already succeeded)
             Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
             Assert.True(fake.IsDisposed); // Now disposed after successful retry
-            // New session created and stays active after operation
+            // New session created and stays active after Connect
             Assert.Equal(1, fake2.InitializeCalls);
             Assert.Equal(0, fake2.TerminateCalls);
             Assert.False(fake2.IsDisposed);
             Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
         }
 
         [Fact]
@@ -1740,7 +1900,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new DisposeSequenceFake();
             fake.EnqueueTerminate(0); // Terminate succeeds
             fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
-            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            fake.EnqueueDispose(null); // Retry on Connect: Dispose succeeds
             var fake2 = new FakeAdlxNative();
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1760,17 +1920,24 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
-            // Next operation triggers retry via EnsureSession -> Dispose succeeds
-            var success2 = provider.TryReadTemperatureInternal(12345, out _, out _);
-            Assert.True(success2);
+            // Explicit Connect triggers retry -> Dispose succeeds, creates new session
+            var connectResult = provider.Connect(out var connectError);
+            Assert.True(connectResult);
+            Assert.Null(connectError);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
             Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
             Assert.True(fake.IsDisposed); // Now disposed after successful retry
-            // New session created and stays active after operation
+            // New session created and stays active after Connect
             Assert.Equal(1, fake2.InitializeCalls);
             Assert.Equal(0, fake2.TerminateCalls);
             Assert.False(fake2.IsDisposed);
             Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
         }
 
         [Fact]
@@ -1780,7 +1947,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new DisposeSequenceFake();
             fake.EnqueueTerminate(0); // Terminate succeeds
             fake.EnqueueDispose(new InvalidOperationException("Simulated Dispose failure")); // First Disconnect: Dispose throws
-            fake.EnqueueDispose(null); // Retry on next operation: Dispose succeeds
+            fake.EnqueueDispose(null); // Retry on Connect: Dispose succeeds
             var fake2 = new FakeAdlxNative();
             var factoryCallCount = 0;
             var provider = new AmdAdlxProvider(() =>
@@ -1799,17 +1966,24 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed); // Session not disposed, Dispose failed
 
-            // Next operation triggers retry via EnsureSession -> Dispose succeeds
-            var devices2 = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
-            Assert.Single(devices2);
+            // Explicit Connect triggers retry -> Dispose succeeds, creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
             Assert.Equal(2, fake.DisposeCallCount); // First threw, second succeeded
             Assert.True(fake.IsDisposed); // Now disposed after successful retry
-            // New session created and stays active after operation
+            // New session created and stays active after Connect
             Assert.Equal(1, fake2.InitializeCalls);
             Assert.Equal(0, fake2.TerminateCalls);
             Assert.False(fake2.IsDisposed);
             Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
         }
 
         [Fact]
@@ -1826,6 +2000,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+
+            provider.Disconnect();
+
+            // Terminate error should not affect the original result (which was already returned)
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -1846,6 +2027,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(success);
             Assert.Equal("Failed to get GPU temperature reading.", error);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+
+            provider.Disconnect();
+
+            // Terminate error should not affect the original result
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
         }
 
         [Fact]
@@ -1862,6 +2050,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsAvailable);
             Assert.Equal("No GPU supports temperature monitoring via ADLX.", result.Message);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+
+            provider.Disconnect();
+
+            // Dispose error should not affect the original result
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate succeeded, Dispose threw
         }
 
         [Fact]
@@ -1882,6 +2077,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(success);
             Assert.Equal("Failed to get GPU temperature reading.", error);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+
+            provider.Disconnect();
+
+            // Dispose error should not affect the original result
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate succeeded, Dispose threw
         }
 
         [Fact]
@@ -1891,6 +2093,11 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             ((IGpuProviderProbe)provider).Probe();
+
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
 
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
@@ -2108,6 +2315,11 @@ namespace BlackIceGPUTemp.Tests
 
             ((IGpuProviderProbe)provider).Probe();
 
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
@@ -2120,6 +2332,11 @@ namespace BlackIceGPUTemp.Tests
 
             ((IGpuProviderProbe)provider).Probe();
 
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
         }
@@ -2131,6 +2348,11 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             ((IGpuProviderProbe)provider).Probe();
+
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
 
             Assert.Equal(1, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
@@ -2150,16 +2372,32 @@ namespace BlackIceGPUTemp.Tests
 
             ((IGpuProviderProbe)provider).Probe();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
 
+            // Disconnect triggers Terminate which fails
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
+
+            // Next Probe should NOT auto-reconnect (explicit disconnect blocks auto-reconnect)
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
-            Assert.Equal(2, fake.TerminateCalls);
+            Assert.Contains("disconnected", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
+
+            // Explicit Connect should retry Terminate
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Retry Terminate still fails
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
         }
 
         [Fact]
@@ -2176,16 +2414,32 @@ namespace BlackIceGPUTemp.Tests
 
             ((IGpuProviderProbe)provider).Probe();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
 
+            // Disconnect triggers Terminate which throws
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
+
+            // Next Probe should NOT auto-reconnect
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
-            Assert.Equal(2, fake.TerminateCalls);
+            Assert.Contains("disconnected", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
+
+            // Explicit Connect should retry Terminate
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Retry Terminate still throws
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
         }
 
         [Fact]
@@ -2202,16 +2456,23 @@ namespace BlackIceGPUTemp.Tests
 
             ((IGpuProviderProbe)provider).Probe();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
 
-            var result = ((IGpuProviderProbe)provider).Probe();
+            // Disconnect triggers Terminate which throws
+            provider.Disconnect();
 
-            Assert.False(result.IsAvailable);
-            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result.Message);
-            Assert.Equal(2, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
+
+            // Explicit Connect should retry Terminate
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Retry Terminate still throws
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
         }
 
         [Fact]
@@ -2342,15 +2603,29 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
+            // Disconnect triggers Terminate which throws
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
+
+            // Next Probe should NOT auto-reconnect
             var result2 = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result2.IsAvailable);
-            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result2.Message);
-            Assert.Equal(2, fake.TerminateCalls);
+            Assert.Contains("disconnected", result2.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
+            Assert.False(fake.IsDisposed);
+
+            // Explicit Connect should retry Terminate
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Retry Terminate still throws
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
             Assert.False(fake.IsDisposed);
         }
 
@@ -2371,15 +2646,29 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
             Assert.False(fake.IsDisposed);
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
+            // Disconnect triggers Terminate which fails with error HRESULT
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
+
+            // Next Probe should NOT auto-reconnect
             var result2 = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result2.IsAvailable);
-            Assert.Contains("Retry Terminate failed with HRESULT: 0x", result2.Message);
-            Assert.Equal(2, fake.TerminateCalls);
+            Assert.Contains("disconnected", result2.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, fake.TerminateCalls); // No retry on Probe
+            Assert.False(fake.IsDisposed);
+
+            // Explicit Connect should retry Terminate
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Retry Terminate still fails
+            Assert.Contains("Retry Terminate failed with HRESULT: 0x", error);
+            Assert.Equal(2, fake.TerminateCalls); // Retry called
             Assert.False(fake.IsDisposed);
         }
 
@@ -2405,13 +2694,28 @@ namespace BlackIceGPUTemp.Tests
             var result1 = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+            Assert.False(fake.IsDisposed);
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result1.Message);
 
-            var result2 = ((IGpuProviderProbe)provider).Probe();
+            // Disconnect triggers Terminate which succeeds
+            provider.Disconnect();
 
-            Assert.True(result2.IsAvailable);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            // Explicit Connect creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(1, fake2.InitializeCalls); // New session created
+            Assert.Equal(0, fake2.TerminateCalls); // New session not terminated yet
+            Assert.False(fake2.IsDisposed); // New session stays active
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
         }
@@ -2439,19 +2743,34 @@ namespace BlackIceGPUTemp.Tests
             // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.True(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+            Assert.Equal(0, fake.DisposeCallCount); // Dispose not called after normal operation
             Assert.False(fake.IsDisposed);
 
-            // Second call: retries Dispose, succeeds -> clears references, creates new instance
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(result2.IsAvailable);
+            // Disconnect triggers Terminate (success) then Dispose (throws)
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed); // Dispose threw, retained
+
+            // Explicit Connect retries Dispose (succeeds), creates new session
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
+            Assert.Equal(1, fake2.InitializeCalls); // New session created
+            Assert.Equal(0, fake2.TerminateCalls); // New session not terminated yet
+            Assert.False(fake2.IsDisposed); // New session stays active
+            Assert.Equal(2, factoryCallCount);
+
+            // Explicitly disconnect the new session
+            provider.Disconnect();
+
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
-            Assert.Equal(2, factoryCallCount);
         }
 
         [Fact]
@@ -2477,15 +2796,33 @@ namespace BlackIceGPUTemp.Tests
             // First call: monitoring succeeds, Terminate succeeds, Dispose throws -> retained in _pendingDisposeNative
             var result1 = ((IGpuProviderProbe)provider).Probe();
             Assert.True(result1.IsAvailable);
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+            Assert.Equal(0, fake.DisposeCallCount); // Dispose not called after normal operation
             Assert.False(fake.IsDisposed);
 
-            // Second call: retries Dispose, still fails -> no new instance
-            var result2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.False(result2.IsAvailable);
+            // Disconnect triggers Terminate (success) then Dispose (throws)
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.Equal(2, fake.DisposeCallCount);
+            Assert.Equal(1, fake.DisposeCallCount);
+            Assert.False(fake.IsDisposed); // Dispose threw, retained
+
+            // Explicit Connect retries Dispose (still fails)
+            var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult);
+            Assert.NotNull(error);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate not retried
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and threw again
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls); // New session NOT created
+            Assert.Equal(1, factoryCallCount);
+
+            // Second Connect attempt - Dispose throws again
+            connectResult = provider.Connect(out error);
+            Assert.False(connectResult);
+            Assert.NotNull(error);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(3, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
@@ -2911,15 +3248,20 @@ namespace BlackIceGPUTemp.Tests
             // IsSupportedGpuTemperature should not have been called for index 2
             // (but may have been called for index 0 and 1)
             
-            // Resources should be cleaned up
+            // Cancellation does not close persistent session - session should still be active
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+            // Local interfaces acquired before cancellation should be released
+            Assert.Contains(0x3001, fake.ReleasedPointers); // GPU handle from GetGpuAt[1]
+            // GPU list handle 0x2000 should NOT be released yet (owned by persistent session)
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
+
+            // Now explicitly disconnect to verify full cleanup
+            provider.Disconnect();
+
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
-
-            // Last native call should be GetGpuAt[1] (where cancellation occurred)
-            Assert.Equal("GetGpuAt[1]", nativeCalls.Last());
-            // GPU handle 0x3001 (from GetGpuAt[1]) should be released
-            Assert.Contains(0x3001, fake.ReleasedPointers);
-            // GPU list handle 0x2000 should be released
+            // GPU list handle 0x2000 should now be released
             Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
@@ -3058,9 +3400,10 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed); // Dispose threw, retained
 
-            // Next lazy operation retries Dispose, succeeds
-            var probeResult2 = ((IGpuProviderProbe)provider).Probe();
-            Assert.True(probeResult2.IsAvailable);
+            // Next explicit Connect retries Dispose, succeeds
+            var connectResult = provider.Connect(out var error);
+            Assert.True(connectResult);
+            Assert.Null(error);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.Equal(2, fake.DisposeCallCount);
             Assert.True(fake.IsDisposed);
