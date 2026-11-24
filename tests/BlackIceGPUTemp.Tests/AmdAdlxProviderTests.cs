@@ -3085,6 +3085,47 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
             Assert.True(result.IsAvailable);
         }
+
+        [Fact]
+        public void Disconnect_NormalClose_ReleasesResourcesOnce()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Create persistent session via lazy operation
+            var probeResult = ((IGpuProviderProbe)provider).Probe();
+            Assert.True(probeResult.IsAvailable);
+
+            // Session is active
+            Assert.Equal(1, fake.InitializeCalls);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            // Disconnect: should terminate and dispose
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            // gpuList (0x2000) released exactly once
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            // System (0x1000) NOT released via Release (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            // Cleanup order: gpuList released before Terminate
+            int gpuListReleaseIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+
+            // Second Disconnect is idempotent
+            int releaseCount = fake.ReleasedPointers.Count;
+            provider.Disconnect();
+
+            Assert.Equal(1, fake.TerminateCalls); // No additional Terminate
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000); // gpuList still released only once
+            Assert.Equal(releaseCount, fake.ReleasedPointers.Count); // Total release count unchanged
+            // No additional resource releases
+        }
     }
 
     public class AmdAdlxDeviceTests
