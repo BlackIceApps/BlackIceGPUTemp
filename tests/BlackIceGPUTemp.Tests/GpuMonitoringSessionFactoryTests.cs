@@ -1126,5 +1126,123 @@ namespace BlackIceGPUTemp.Tests
                 return true;
             }
         }
+
+        // Provider with TryEnumerateDevices returning false (enumeration error)
+        private class EnumerationErrorProvider : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator
+        {
+            public string Id => "enumeration-error";
+            public string DisplayName => "Enumeration Error Provider";
+            public string EnumerationErrorMessage { get; set; } = "Enumeration failed";
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
+                devices = Array.Empty<IGpuDevice>();
+                error = EnumerationErrorMessage;
+                return false;
+            }
+        }
+
+        // Lifecycle provider with TryEnumerateDevices returning false
+        private class LifecycleEnumerationErrorProvider : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-enumeration-error";
+            public string DisplayName => "Lifecycle Enumeration Error Provider";
+            public bool ConnectCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool EnumerateCalled { get; private set; }
+            public string? ConnectError { get; set; }
+            public string EnumerationErrorMessage { get; set; } = "Lifecycle enumeration failed";
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                error = null;
+                return true;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
+                EnumerateCalled = true;
+                devices = Array.Empty<IGpuDevice>();
+                error = EnumerationErrorMessage;
+                return false;
+            }
+        }
+
+        [Fact]
+        public void Create_NonLifecycleProviderEnumerationError_NextProviderSucceeds()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    new EnumerationErrorProvider { EnumerationErrorMessage = "ADLX init failed" },
+                    new AvailableWithDevicesProvider()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.HardwareMonitorService);
+            Assert.Equal("available-with-devices", result.ProviderId);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderEnumerationError_DisconnectCalledOnce_NextProviderSucceeds()
+        {
+            var provider = new LifecycleEnumerationErrorProvider { EnumerationErrorMessage = "ADLX enumeration error" };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider,
+                    new AvailableWithDevicesProvider()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.HardwareMonitorService);
+            Assert.Equal("available-with-devices", result.ProviderId);
+
+            Assert.True(provider.ConnectCalled);
+            Assert.True(provider.ProbeCalled);
+            Assert.True(provider.EnumerateCalled);
+            Assert.True(provider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_AllProvidersEnumerationError_ReturnsEnumerationErrorMessage()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    new EnumerationErrorProvider { EnumerationErrorMessage = "First provider enum failed" },
+                    new EnumerationErrorProvider { EnumerationErrorMessage = "Second provider enum failed" }
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("First provider enum failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
     }
 }
