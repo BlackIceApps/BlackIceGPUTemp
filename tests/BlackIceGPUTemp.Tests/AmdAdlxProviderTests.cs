@@ -3126,6 +3126,35 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(releaseCount, fake.ReleasedPointers.Count); // Total release count unchanged
             // No additional resource releases
         }
+
+        [Fact]
+        public void Implements_IGpuProviderLifecycle_CanConnectAndDisconnect()
+        {
+            var fake = new FakeAdlxNative();
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Verify interface implementation
+            IGpuProviderLifecycle lifecycle = provider;
+            Assert.NotNull(lifecycle);
+
+            // Connect creates session
+            Assert.True(lifecycle.Connect(out var error));
+            Assert.Null(error);
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Second Connect is idempotent
+            Assert.True(lifecycle.Connect(out _));
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Disconnect terminates and disposes
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            // Second Disconnect is idempotent
+            lifecycle.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+        }
     }
 
     public class AmdAdlxDeviceTests

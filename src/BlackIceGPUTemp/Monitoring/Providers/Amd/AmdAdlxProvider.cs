@@ -10,7 +10,7 @@ using BlackIceGPUTemp.Monitoring.Providers.Amd.Native;
 
 namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 {
-    public sealed class AmdAdlxProvider : IGpuProvider, IGpuTemperatureReader
+    public sealed class AmdAdlxProvider : IGpuProvider, IGpuTemperatureReader, IGpuProviderLifecycle
     {
         private readonly Func<IAdlxNative> _nativeFactory;
         private IAdlxNative? _pendingNative;
