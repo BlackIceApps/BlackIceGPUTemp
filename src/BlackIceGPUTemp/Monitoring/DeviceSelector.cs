@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
@@ -31,6 +32,8 @@ namespace BlackIceGPUTemp.Monitoring
             {
                 return null;
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             bool success = provider.TryEnumerateDevices(out IReadOnlyList<IGpuDevice>? devices, out _, cancellationToken);
             if (!success || devices == null)
