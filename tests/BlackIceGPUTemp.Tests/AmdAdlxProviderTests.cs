@@ -469,18 +469,28 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(0, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            // Disconnect triggers Terminate (fails first, succeeds on retry) then Dispose (throws)
+            // Disconnect triggers Terminate (fails) -> PendingNative set, Dispose NOT called yet
             provider.Disconnect();
 
             Assert.Equal(1, fake.TerminateCalls); // First Terminate call (failed)
-            Assert.Equal(1, fake.DisposeCallCount); // Dispose threw
+            Assert.Equal(0, fake.DisposeCallCount); // Dispose not called because Terminate failed
             Assert.False(fake.IsDisposed);
 
-            // Explicit Connect retries Terminate (succeeds), retries Dispose (succeeds), creates new session
+            // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
             var connectResult = provider.Connect(out var error);
+            Assert.False(connectResult); // Cleanup incomplete, Connect fails
+            Assert.NotNull(error);
+            Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose retried and threw
+            Assert.False(fake.IsDisposed);
+            Assert.Equal(0, fake2.InitializeCalls); // New session NOT created yet
+            Assert.Equal(1, factoryCallCount);
+
+            // Second Connect retries Dispose (succeeds), creates new session
+            connectResult = provider.Connect(out error);
             Assert.True(connectResult);
             Assert.Null(error);
-            Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
+            Assert.Equal(2, fake.TerminateCalls); // Terminate not retried again
             Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
             Assert.Equal(1, fake2.InitializeCalls); // New session created
@@ -522,19 +532,19 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(0, fake.DisposeCallCount);
             Assert.False(fake.IsDisposed);
 
-            // Disconnect triggers Terminate (fails first, succeeds on retry) then Dispose (throws)
+            // Disconnect triggers Terminate (fails) -> PendingNative set, Dispose NOT called yet
             provider.Disconnect();
 
             Assert.Equal(1, fake.TerminateCalls); // First Terminate call (failed)
-            Assert.Equal(1, fake.DisposeCallCount); // Dispose threw
+            Assert.Equal(0, fake.DisposeCallCount); // Dispose not called because Terminate failed
             Assert.False(fake.IsDisposed);
 
-            // Explicit Connect retries Terminate (succeeds), retries Dispose (throws again)
+            // First Connect retries Terminate (succeeds), retries Dispose (throws) -> Connect fails
             var connectResult = provider.Connect(out var error);
-            Assert.False(connectResult); // Connect fails because Dispose still fails
+            Assert.False(connectResult); // Cleanup incomplete, Connect fails
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate retried and succeeded
-            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and threw again
+            Assert.Equal(1, fake.DisposeCallCount); // Dispose retried and threw
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls); // New session NOT created
             Assert.Equal(1, factoryCallCount);
@@ -544,7 +554,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.False(connectResult);
             Assert.NotNull(error);
             Assert.Equal(2, fake.TerminateCalls); // Terminate not retried (already succeeded)
-            Assert.Equal(3, fake.DisposeCallCount); // Dispose retried and threw again
+            Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and threw again
             Assert.False(fake.IsDisposed);
             Assert.Equal(0, fake2.InitializeCalls);
             Assert.Equal(1, factoryCallCount);
@@ -583,7 +593,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(2, fake.DisposeCallCount); // Dispose retried and succeeded
             Assert.True(fake.IsDisposed);
             Assert.Equal(1, fake2.InitializeCalls); // New session created
-            Assert.Equal(1, fake2.TerminateCalls); // New session terminated after Connect? No, Connect shouldn't terminate
+            Assert.Equal(0, fake2.TerminateCalls); // New session NOT terminated after Connect (stays active)
             Assert.False(fake2.IsDisposed); // New session stays active
             Assert.Equal(2, factoryCallCount);
 
@@ -851,13 +861,16 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
 
             provider.Disconnect();
 
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
@@ -1115,6 +1128,13 @@ namespace BlackIceGPUTemp.Tests
             var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices();
 
             Assert.Empty(devices);
+            // Temporary interfaces released immediately, gpuList (0x2000) is persistent session resource
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
@@ -1227,6 +1247,13 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(success);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1245,6 +1272,12 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // Not released until Disconnect
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
@@ -1262,10 +1295,16 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(99999, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary GPU interfaces released immediately
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Contains(0x3001, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent, not released until Disconnect
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1284,9 +1323,15 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary interfaces released immediately
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1305,10 +1350,16 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary interfaces released immediately
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1327,11 +1378,17 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary interfaces released immediately
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1350,11 +1407,17 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary interfaces released immediately
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1373,12 +1436,18 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
+            // Temporary interfaces released immediately
             Assert.Contains(0x5000, fake.ReleasedPointers);
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1499,12 +1568,18 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.True(result.IsAvailable);
+            // Temporary interfaces released immediately despite exception
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent, not released until Disconnect
             Assert.Equal(1, fake.ThrowOnReleaseCount);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1520,13 +1595,19 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.True(success);
+            // Temporary interfaces released immediately despite exception
             Assert.Contains(0x5000, fake.ReleasedPointers);
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1632,12 +1713,17 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.True(result.IsAvailable);
-            // All interfaces should still be released despite negative return
+            // All temporary interfaces should still be released despite negative return
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1653,13 +1739,18 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.True(result.IsAvailable);
-            // All interfaces should still be released despite one throwing
+            // All temporary interfaces should still be released despite one throwing
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -1675,14 +1766,19 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.True(success);
-            // All interfaces should still be released despite one throwing
+            // All temporary interfaces should still be released despite one throwing
             Assert.Contains(0x5000, fake.ReleasedPointers);
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2054,9 +2150,10 @@ namespace BlackIceGPUTemp.Tests
 
             provider.Disconnect();
 
-            // Dispose error should not affect the original result
+            // Dispose error should not affect the original result (which was already returned)
+            // Terminate succeeds, Dispose throws but sets IsDisposed = true before throwing
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed); // Terminate succeeded, Dispose threw
+            Assert.True(fake.IsDisposed); // Dispose sets IsDisposed=true before throwing
         }
 
         [Fact]
@@ -2082,8 +2179,9 @@ namespace BlackIceGPUTemp.Tests
             provider.Disconnect();
 
             // Dispose error should not affect the original result
+            // Terminate succeeds, Dispose throws but sets IsDisposed = true before throwing
             Assert.Equal(1, fake.TerminateCalls);
-            Assert.False(fake.IsDisposed); // Terminate succeeded, Dispose threw
+            Assert.True(fake.IsDisposed); // Dispose sets IsDisposed=true before throwing
         }
 
         [Fact]
@@ -2603,14 +2701,14 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+            Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.False(fake.IsDisposed);
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             // Disconnect triggers Terminate which throws
             provider.Disconnect();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls); // No active session, Disconnect does nothing
             Assert.False(fake.IsDisposed); // Terminate threw, Dispose not called
 
             // Next Probe should NOT auto-reconnect
@@ -2646,14 +2744,14 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result.IsAvailable);
-            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
+            Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
             Assert.False(fake.IsDisposed);
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result.Message);
 
             // Disconnect triggers Terminate which fails with error HRESULT
             provider.Disconnect();
 
-            Assert.Equal(1, fake.TerminateCalls);
+            Assert.Equal(1, fake.TerminateCalls); // No active session, Disconnect does nothing
             Assert.False(fake.IsDisposed); // Terminate failed, Dispose not called
 
             // Next Probe should NOT auto-reconnect
@@ -2694,11 +2792,11 @@ namespace BlackIceGPUTemp.Tests
             var result1 = ((IGpuProviderProbe)provider).Probe();
 
             Assert.False(result1.IsAvailable);
-            Assert.Equal(0, fake.TerminateCalls); // Terminate not called after normal operation
-            Assert.False(fake.IsDisposed);
+            Assert.Equal(1, fake.TerminateCalls); // Terminate called during CleanupRef after failed init
+            Assert.True(fake.IsDisposed); // CleanupRef succeeded completely
             Assert.Equal("ADLX initialization succeeded but returned a null system interface.", result1.Message);
 
-            // Disconnect triggers Terminate which succeeds
+            // Disconnect - no active session, does nothing
             provider.Disconnect();
 
             Assert.Equal(1, fake.TerminateCalls);
