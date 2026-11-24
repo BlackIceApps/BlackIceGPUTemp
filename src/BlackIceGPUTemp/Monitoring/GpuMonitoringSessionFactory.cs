@@ -39,20 +39,88 @@ namespace BlackIceGPUTemp.Monitoring
 
                 // Check if provider supports explicit lifecycle management
                 var lifecycleProvider = provider as IGpuProviderLifecycle;
-                string? connectError = null;
 
                 if (lifecycleProvider != null)
                 {
-                    // Call Connect first
-                    if (!lifecycleProvider.Connect(out connectError))
+                    // Call Connect first - handle exceptions from Connect itself
+                    try
                     {
-                        // Connect failed - skip this provider
-                        continue;
+                        if (!lifecycleProvider.Connect(out _))
+                        {
+                            // Connect failed - skip this provider, no Disconnect needed
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // Connect threw - no session established, no Disconnect needed
+                        throw;
+                    }
+
+                    bool disconnectCalled = false;
+
+                    try
+                    {
+                        // Check cancellation after successful Connect
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
+
+                        if (probeResult.IsAvailable)
+                        {
+                            hasAvailableProvider = true;
+
+                            var devices = ((IGpuDeviceEnumerator)provider).EnumerateDevices(cancellationToken);
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            if (devices != null && devices.Count > 0)
+                            {
+                                var firstDevice = devices[0];
+                                var registry = new GpuProviderRegistry(providers);
+                                var selector = new DeviceSelector(registry);
+                                var monitorService = new HardwareMonitorService(selector);
+
+                                return new GpuMonitoringInitializationResult(
+                                    monitorService,
+                                    provider.Id,
+                                    firstDevice.Id,
+                                    firstDevice.Name,
+                                    lifecycleProvider);
+                            }
+else
+                        {
+                            // No devices - disconnect (normal cleanup, propagate Disconnect exception)
+                            disconnectCalled = true;
+                            lifecycleProvider.Disconnect();
+                        }
+                    }
+                    else
+                    {
+                        // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
+                        disconnectCalled = true;
+                        lifecycleProvider.Disconnect();
+                    }
+                    }
+                    catch
+                    {
+                        // Any exception (including OperationCanceledException) - disconnect if not already done
+                        if (!disconnectCalled)
+                        {
+                            try
+                            {
+                                lifecycleProvider.Disconnect();
+                            }
+                            catch
+                            {
+                                // Suppress cleanup exceptions, rethrow original
+                            }
+                        }
+                        throw;
                     }
                 }
-
-                try
+                else
                 {
+                    // Provider without lifecycle - old behavior
                     var probeResult = ((IGpuProviderProbe)provider).Probe(cancellationToken);
 
                     if (probeResult.IsAvailable)
@@ -73,26 +141,9 @@ namespace BlackIceGPUTemp.Monitoring
                                 monitorService,
                                 provider.Id,
                                 firstDevice.Id,
-                                firstDevice.Name,
-                                lifecycleProvider);
-                        }
-                        else
-                        {
-                            // No devices - disconnect if lifecycle supported
-                            lifecycleProvider?.Disconnect();
+                                firstDevice.Name);
                         }
                     }
-                    else
-                    {
-                        // Probe failed - disconnect if lifecycle supported
-                        lifecycleProvider?.Disconnect();
-                    }
-                }
-                catch
-                {
-                    // Any exception (including OperationCanceledException) - disconnect if lifecycle supported
-                    lifecycleProvider?.Disconnect();
-                    throw;
                 }
             }
 
