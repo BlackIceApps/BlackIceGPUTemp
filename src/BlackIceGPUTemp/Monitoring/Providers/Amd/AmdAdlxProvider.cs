@@ -12,6 +12,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 {
     public sealed class AmdAdlxProvider : IGpuProvider, IGpuTemperatureReader, IGpuProviderLifecycle
     {
+        private const string ProviderId = "amd-adlx";
+        private const string DeviceIdPrefix = "amd-adlx:";
+        private const string SensorName = "GPU Edge";
+
         private readonly Func<IAdlxNative> _nativeFactory;
         private IAdlxNative? _pendingNative;
         private IDisposable? _pendingDisposable;
@@ -21,7 +25,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private bool _disconnected;
         private readonly object _lock = new object();
 
-        public string Id => "amd-adlx";
+        public string Id => ProviderId;
         public string DisplayName => "AMD ADLX";
 
         public AmdAdlxProvider(Func<IAdlxNative>? nativeFactory = null)
@@ -259,7 +263,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             {
                                 if (seenUniqueIds.Add(uniqueId))
                                 {
-                                    string deviceId = $"amd-adlx:{uniqueId.ToString(CultureInfo.InvariantCulture)}";
+                                    string deviceId = $"{DeviceIdPrefix}{uniqueId.ToString(CultureInfo.InvariantCulture)}";
                                     devices.Add(new AmdAdlxDevice(this, Id, deviceId, name!, gpuKind));
                                 }
                             }
@@ -300,7 +304,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             if (!TryParseUniqueId(deviceId, out int uniqueId))
             {
                 reading = null;
-                error = $"Invalid device ID format: '{deviceId}'. Expected format: 'amd-adlx:<uniqueId>'";
+                error = $"Invalid device ID format: '{deviceId}'. Expected format: '{DeviceIdPrefix}<uniqueId>'";
                 return false;
             }
 
@@ -313,12 +317,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private static bool TryParseUniqueId(string deviceId, out int uniqueId)
         {
             uniqueId = 0;
-            const string prefix = "amd-adlx:";
-            if (!deviceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (!deviceId.StartsWith(DeviceIdPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
-            string idPart = deviceId.Substring(prefix.Length);
+            string idPart = deviceId.Substring(DeviceIdPrefix.Length);
             return int.TryParse(idPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out uniqueId);
         }
 
@@ -414,7 +417,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                         }
                                         else
                                         {
-                                            reading = new TemperatureReading(celsius, "GPU Edge", DateTimeOffset.UtcNow);
+                                            reading = new TemperatureReading(celsius, SensorName, DateTimeOffset.UtcNow);
                                             result = true;
                                         }
                                     }
