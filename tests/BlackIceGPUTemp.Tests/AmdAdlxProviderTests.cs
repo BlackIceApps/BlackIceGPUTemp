@@ -1732,6 +1732,8 @@ namespace BlackIceGPUTemp.Tests
             // gpuList (0x2000) released exactly once on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            // Target GPU (0x3000) still released exactly once (not again on Disconnect)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
             // Terminate called exactly once
             Assert.Equal(1, fake.TerminateCalls);
             // Fake disposed
