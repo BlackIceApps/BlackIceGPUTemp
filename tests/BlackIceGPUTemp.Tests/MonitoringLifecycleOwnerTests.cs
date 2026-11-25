@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BlackIceGPUTemp.Monitoring.Abstractions;
@@ -302,31 +303,110 @@ namespace BlackIceGPUTemp.Tests
 
             var startBarrier = new Barrier(threadCount);
             var results = new IGpuProviderLifecycle?[threadCount];
-            var tasks = new Task[threadCount];
-
-            for (int i = 0; i < threadCount; i++)
+            var threads = new Thread[threadCount];
+            var started = new bool[threadCount];
+            try
             {
-                int index = i;
-                tasks[i] = Task.Run(() =>
+                for (int i = 0; i < threadCount; i++)
                 {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    results[index] = owner.StopAndTake();
-                });
+                    int index = i;
+                    var t = new Thread(() =>
+                    {
+                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        if (!barrierSignaled)
+                        {
+                            return; // Worker exits gracefully on barrier timeout
+                        }
+                        results[index] = owner.StopAndTake();
+                    });
+                    threads[i] = t;
+                    t.Start();
+                    started[i] = true;
+                }
+
+                // Wait for all threads to complete with timeout
+                var timeout = TimeSpan.FromSeconds(10);
+                var start = DateTime.UtcNow;
+                bool allDone = false;
+                while (DateTime.UtcNow - start < timeout)
+                {
+                    allDone = true;
+                    foreach (var t in threads)
+                    {
+                        if (t != null && t.IsAlive)
+                        {
+                            allDone = false;
+                            break;
+                        }
+                    }
+                    if (allDone)
+                    {
+                        break;
+                    }
+                    Thread.Sleep(10);
+                }
+
+                Assert.True(allDone, "Not all threads finished in time");
+
+                int nonNullCount = 0;
+                for (int i = 0; i < threadCount; i++)
+                {
+                    if (results[i] != null)
+                    {
+                        nonNullCount++;
+                        Assert.Same(lifecycle, results[i]);
+                    }
+                }
+
+                Assert.Equal(1, nonNullCount);
             }
-
-            Task.WaitAll(tasks, TimeSpan.FromSeconds(10));
-
-            int nonNullCount = 0;
-            for (int i = 0; i < threadCount; i++)
+            finally
             {
-                if (results[i] != null)
+                // Ensure all started threads are joined with timeout
+                // Use a shared deadline for the entire cleanup group
+                var cleanupDeadline = DateTime.UtcNow.AddSeconds(7);
+                var failedThreads = new List<int>();
+
+                for (int i = 0; i < threadCount; i++)
                 {
-                    nonNullCount++;
-                    Assert.Same(lifecycle, results[i]);
+                    var t = threads[i];
+                    if (started[i] && t != null && t.IsAlive)
+                    {
+                        var remaining = cleanupDeadline - DateTime.UtcNow;
+                        if (remaining <= TimeSpan.Zero)
+                        {
+                            remaining = TimeSpan.Zero;
+                        }
+                        bool joined = t.Join(remaining);
+                        if (!joined)
+                        {
+                            failedThreads.Add(i);
+                        }
+                    }
+                }
+
+                // After attempting to join all threads, handle any that didn't finish
+                foreach (var i in failedThreads)
+                {
+                    var t = threads[i];
+                    try
+                    {
+                        if (!t.IsBackground)
+                        {
+                            t.IsBackground = true;
+                        }
+                    }
+                    catch (ThreadStateException)
+                    {
+                        // Thread finished between Join and IsBackground check - ignore
+                    }
+                }
+
+                if (failedThreads.Count > 0)
+                {
+                    Assert.Fail($"Threads {string.Join(", ", failedThreads)} did not finish within cleanup timeout");
                 }
             }
-
-            Assert.Equal(1, nonNullCount);
         }
 
         [Fact]

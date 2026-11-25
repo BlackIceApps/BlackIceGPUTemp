@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BlackIceGPUTemp.Tray;
@@ -68,7 +69,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryBeginRead_ConcurrentCalls_OnlyOneSucceeds()
+        public async Task TryBeginRead_ConcurrentCalls_OnlyOneSucceeds()
         {
             var gate = new MonitoringReadGate();
             const int threadCount = 10;
@@ -122,8 +123,31 @@ namespace BlackIceGPUTemp.Tests
             {
                 releaseEvent.Set();
 
-                bool allDone = Task.WaitAll(tasks, TimeSpan.FromSeconds(5));
-                Assert.True(allDone, "Not all tasks finished in time");
+                var allTasks = Task.WhenAll(tasks);
+                var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
+                bool timedOut = completed != allTasks;
+                if (!timedOut)
+                {
+                    // All tasks completed within timeout - await to propagate exceptions
+                    await allTasks;
+                }
+                else
+                {
+                    // Timeout: tasks did not complete in time.
+                    // Give them a brief additional moment after releaseEvent.Set(),
+                    // but do not wait indefinitely.
+                    var completed2 = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(1)));
+                    if (completed2 == allTasks)
+                    {
+                        // All tasks finished during the additional wait - propagate exceptions
+                        await allTasks;
+                    }
+                    else
+                    {
+                        // Still not done - report timeout
+                        Assert.Fail("Not all tasks finished in time");
+                    }
+                }
             }
         }
 
@@ -138,23 +162,102 @@ namespace BlackIceGPUTemp.Tests
             var startBarrier = new Barrier(threadCount);
             int successCount = 0;
 
-            var tasks = new Task[threadCount];
-            for (int i = 0; i < threadCount; i++)
+            var threads = new Thread[threadCount];
+            var started = new bool[threadCount];
+            try
             {
-                tasks[i] = Task.Run(() =>
+                for (int i = 0; i < threadCount; i++)
                 {
-                    startBarrier.SignalAndWait();
-                    if (gate.TryBeginRead())
+                    var t = new Thread(() =>
                     {
-                        Interlocked.Increment(ref successCount);
-                        gate.EndRead();
+                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        if (!barrierSignaled)
+                        {
+                            return; // Worker exits gracefully on barrier timeout
+                        }
+                        if (gate.TryBeginRead())
+                        {
+                            Interlocked.Increment(ref successCount);
+                            gate.EndRead();
+                        }
+                    });
+                    threads[i] = t;
+                    t.Start();
+                    started[i] = true;
+                }
+
+                // Wait for all threads to complete with timeout
+                var timeout = TimeSpan.FromSeconds(5);
+                var start = DateTime.UtcNow;
+                bool allDone = false;
+                while (DateTime.UtcNow - start < timeout)
+                {
+                    allDone = true;
+                    foreach (var t in threads)
+                    {
+                        if (t != null && t.IsAlive)
+                        {
+                            allDone = false;
+                            break;
+                        }
                     }
-                });
+                    if (allDone)
+                    {
+                        break;
+                    }
+                    Thread.Sleep(10);
+                }
+
+                Assert.True(allDone, "Not all threads finished in time");
+                Assert.Equal(0, successCount);
             }
+            finally
+            {
+                // Ensure all started threads are joined with timeout
+                // Use a shared deadline for the entire cleanup group
+                var cleanupDeadline = DateTime.UtcNow.AddSeconds(7);
+                var failedThreads = new List<int>();
 
-            Task.WaitAll(tasks);
+                for (int i = 0; i < threadCount; i++)
+                {
+                    var t = threads[i];
+                    if (started[i] && t != null && t.IsAlive)
+                    {
+                        var remaining = cleanupDeadline - DateTime.UtcNow;
+                        if (remaining <= TimeSpan.Zero)
+                        {
+                            remaining = TimeSpan.Zero;
+                        }
+                        bool joined = t.Join(remaining);
+                        if (!joined)
+                        {
+                            failedThreads.Add(i);
+                        }
+                    }
+                }
 
-            Assert.Equal(0, successCount);
+                // After attempting to join all threads, handle any that didn't finish
+                foreach (var i in failedThreads)
+                {
+                    var t = threads[i];
+                    try
+                    {
+                        if (!t.IsBackground)
+                        {
+                            t.IsBackground = true;
+                        }
+                    }
+                    catch (ThreadStateException)
+                    {
+                        // Thread finished between Join and IsBackground check - ignore
+                    }
+                }
+
+                if (failedThreads.Count > 0)
+                {
+                    Assert.Fail($"Threads {string.Join(", ", failedThreads)} did not finish within cleanup timeout");
+                }
+            }
         }
 
         [Fact]
