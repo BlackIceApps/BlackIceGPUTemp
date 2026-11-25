@@ -4663,6 +4663,16 @@ namespace BlackIceGPUTemp.Tests
                 return 0;
             };
 
+            // Make GetGpuAt return unique pointers per call so release tracking
+            // can distinguish between different GPU interface instances (TryProbe + 2 successful reads)
+            int gpuAtCallCount = 0;
+            fake.GetGpuAtHandler = (IntPtr gpuList, int index, out IntPtr gpu) =>
+            {
+                gpu = new IntPtr(0x3000 + gpuAtCallCount);
+                gpuAtCallCount++;
+                return 0;
+            };
+
             // Pause the FIRST read operation inside GetGpuTemperature (final native call in the chain)
             // while it holds the provider lock. This ensures the second read will block on the lock.
             // Only the FIRST call to GetGpuTemperature pauses; subsequent calls return immediately.
