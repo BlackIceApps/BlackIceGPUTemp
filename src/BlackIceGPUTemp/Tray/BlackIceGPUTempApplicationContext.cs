@@ -32,10 +32,10 @@ namespace BlackIceGPUTemp.Tray
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
         private volatile bool _disposing;
-        private bool _readInProgress;
+        private readonly MonitoringReadGate _readGate = new();
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
-        private IGpuProviderLifecycle? _providerLifecycle;
+        private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
 
         private sealed class MonitoringSession
         {
@@ -220,38 +220,21 @@ namespace BlackIceGPUTemp.Tray
                     deviceName);
 
                 // Take ownership of the lifecycle provider before publishing the session
-                IGpuProviderLifecycle? lifecycleToStore = null;
-                bool shouldDisconnect = false;
-                lock (_disposeLock)
+                bool registered = _lifecycleOwner.TryRegister(providerLifecycle);
+                if (!registered)
                 {
-                    if (_disposing)
+                    // Context is already disposing - disconnect after registration attempt
+                    if (providerLifecycle != null)
                     {
-                        // Context is already disposing - don't store, will disconnect after lock
-                        shouldDisconnect = providerLifecycle != null;
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider during disposal race", ex);
+                        }
                     }
-                    else
-                    {
-                        lifecycleToStore = providerLifecycle;
-                        _providerLifecycle = providerLifecycle;
-                    }
-                }
-
-                if (shouldDisconnect && providerLifecycle != null)
-                {
-                    try
-                    {
-                        providerLifecycle.Disconnect();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Error disconnecting provider during disposal race", ex);
-                    }
-                    return;
-                }
-
-                // If we couldn't store the lifecycle (context disposing), don't publish session
-                if (lifecycleToStore == null && providerLifecycle != null)
-                {
                     return;
                 }
 
@@ -320,11 +303,15 @@ namespace BlackIceGPUTemp.Tray
 
             lock (_disposeLock)
             {
-                if (_disposing || _readInProgress)
+                if (_disposing)
                 {
                     return;
                 }
-                _readInProgress = true;
+            }
+
+            if (!_readGate.TryBeginRead())
+            {
+                return;
             }
 
             var token = _cancellationTokenSource.Token;
@@ -348,22 +335,12 @@ namespace BlackIceGPUTemp.Tray
                         }
                     }
 
-                    if (success && reading != null)
+                    InvokeOnUiThread(() =>
                     {
-                        InvokeOnUiThread(() =>
-                        {
-                            UpdateTooltip($"{session.DeviceName}: {reading.Celsius:F1}°C");
-                            UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
-                        });
-                    }
-                    else
-                    {
-                        InvokeOnUiThread(() =>
-                        {
-                            UpdateTooltip($"{session.DeviceName}: Temp unavailable");
-                            UpdateIcon("--");
-                        });
-                    }
+                        var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
+                        UpdateTooltip(displayState.TooltipText);
+                        UpdateIcon(displayState.IconText);
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -378,16 +355,14 @@ namespace BlackIceGPUTemp.Tray
                     Logger.LogError("Error reading temperature", ex);
                     InvokeOnUiThread(() =>
                     {
-                        UpdateTooltip($"{session.DeviceName}: Temp unavailable");
-                        UpdateIcon("--");
+                        var displayState = TemperatureDisplayState.Create(session.DeviceName, false, null);
+                        UpdateTooltip(displayState.TooltipText);
+                        UpdateIcon(displayState.IconText);
                     });
                 }
                 finally
                 {
-                    lock (_disposeLock)
-                    {
-                        _readInProgress = false;
-                    }
+                    _readGate.EndRead();
                 }
             }, token);
         }
@@ -509,14 +484,17 @@ namespace BlackIceGPUTemp.Tray
             if (disposing)
             {
                 // Mark as disposing and stop timer under lock to prevent new reads
-                IGpuProviderLifecycle? lifecycleToDisconnect = null;
                 lock (_disposeLock)
                 {
                     _disposing = true;
                     _timer?.Stop();
-                    lifecycleToDisconnect = _providerLifecycle;
-                    _providerLifecycle = null;
                 }
+
+                // Take ownership of the lifecycle provider
+                IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
+
+                // Permanently block new reads before cleaning up resources used by reads
+                _readGate.Stop();
 
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
