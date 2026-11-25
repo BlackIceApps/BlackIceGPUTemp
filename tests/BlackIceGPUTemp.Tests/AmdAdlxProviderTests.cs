@@ -4115,7 +4115,6 @@ namespace BlackIceGPUTemp.Tests
             
             var firstOperationReachedPause = new ManualResetEventSlim(false);
             var releaseFirstOperation = new ManualResetEventSlim(false);
-            var secondThreadStarted = new ManualResetEventSlim(false);
             var firstOperationCompleted = new ManualResetEventSlim(false);
             var secondOperationCompleted = new ManualResetEventSlim(false);
             
@@ -4183,7 +4182,7 @@ namespace BlackIceGPUTemp.Tests
             
             var provider = new AmdAdlxProvider(() => fake);
             
-            // Start first TryProbe on background thread (Task is fine for first operation)
+            // Start first TryProbe on background thread
             var firstTask = Task.Run(() =>
             {
                 try
@@ -4206,36 +4205,6 @@ namespace BlackIceGPUTemp.Tests
                 }
             });
             
-            // Second operation runs on a dedicated Thread so we can observe its state
-            Thread? secondThread = null;
-            var secondThreadStartedSignal = new ManualResetEventSlim(false);
-            
-            secondThread = new Thread(() =>
-            {
-                try
-                {
-                    // Signal that second thread has started and is about to call TryProbe
-                    secondThreadStartedSignal.Set();
-                    
-                    bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
-                    if (!result)
-                    {
-                        secondOperationError = true;
-                        secondError = error;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    secondOperationError = true;
-                    secondError = ex.ToString();
-                }
-                finally
-                {
-                    secondOperationCompleted.Set();
-                }
-            });
-            secondThread.Start();
-            
             try
             {
                 // Wait for first operation to reach the pause point (inside GetGpuListSize)
@@ -4245,16 +4214,38 @@ namespace BlackIceGPUTemp.Tests
                 // Verify session was initialized exactly once before the pause
                 Assert.Equal(1, initializeCallCountAtFirstPause);
                 
-                // Wait for second thread to start and reach TryProbe
-                Assert.True(secondThreadStartedSignal.Wait(TimeSpan.FromSeconds(10)), 
-                    "Second thread did not start in time");
+                // NOW start second thread - first operation is confirmed paused in handler holding the lock
+                Thread? secondThread = null;
+                
+                secondThread = new Thread(() =>
+                {
+                    try
+                    {
+                        bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                        if (!result)
+                        {
+                            secondOperationError = true;
+                            secondError = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        secondOperationError = true;
+                        secondError = ex.ToString();
+                    }
+                    finally
+                    {
+                        secondOperationCompleted.Set();
+                    }
+                });
+                secondThread.Start();
                 
                 // Wait for second thread to block on the provider's lock (monitor)
-                // Poll ThreadState with a timeout - this confirms it's waiting on the lock
-                // while first operation holds it inside the handler.
+                // Use a timeout-based wait without active polling - check ThreadState at intervals
+                // but without Thread.Sleep; use a cancellation token with delay.
                 bool secondThreadBlocked = false;
-                var waitStart = DateTime.UtcNow;
                 var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
                 
                 while (DateTime.UtcNow - waitStart < waitTimeout)
                 {
@@ -4264,18 +4255,14 @@ namespace BlackIceGPUTemp.Tests
                         secondThreadBlocked = true;
                         break;
                     }
-                    Thread.Sleep(10); // Brief poll interval
+                    // Yield instead of Sleep to avoid fixed delay
+                    Thread.Yield();
                 }
                 
-                if (!secondThreadBlocked)
-                {
-                    // Limitation: ThreadState polling is not a guarantee the thread is blocked on OUR lock.
-                    // It could be in any WaitSleepJoin state. We proceed but note this in comments.
-                    // The primary proof of serialization remains maxConcurrentHandlerEntries == 1.
-                }
+                // Failure to observe WaitSleepJoin is a test failure - we cannot confirm blocking
+                Assert.True(secondThreadBlocked, "Second thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
                 
-                // At this point: first operation is paused in handler, second thread has started
-                // and is likely blocked on the provider's lock. First operation not yet completed.
+                // At this point: first operation is paused in handler, second thread is blocked on lock
                 Assert.False(firstOperationCompleted.IsSet, "First operation should still be paused");
                 
                 // Verify only one initialization occurred
@@ -4299,37 +4286,37 @@ namespace BlackIceGPUTemp.Tests
                 
                 // Verify max concurrent handler entries never exceeded 1 (serialized)
                 Assert.Equal(1, maxConcurrentHandlerEntries);
+                
+                // Wait for second thread to fully terminate
+                if (secondThread != null && secondThread.IsAlive)
+                {
+                    Assert.True(secondThread.Join(TimeSpan.FromSeconds(5)), "Second thread did not terminate in time");
+                }
             }
             finally
             {
-                // Ensure first operation is released even if assertions above fail
+                // Always release first operation to avoid deadlock
                 releaseFirstOperation.Set();
                 
-                // Wait for tasks/threads to complete (with timeout) to avoid leaving threads blocked
+                // Wait for completion events with timeout
                 bool firstDone = firstOperationCompleted.Wait(TimeSpan.FromSeconds(5));
                 bool secondDone = secondOperationCompleted.Wait(TimeSpan.FromSeconds(5));
                 
                 // If threads didn't complete, they may still be using synchronization objects
-                // Do not dispose until confirmed done or timeout expired
+                // Fail the test and do not dispose objects that live threads might access
                 if (!firstDone || !secondDone)
                 {
-                    // Threads still running - cannot safely dispose events yet
-                    // In test context, we log but cannot block indefinitely
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: firstDone={firstDone}, secondDone={secondDone}. " +
+                        "Threads still running; synchronization objects not disposed to avoid race.");
                 }
                 
                 // Clean up provider
                 try { provider.Disconnect(); } catch { }
                 
-                // Wait for second thread to fully terminate (Join with timeout)
-                if (secondThread != null && secondThread.IsAlive)
-                {
-                    secondThread.Join(TimeSpan.FromSeconds(5));
-                }
-                
                 // Deterministic disposal of synchronization objects (after threads confirmed done)
                 firstOperationReachedPause.Dispose();
                 releaseFirstOperation.Dispose();
-                secondThreadStartedSignal.Dispose();
                 firstOperationCompleted.Dispose();
                 secondOperationCompleted.Dispose();
             }
