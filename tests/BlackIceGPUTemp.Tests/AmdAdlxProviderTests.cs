@@ -24,6 +24,8 @@ namespace BlackIceGPUTemp.Tests
             public List<int> ReleaseReturnCodes { get; } = new List<int>();
             public bool IsDisposed { get; protected set; }
             public int LastReleaseResult { get; private set; }
+            private int _getGpuTemperatureCallCount;
+            public int GetGpuTemperatureCallCount => _getGpuTemperatureCallCount;
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
             public bool ThrowOnRelease { get; set; } = false;
@@ -201,8 +203,10 @@ namespace BlackIceGPUTemp.Tests
                 celsius = gpuIndex >= 0 && gpuIndex < GpuTemperatures.Count ? GpuTemperatures[gpuIndex] : 65.5;
                 if (GetGpuTempHandler != null)
                 {
+                    Interlocked.Increment(ref _getGpuTemperatureCallCount);
                     return GetGpuTempHandler(metrics, out celsius);
                 }
+                Interlocked.Increment(ref _getGpuTemperatureCallCount);
                 return 0;
             }
 
@@ -4104,6 +4108,1084 @@ namespace BlackIceGPUTemp.Tests
             // Connect should now work and initialize
             Assert.True(lifecycle.Connect(out _));
             Assert.Equal(1, fake.InitializeCalls);
+        }
+
+        [Fact]
+        public void TryProbe_ConcurrentOperations_AreSerializedAndSessionInitializedOnce()
+        {
+            // This test verifies that two concurrent TryProbe() calls on the same provider
+            // are properly serialized by the internal lock, and the ADLX session is initialized only once.
+            // It directly measures concurrent entries to the native handler using Interlocked.
+            
+            var firstOperationReachedPause = new ManualResetEventSlim(false);
+            var releaseFirstOperation = new ManualResetEventSlim(false);
+            var firstOperationCompleted = new ManualResetEventSlim(false);
+            var secondOperationCompleted = new ManualResetEventSlim(false);
+            
+            bool firstOperationError = false;
+            bool secondOperationError = false;
+            string? firstError = null;
+            string? secondError = null;
+            int initializeCallCountAtFirstPause = 0;
+            int terminateCallCountAtEnd = 0;
+            bool isDisposedAtEnd = false;
+            
+            // Concurrency tracking in handler
+            int currentHandlerEntries = 0;
+            int maxConcurrentHandlerEntries = 0;
+            int handlerCallCount = 0;
+            
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+            
+            // Pause the first operation inside GetGpuListSize (called during TryProbe after session creation)
+            fake.GetGpuListSizeHandler = (IntPtr gpuList, out int count) =>
+            {
+                count = fake.GpuNames.Count;
+                
+                // Track concurrent entries using Interlocked
+                int entries = Interlocked.Increment(ref currentHandlerEntries);
+                int maxEntries = maxConcurrentHandlerEntries;
+                while (entries > maxEntries)
+                {
+                    maxEntries = Interlocked.CompareExchange(ref maxConcurrentHandlerEntries, entries, maxEntries);
+                }
+                Interlocked.Increment(ref handlerCallCount);
+                
+                // If this is the first entry, capture initialize count and signal pause
+                if (entries == 1)
+                {
+                    initializeCallCountAtFirstPause = fake.InitializeCalls;
+                    firstOperationReachedPause.Set();
+                    
+                    // Wait for release signal
+                    if (!releaseFirstOperation.Wait(TimeSpan.FromSeconds(30)))
+                    {
+                        firstOperationError = true;
+                        firstError = "Timeout waiting for release signal";
+                        firstOperationCompleted.Set();
+                        Interlocked.Decrement(ref currentHandlerEntries);
+                        return -1;
+                    }
+                }
+                
+                try
+                {
+                    return 0;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref currentHandlerEntries);
+                }
+            };
+            
+            var provider = new AmdAdlxProvider(() => fake);
+            
+            // Declare outside try so finally can access them
+            Task? firstTask = null;
+            Thread? secondThread = null;
+            
+            try
+            {
+                // Start first TryProbe on background thread
+                firstTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                        if (!result)
+                        {
+                            firstOperationError = true;
+                            firstError = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        firstOperationError = true;
+                        firstError = ex.ToString();
+                    }
+                    finally
+                    {
+                        firstOperationCompleted.Set();
+                    }
+                });
+                
+                // Wait for first operation to reach the pause point (inside GetGpuListSize)
+                Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
+                    "First operation did not reach pause point in time");
+                
+                // Verify session was initialized exactly once before the pause
+                Assert.Equal(1, initializeCallCountAtFirstPause);
+                
+                // NOW start second thread - first operation is confirmed paused in handler holding the lock
+                secondThread = new Thread(() =>
+                {
+                    try
+                    {
+                        bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                        if (!result)
+                        {
+                            secondOperationError = true;
+                            secondError = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        secondOperationError = true;
+                        secondError = ex.ToString();
+                    }
+                    finally
+                    {
+                        secondOperationCompleted.Set();
+                    }
+                });
+                secondThread.Start();
+                
+                // Wait for second thread to block on the provider's lock (monitor)
+                // Use a timeout-based wait without active polling - check ThreadState at intervals
+                // but without Thread.Sleep; use a cancellation token with delay.
+                bool secondThreadBlocked = false;
+                var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
+                
+                while (DateTime.UtcNow - waitStart < waitTimeout)
+                {
+                    var state = secondThread.ThreadState;
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
+                    {
+                        secondThreadBlocked = true;
+                        break;
+                    }
+                    // Yield instead of Sleep to avoid fixed delay
+                    Thread.Yield();
+                }
+                
+                // Failure to observe WaitSleepJoin is a test failure - we cannot confirm blocking
+                Assert.True(secondThreadBlocked, "Second thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
+                
+                // At this point: first operation is paused in handler, second thread is blocked on lock
+                Assert.False(firstOperationCompleted.IsSet, "First operation should still be paused");
+                
+                // Verify only one initialization occurred
+                Assert.Equal(1, fake.InitializeCalls);
+                
+                // Release first operation
+                releaseFirstOperation.Set();
+                
+                // Wait for both operations to complete (auxiliary signals)
+                Assert.True(firstOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                    "First operation did not complete in time");
+                Assert.True(secondOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                    "Second operation did not complete in time");
+                
+                // Verify both operations succeeded
+                Assert.False(firstOperationError, $"First operation failed: {firstError}");
+                Assert.False(secondOperationError, $"Second operation failed: {secondError}");
+                
+                // Verify handler was called for both operations
+                Assert.Equal(2, handlerCallCount);
+                
+                // Verify max concurrent handler entries never exceeded 1 (serialized)
+                Assert.Equal(1, maxConcurrentHandlerEntries);
+            }
+            finally
+            {
+                // Always release first operation to avoid deadlock
+                releaseFirstOperation.Set();
+                
+                // Wait for actual thread/task termination - not just signals
+                bool firstTaskDone = false;
+                bool secondThreadDone = false;
+                
+                if (firstTask != null)
+                {
+                    firstTaskDone = firstTask.Wait(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    firstTaskDone = true; // No task to wait for
+                }
+                
+                if (secondThread != null)
+                {
+                    secondThreadDone = secondThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    secondThreadDone = true; // No thread to wait for
+                }
+                
+                // If either didn't complete, fail cleanup and don't dispose/Disconnect
+                if (!firstTaskDone || !secondThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: firstTaskDone={firstTaskDone}, secondThreadDone={secondThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+                
+                // Clean up provider - only after both threads confirmed done
+                try { provider.Disconnect(); } catch { }
+                
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
+                firstOperationReachedPause.Dispose();
+                releaseFirstOperation.Dispose();
+                firstOperationCompleted.Dispose();
+                secondOperationCompleted.Dispose();
+            }
+            
+            // Verify session was initialized exactly once total
+            Assert.Equal(1, fake.InitializeCalls);
+            
+            // Verify Terminate was called once on Disconnect
+            terminateCallCountAtEnd = fake.TerminateCalls;
+            isDisposedAtEnd = fake.IsDisposed;
+            Assert.Equal(1, terminateCallCountAtEnd);
+            Assert.True(isDisposedAtEnd);
+            
+            // Verify no double-release of gpuList (0x2000)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            
+            // Verify System (0x1000) NOT released via Release (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            
+            // Verify cleanup order: gpuList released before Terminate
+            int gpuListReleaseIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+        }
+
+        [Fact]
+        public void Disconnect_DuringActiveTryReadTemperature_WaitsForReadCompletionAndCleansUpOnce()
+        {
+            // This test verifies that Disconnect() does not release ADLX resources while a parallel
+            // TryReadTemperature() operation is still using the shared session. It confirms:
+            // 1. Disconnect blocks on the provider lock until TryReadTemperature completes
+            // 2. Terminate is not called while the read is active
+            // 3. Resources are not released before the read completes
+            // 4. After read completes, Disconnect finishes cleanly
+            // 5. No double-release of resources occurs
+            // 6. Session is closed exactly once
+
+            var readReachedPause = new ManualResetEventSlim(false);
+            var releaseRead = new ManualResetEventSlim(false);
+            var readCompleted = new ManualResetEventSlim(false);
+            var disconnectCompleted = new ManualResetEventSlim(false);
+
+            bool readError = false;
+            string? readErrorMessage = null;
+            TemperatureReading? readResult = null;
+            bool disconnectError = false;
+            string? disconnectErrorMessage = null;
+            int terminateCallsAtReadPause = 0;
+            int releaseCallsAtReadPause = 0;
+            int terminateCallsAtEnd = 0;
+            bool isDisposedAtEnd = false;
+
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 }
+            };
+
+            // Pause the read operation inside GetGpuTemperature (the final native call in the read chain)
+            fake.GetGpuTempHandler = (IntPtr metrics, out double celsius) =>
+            {
+                celsius = fake.GpuTemperatures[0];
+
+                // Signal that read has reached the pause point (holding the provider lock)
+                readReachedPause.Set();
+
+                // Wait for release signal
+                if (!releaseRead.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    readError = true;
+                    readErrorMessage = "Timeout waiting for release signal";
+                    readCompleted.Set();
+                    return -1;
+                }
+
+                return 0;
+            };
+
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Declare outside try so finally can access them
+            Task? readTask = null;
+            Thread? disconnectThread = null;
+
+            try
+            {
+                // Start TryReadTemperature on background thread
+                readTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out readResult, out var error);
+                        if (!success)
+                        {
+                            readError = true;
+                            readErrorMessage = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        readError = true;
+                        readErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        readCompleted.Set();
+                    }
+                });
+
+                // Wait for read to reach the pause point (inside GetGpuTemperature, holding the lock)
+                Assert.True(readReachedPause.Wait(TimeSpan.FromSeconds(10)),
+                    "Read operation did not reach pause point in time");
+
+                // Capture state at pause: Terminate should NOT have been called yet
+                terminateCallsAtReadPause = fake.TerminateCalls;
+                releaseCallsAtReadPause = fake.ReleaseCalls;
+                Assert.Equal(0, terminateCallsAtReadPause);
+                Assert.Equal(0, releaseCallsAtReadPause);
+                Assert.False(fake.IsDisposed);
+
+                // NOW start Disconnect on another thread - it should block on the provider lock
+                disconnectThread = new Thread(() =>
+                {
+                    try
+                    {
+                        provider.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        disconnectError = true;
+                        disconnectErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        disconnectCompleted.Set();
+                    }
+                });
+                disconnectThread.Start();
+
+                // Wait for Disconnect thread to block on the lock (WaitSleepJoin state)
+                bool disconnectThreadBlocked = false;
+                var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
+
+                while (DateTime.UtcNow - waitStart < waitTimeout)
+                {
+                    var state = disconnectThread.ThreadState;
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
+                    {
+                        disconnectThreadBlocked = true;
+                        break;
+                    }
+                    Thread.Yield();
+                }
+
+                Assert.True(disconnectThreadBlocked, "Disconnect thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
+
+                // Verify Disconnect has NOT completed yet (read still holding the lock)
+                Assert.False(disconnectCompleted.IsSet, "Disconnect should not complete while read is paused");
+                Assert.Equal(0, fake.TerminateCalls); // Terminate not called yet
+                Assert.Equal(0, fake.ReleaseCalls); // No Release calls yet
+                Assert.False(fake.IsDisposed); // Session not disposed
+
+                // Release the read operation
+                releaseRead.Set();
+
+                // Wait for both operations to complete
+                Assert.True(readCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Read operation did not complete in time after release");
+                Assert.True(disconnectCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Disconnect did not complete in time after read release");
+
+                // Verify both operations succeeded
+                Assert.False(readError, $"Read operation failed: {readErrorMessage}");
+                Assert.NotNull(readResult);
+                Assert.Equal(65.5, readResult!.Celsius);
+                Assert.False(disconnectError, $"Disconnect failed: {disconnectErrorMessage}");
+            }
+            finally
+            {
+                // Always release read to avoid deadlock
+                releaseRead.Set();
+
+                // Wait for actual thread/task termination
+                bool readTaskDone = false;
+                bool disconnectThreadDone = false;
+
+                if (readTask != null)
+                {
+                    readTaskDone = readTask.Wait(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    readTaskDone = true;
+                }
+
+                bool disconnectThreadWasStarted = disconnectThread != null;
+
+                if (disconnectThreadWasStarted)
+                {
+                    // Disconnect was started on a separate thread - wait for it to complete
+                    disconnectThreadDone = disconnectThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    // Disconnect was never started - clean up the session directly
+                    disconnectThreadDone = true;
+                }
+
+                if (!readTaskDone || !disconnectThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: readTaskDone={readTaskDone}, disconnectThreadDone={disconnectThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+
+                // Only call Disconnect if the disconnect thread was never started
+                // (if it was started, it already called Disconnect internally)
+                if (!disconnectThreadWasStarted)
+                {
+                    try { provider.Disconnect(); } catch { }
+                }
+
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
+                readReachedPause.Dispose();
+                releaseRead.Dispose();
+                readCompleted.Dispose();
+                disconnectCompleted.Dispose();
+            }
+
+            // Verify final state after both operations completed
+            terminateCallsAtEnd = fake.TerminateCalls;
+            isDisposedAtEnd = fake.IsDisposed;
+
+            // Terminate called exactly once (during Disconnect cleanup)
+            Assert.Equal(1, terminateCallsAtEnd);
+
+            // Session disposed exactly once
+            Assert.True(isDisposedAtEnd);
+
+            // gpuList (0x2000) released exactly once during Disconnect cleanup
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+
+            // System (0x1000) NOT released via Release (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+
+            // Verify cleanup order: gpuList released before Terminate
+            int gpuListReleaseIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+
+            // Verify no double-release of any interface
+            var releaseCounts = new Dictionary<int, int>();
+            foreach (var ptr in fake.ReleasedPointers)
+            {
+                if (!releaseCounts.ContainsKey(ptr))
+                    releaseCounts[ptr] = 0;
+                releaseCounts[ptr]++;
+            }
+            foreach (var kvp in releaseCounts)
+            {
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+            }
+        }
+
+        [Fact]
+        public void TryReadTemperature_CancellationWhileWaitingOnLock_DoesNotExecuteNativeReadAndPreservesSession()
+        {
+            // This test verifies that when TryReadTemperature() is cancelled while waiting for the provider lock,
+            // it does not execute the native temperature read, does not close the shared session,
+            // and does not disrupt subsequent operations.
+
+            var firstReadReachedPause = new ManualResetEventSlim(false);
+            var releaseFirstRead = new ManualResetEventSlim(false);
+            var firstReadCompleted = new ManualResetEventSlim(false);
+            var secondReadCompleted = new ManualResetEventSlim(false);
+
+            bool firstReadError = false;
+            string? firstReadErrorMessage = null;
+            TemperatureReading? firstReadResult = null;
+            bool secondReadError = false;
+            string? secondReadErrorMessage = null;
+            OperationCanceledException? secondReadCancellationException = null;
+            bool secondReadEnteredWaitState = false;
+
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 }
+            };
+
+            // Make GetSupportedGpuMetrics return unique pointers per call so release tracking
+            // can distinguish between different interface instances (TryProbe + 2 successful reads)
+            int metricsSupportCallCount = 0;
+            fake.GetSupportedMetricsHandler = (IntPtr services, IntPtr gpu, out IntPtr metricsSupport) =>
+            {
+                metricsSupport = new IntPtr(0x6000 + metricsSupportCallCount);
+                metricsSupportCallCount++;
+                return 0;
+            };
+
+            // Similarly for GetPerformanceMonitoringServices and GetCurrentGpuMetrics
+            int perfServicesCallCount = 0;
+            fake.GetPerfServicesHandler = (IntPtr system, out IntPtr services) =>
+            {
+                services = new IntPtr(0x4000 + perfServicesCallCount);
+                perfServicesCallCount++;
+                return 0;
+            };
+
+            int currentMetricsCallCount = 0;
+            fake.GetCurrentMetricsHandler = (IntPtr services, IntPtr gpu, out IntPtr metrics) =>
+            {
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                metrics = new IntPtr(0x5000 + index + currentMetricsCallCount * 100); // unique per call
+                currentMetricsCallCount++;
+                return 0;
+            };
+
+            // Make GetGpuAt return unique pointers per call so release tracking
+            // can distinguish between different GPU interface instances (TryProbe + 2 successful reads)
+            int gpuAtCallCount = 0;
+            fake.GetGpuAtHandler = (IntPtr gpuList, int index, out IntPtr gpu) =>
+            {
+                gpu = new IntPtr(0x3000 + gpuAtCallCount);
+                gpuAtCallCount++;
+                return 0;
+            };
+
+            // Pause the FIRST read operation inside GetGpuTemperature (final native call in the chain)
+            // while it holds the provider lock. This ensures the second read will block on the lock.
+            // Only the FIRST call to GetGpuTemperature pauses; subsequent calls return immediately.
+            fake.GetGpuTempHandler = (IntPtr metrics, out double celsius) =>
+            {
+                celsius = fake.GpuTemperatures[0];
+
+                // Pause only on the first call (when call count becomes 1)
+                int callNumber = fake.GetGpuTemperatureCallCount;
+                if (callNumber == 1)
+                {
+                    // Signal that first read has reached the pause point (holding the provider lock)
+                    firstReadReachedPause.Set();
+
+                    // Wait for release signal
+                    if (!releaseFirstRead.Wait(TimeSpan.FromSeconds(30)))
+                    {
+                        firstReadError = true;
+                        firstReadErrorMessage = "Timeout waiting for release signal";
+                        firstReadCompleted.Set();
+                        return -1;
+                    }
+                }
+
+                return 0;
+            };
+
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Initialize session via first operation (lazy connect)
+            var initResult = ((IGpuProviderProbe)provider).TryProbe(out var initError);
+            Assert.True(initResult, $"Initial session creation failed: {initError}");
+            Assert.Equal(1, fake.InitializeCalls);
+
+            // Declare outside try so finally can access them
+            Task? firstReadTask = null;
+            Thread? secondReadThread = null;
+            var secondReadCts = new CancellationTokenSource();
+
+            try
+            {
+                // Start FIRST TryReadTemperature on background thread - it will pause in GetGpuTemperature
+                firstReadTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out firstReadResult, out var error);
+                        if (!success)
+                        {
+                            firstReadError = true;
+                            firstReadErrorMessage = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        firstReadError = true;
+                        firstReadErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        firstReadCompleted.Set();
+                    }
+                });
+
+                // Wait for first read to reach the pause point (inside GetGpuTemperature, holding the lock)
+                Assert.True(firstReadReachedPause.Wait(TimeSpan.FromSeconds(10)),
+                    "First read operation did not reach pause point in time");
+
+                // Verify first read is holding the lock: Terminate/Release not called, session active
+                Assert.Equal(0, fake.TerminateCalls);
+                Assert.False(fake.IsDisposed);
+
+                // NOW start SECOND read on another thread with a cancellable token
+                // It should block on the provider lock (WaitSleepJoin)
+                secondReadThread = new Thread(() =>
+                {
+                    try
+                    {
+                        bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _, secondReadCts.Token);
+                        if (!success)
+                        {
+                            secondReadError = true;
+                            secondReadErrorMessage = "TryReadTemperature returned false instead of throwing OperationCanceledException";
+                        }
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        secondReadCancellationException = oce;
+                    }
+                    catch (Exception ex)
+                    {
+                        secondReadError = true;
+                        secondReadErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        secondReadCompleted.Set();
+                    }
+                });
+                secondReadThread.Start();
+
+                // Wait for second thread to block on the provider lock (WaitSleepJoin state)
+                bool secondThreadBlocked = false;
+                var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
+
+                while (DateTime.UtcNow - waitStart < waitTimeout)
+                {
+                    var state = secondReadThread.ThreadState;
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
+                    {
+                        secondThreadBlocked = true;
+                        secondReadEnteredWaitState = true;
+                        break;
+                    }
+                    Thread.Yield();
+                }
+
+                // Failure to observe WaitSleepJoin is a test failure - we cannot confirm blocking on lock
+                Assert.True(secondThreadBlocked, "Second thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
+
+                // At this point: first read is paused in handler (holding lock), second thread is blocked on lock
+                Assert.False(firstReadCompleted.IsSet, "First read should still be paused");
+
+                // Verify session is still active (not terminated/disposed by the waiting second operation)
+                Assert.Equal(0, fake.TerminateCalls);
+                Assert.False(fake.IsDisposed);
+
+                // NOW cancel the second read's token while first read is still paused holding the lock
+                secondReadCts.Cancel();
+
+                // Release the first read operation
+                releaseFirstRead.Set();
+
+                // Wait for both operations to complete
+                Assert.True(firstReadCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "First read operation did not complete in time after release");
+                Assert.True(secondReadCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Second read operation did not complete in time after cancellation");
+
+                // Verify first read succeeded
+                Assert.False(firstReadError, $"First read failed: {firstReadErrorMessage}");
+                Assert.NotNull(firstReadResult);
+                Assert.Equal(65.5, firstReadResult!.Celsius);
+
+                // Verify second read was cancelled with OperationCanceledException
+                Assert.NotNull(secondReadCancellationException);
+                Assert.False(secondReadError, $"Second read failed unexpectedly: {secondReadErrorMessage}");
+
+                // Verify second read did NOT execute the native temperature read (GetGpuTemperature)
+                // Only the first read should have called GetGpuTemperature (call count = 1)
+                Assert.Equal(1, fake.GetGpuTemperatureCallCount);
+
+                // Verify cancellation did NOT cause Disconnect/Terminate
+                Assert.Equal(0, fake.TerminateCalls);
+                Assert.False(fake.IsDisposed);
+
+                // Verify second read entered wait state (was actually blocked on lock)
+                Assert.True(secondReadEnteredWaitState, "Second read did not enter wait state on lock");
+
+                // NOW verify subsequent read WITHOUT cancellation succeeds (session preserved)
+                var subsequentResult = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var subsequentReading, out var subsequentError);
+                Assert.True(subsequentResult, $"Subsequent read failed: {subsequentError}");
+                Assert.NotNull(subsequentReading);
+                Assert.Equal(65.5, subsequentReading!.Celsius);
+
+                // Verify GetGpuTemperature was called again for the subsequent read (call count = 2)
+                Assert.Equal(2, fake.GetGpuTemperatureCallCount);
+            }
+            finally
+            {
+                // Always release first read to avoid deadlock
+                releaseFirstRead.Set();
+                secondReadCts.Cancel(); // Ensure cancellation in case test failed before
+
+                // Wait for actual thread/task termination
+                bool firstTaskDone = false;
+                bool secondThreadDone = false;
+
+                if (firstReadTask != null)
+                {
+                    firstTaskDone = firstReadTask.Wait(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    firstTaskDone = true;
+                }
+
+                if (secondReadThread != null)
+                {
+                    secondThreadDone = secondReadThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    secondThreadDone = true;
+                }
+
+                if (!firstTaskDone || !secondThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: firstTaskDone={firstTaskDone}, secondThreadDone={secondThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+
+                // Clean up provider - only after both threads confirmed done
+                try { provider.Disconnect(); } catch { }
+
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
+                firstReadReachedPause.Dispose();
+                releaseFirstRead.Dispose();
+                firstReadCompleted.Dispose();
+                secondReadCompleted.Dispose();
+                secondReadCts.Dispose();
+            }
+
+            // Verify session was properly cleaned up exactly once
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            // Verify no double-release of gpuList (0x2000)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+
+            // Verify System (0x1000) NOT released via Release (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+
+            // Verify cleanup order: gpuList released before Terminate
+            int gpuListReleaseIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+
+            // Verify no double-release of any interface
+            var releaseCounts = new Dictionary<int, int>();
+            foreach (var ptr in fake.ReleasedPointers)
+            {
+                if (!releaseCounts.ContainsKey(ptr))
+                    releaseCounts[ptr] = 0;
+                releaseCounts[ptr]++;
+            }
+            foreach (var kvp in releaseCounts)
+            {
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+            }
+        }
+
+        [Fact]
+        public void Connect_DuringDisconnect_WaitsForCleanupAndReinitializesSession()
+        {
+            // This test verifies that Connect() called during an ongoing Disconnect() 
+            // properly waits for the cleanup to complete, then creates a new session.
+            // It confirms:
+            // 1. Operations are serialized by the internal lock
+            // 2. New session is not created until old session cleanup finishes
+            // 3. Connect() after Disconnect() successfully reinitializes
+            // 4. Subsequent Connect() is idempotent
+            // 5. Both sessions are cleaned up exactly once, no double-release
+
+            var terminatePaused = new ManualResetEventSlim(false);
+            var releaseTerminate = new ManualResetEventSlim(false);
+            var disconnectCompleted = new ManualResetEventSlim(false);
+            var connectCompleted = new ManualResetEventSlim(false);
+
+            bool disconnectError = false;
+            string? disconnectErrorMessage = null;
+            bool connectError = false;
+            string? connectErrorMessage = null;
+            bool connectEnteredWaitState = false;
+
+            // First fake for the initial session - its Terminate will be paused
+            // Use plain FakeAdlxNative with TerminateHandler (TerminateSequenceFake doesn't invoke TerminateHandler)
+            var fake1 = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+            // First Terminate call will be paused via handler
+            fake1.TerminateHandler = () =>
+            {
+                terminatePaused.Set(); // Signal that Terminate has been reached
+                if (!releaseTerminate.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    return -1; // Timeout
+                }
+                return 0; // Success after release
+            };
+
+            // Second fake for the new session after re-Connect
+            var fake2 = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake1 : fake2;
+            });
+
+            // First Connect - creates first session
+            var firstConnectResult = provider.Connect(out var firstConnectError);
+            Assert.True(firstConnectResult, $"First Connect failed: {firstConnectError}");
+            Assert.Null(firstConnectError);
+            Assert.Equal(1, fake1.InitializeCalls);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
+
+            // Declare outside try so finally can access them
+            Thread? disconnectThread = null;
+            Thread? connectThread = null;
+
+            try
+            {
+                // Start Disconnect on background thread - it will pause in Terminate
+                disconnectThread = new Thread(() =>
+                {
+                    try
+                    {
+                        provider.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        disconnectError = true;
+                        disconnectErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        disconnectCompleted.Set();
+                    }
+                });
+                disconnectThread.Start();
+
+                // Wait for Disconnect to reach Terminate (holding the lock)
+                Assert.True(terminatePaused.Wait(TimeSpan.FromSeconds(10)),
+                    "Disconnect did not reach Terminate pause point in time");
+
+                // Verify first session: Terminate was called (counter incremented before handler),
+                // but session not yet disposed because handler hasn't returned
+                Assert.Equal(1, fake1.TerminateCalls); // Terminate called, handler paused
+                Assert.False(fake1.IsDisposed);
+
+                // NOW start Connect on another thread - it should block on the provider lock
+                connectThread = new Thread(() =>
+                {
+                    try
+                    {
+                        bool result = provider.Connect(out var error);
+                        if (!result)
+                        {
+                            connectError = true;
+                            connectErrorMessage = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        connectError = true;
+                        connectErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        connectCompleted.Set();
+                    }
+                });
+                connectThread.Start();
+
+                // Wait for Connect thread to block on the lock (WaitSleepJoin state)
+                bool connectThreadBlocked = false;
+                var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
+
+                while (DateTime.UtcNow - waitStart < waitTimeout)
+                {
+                    var state = connectThread.ThreadState;
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
+                    {
+                        connectThreadBlocked = true;
+                        connectEnteredWaitState = true;
+                        break;
+                    }
+                    Thread.Yield();
+                }
+
+                Assert.True(connectThreadBlocked, "Connect thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
+
+                // At this point: Disconnect is paused in Terminate (holding lock), Connect is blocked on lock
+                // Verify second session NOT yet created
+                Assert.Equal(0, fake2.InitializeCalls);
+                Assert.Equal(1, factoryCallCount);
+
+                // Release the Terminate - Disconnect will complete, then Connect will proceed
+                releaseTerminate.Set();
+
+                // Wait for both operations to complete
+                Assert.True(disconnectCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Disconnect did not complete in time after Terminate release");
+                Assert.True(connectCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Connect did not complete in time after Disconnect finished");
+
+                // Verify both operations succeeded
+                Assert.False(disconnectError, $"Disconnect failed: {disconnectErrorMessage}");
+                Assert.False(connectError, $"Connect failed: {connectErrorMessage}");
+
+                // Verify first session was terminated and disposed
+                Assert.Equal(1, fake1.TerminateCalls);
+                Assert.True(fake1.IsDisposed);
+
+                // Verify second session was created by the Connect
+                Assert.Equal(1, fake2.InitializeCalls);
+                Assert.Equal(2, factoryCallCount);
+                Assert.Equal(0, fake2.TerminateCalls);
+                Assert.False(fake2.IsDisposed);
+
+                // Verify Connect thread actually waited on lock
+                Assert.True(connectEnteredWaitState, "Connect did not enter wait state on lock");
+
+                // NOW call Connect again - should be idempotent, no new session
+                var secondConnectResult = provider.Connect(out var secondConnectError);
+                Assert.True(secondConnectResult, $"Second Connect failed: {secondConnectError}");
+                Assert.Null(secondConnectError);
+                Assert.Equal(1, fake2.InitializeCalls); // No new initialization
+                Assert.Equal(2, factoryCallCount); // Factory not called again
+            }
+            finally
+            {
+                // Always release Terminate to avoid deadlock
+                releaseTerminate.Set();
+
+                // Wait for actual thread termination
+                bool disconnectThreadDone = false;
+                bool connectThreadDone = false;
+
+                if (disconnectThread != null)
+                {
+                    disconnectThreadDone = disconnectThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    disconnectThreadDone = true;
+                }
+
+                if (connectThread != null)
+                {
+                    connectThreadDone = connectThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    connectThreadDone = true;
+                }
+
+                if (!disconnectThreadDone || !connectThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: disconnectThreadDone={disconnectThreadDone}, connectThreadDone={connectThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+
+                // Clean up provider - only after both threads confirmed done
+                try { provider.Disconnect(); } catch { }
+
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
+                terminatePaused.Dispose();
+                releaseTerminate.Dispose();
+                disconnectCompleted.Dispose();
+                connectCompleted.Dispose();
+            }
+
+            // Verify final cleanup: second session terminated and disposed exactly once
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
+
+            // Verify gpuList (0x2000) released exactly once per session
+            Assert.Single(fake1.ReleasedPointers, p => p == 0x2000);
+            Assert.Single(fake2.ReleasedPointers, p => p == 0x2000);
+
+            // Verify System (0x1000) NOT released via Release (managed by ADLX) for either session
+            Assert.DoesNotContain(0x1000, fake1.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake2.ReleasedPointers);
+
+            // Verify cleanup order for first session: gpuList released before Terminate
+            int gpuListReleaseIdx1 = fake1.Events.IndexOf("Release:0x2000");
+            int terminateIdx1 = fake1.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx1 >= 0, "First session gpuList should be released");
+            Assert.True(terminateIdx1 >= 0, "First session Terminate should be called");
+            Assert.True(gpuListReleaseIdx1 < terminateIdx1, "First session gpuList released before Terminate");
+
+            // Verify cleanup order for second session
+            int gpuListReleaseIdx2 = fake2.Events.IndexOf("Release:0x2000");
+            int terminateIdx2 = fake2.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx2 >= 0, "Second session gpuList should be released");
+            Assert.True(terminateIdx2 >= 0, "Second session Terminate should be called");
+            Assert.True(gpuListReleaseIdx2 < terminateIdx2, "Second session gpuList released before Terminate");
+
+            // Verify no double-release of any interface for either session
+            foreach (var fake in new[] { fake1, fake2 })
+            {
+                var releaseCounts = new Dictionary<int, int>();
+                foreach (var ptr in fake.ReleasedPointers)
+                {
+                    if (!releaseCounts.ContainsKey(ptr))
+                        releaseCounts[ptr] = 0;
+                    releaseCounts[ptr]++;
+                }
+foreach (var kvp in releaseCounts)
+            {
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+            }
+            }
         }
     }
 
