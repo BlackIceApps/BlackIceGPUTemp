@@ -4456,13 +4456,13 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
 
             // Declare outside try so finally can access them
-            Task? readTask = null;
+            Thread? readThread = null;
             Thread? disconnectThread = null;
 
             try
             {
-                // Start TryReadTemperature on background thread
-                readTask = Task.Run(() =>
+                // Start TryReadTemperature on dedicated thread
+                readThread = new Thread(() =>
                 {
                     try
                     {
@@ -4483,6 +4483,7 @@ namespace BlackIceGPUTemp.Tests
                         readCompleted.Set();
                     }
                 });
+                readThread.Start();
 
                 // Wait for read to reach the pause point (inside GetGpuTemperature, holding the lock)
                 Assert.True(readReachedPause.Wait(TimeSpan.FromSeconds(10)),
@@ -4558,17 +4559,17 @@ namespace BlackIceGPUTemp.Tests
                 // Always release read to avoid deadlock
                 releaseRead.Set();
 
-                // Wait for actual thread/task termination
-                bool readTaskDone = false;
+                // Wait for actual thread termination
+                bool readThreadDone = false;
                 bool disconnectThreadDone = false;
 
-                if (readTask != null)
+                if (readThread != null)
                 {
-                    readTaskDone = readTask.Wait(TimeSpan.FromSeconds(10));
+                    readThreadDone = readThread.Join(TimeSpan.FromSeconds(10));
                 }
                 else
                 {
-                    readTaskDone = true;
+                    readThreadDone = true;
                 }
 
                 bool disconnectThreadWasStarted = disconnectThread != null;
@@ -4584,10 +4585,10 @@ namespace BlackIceGPUTemp.Tests
                     disconnectThreadDone = true;
                 }
 
-                if (!readTaskDone || !disconnectThreadDone)
+                if (!readThreadDone || !disconnectThreadDone)
                 {
                     throw new InvalidOperationException(
-                        $"Test cleanup failed: readTaskDone={readTaskDone}, disconnectThreadDone={disconnectThreadDone}. " +
+                        $"Test cleanup failed: readThreadDone={readThreadDone}, disconnectThreadDone={disconnectThreadDone}. " +
                         "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
                 }
 
