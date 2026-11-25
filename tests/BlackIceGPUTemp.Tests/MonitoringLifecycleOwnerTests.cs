@@ -293,7 +293,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public async Task ConcurrentStopAndTake_OnlyOneGetsProvider()
+        public void ConcurrentStopAndTake_OnlyOneGetsProvider()
         {
             const int threadCount = 20;
             var owner = new MonitoringLifecycleOwner();
@@ -302,12 +302,12 @@ namespace BlackIceGPUTemp.Tests
 
             var startBarrier = new Barrier(threadCount);
             var results = new IGpuProviderLifecycle?[threadCount];
-            var tasks = new Task[threadCount];
+            var threads = new List<Thread>();
 
             for (int i = 0; i < threadCount; i++)
             {
                 int index = i;
-                tasks[i] = Task.Run(() =>
+                var t = new Thread(() =>
                 {
                     bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!barrierSignaled)
@@ -316,13 +316,33 @@ namespace BlackIceGPUTemp.Tests
                     }
                     results[index] = owner.StopAndTake();
                 });
+                threads.Add(t);
+                t.Start();
             }
 
-            var allTasks = Task.WhenAll(tasks);
-            var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
-            bool timedOut = completed != allTasks;
-            await allTasks;
-            Assert.False(timedOut, "Not all tasks finished in time");
+            // Wait for all threads to complete with timeout
+            var timeout = TimeSpan.FromSeconds(10);
+            var start = DateTime.UtcNow;
+            bool allDone = false;
+            while (DateTime.UtcNow - start < timeout)
+            {
+                allDone = true;
+                foreach (var t in threads)
+                {
+                    if (t.IsAlive)
+                    {
+                        allDone = false;
+                        break;
+                    }
+                }
+                if (allDone)
+                {
+                    break;
+                }
+                Thread.Sleep(10);
+            }
+
+            Assert.True(allDone, "Not all threads finished in time");
 
             int nonNullCount = 0;
             for (int i = 0; i < threadCount; i++)

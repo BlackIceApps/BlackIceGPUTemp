@@ -131,7 +131,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public async Task TryBeginRead_AfterStop_AlwaysReturnsFalse()
+        public void TryBeginRead_AfterStop_AlwaysReturnsFalse()
         {
             var gate = new MonitoringReadGate();
 
@@ -141,10 +141,10 @@ namespace BlackIceGPUTemp.Tests
             var startBarrier = new Barrier(threadCount);
             int successCount = 0;
 
-            var tasks = new Task[threadCount];
+            var threads = new List<Thread>();
             for (int i = 0; i < threadCount; i++)
             {
-                tasks[i] = Task.Run(() =>
+                var t = new Thread(() =>
                 {
                     bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!barrierSignaled)
@@ -157,14 +157,33 @@ namespace BlackIceGPUTemp.Tests
                         gate.EndRead();
                     }
                 });
+                threads.Add(t);
+                t.Start();
             }
 
-            var allTasks = Task.WhenAll(tasks);
-            var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
-            bool timedOut = completed != allTasks;
-            await allTasks;
-            Assert.False(timedOut, "Not all tasks finished in time");
+            // Wait for all threads to complete with timeout
+            var timeout = TimeSpan.FromSeconds(5);
+            var start = DateTime.UtcNow;
+            bool allDone = false;
+            while (DateTime.UtcNow - start < timeout)
+            {
+                allDone = true;
+                foreach (var t in threads)
+                {
+                    if (t.IsAlive)
+                    {
+                        allDone = false;
+                        break;
+                    }
+                }
+                if (allDone)
+                {
+                    break;
+                }
+                Thread.Sleep(10);
+            }
 
+            Assert.True(allDone, "Not all threads finished in time");
             Assert.Equal(0, successCount);
         }
 
