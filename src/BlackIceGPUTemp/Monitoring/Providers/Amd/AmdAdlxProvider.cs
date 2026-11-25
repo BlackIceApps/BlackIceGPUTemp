@@ -367,6 +367,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             var session = EnsureSession(out error);
             if (session == null)
             {
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                }
                 return false;
             }
 
@@ -381,6 +385,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 if (targetGpu == IntPtr.Zero)
                 {
                     error = $"GPU with unique ID {targetUniqueId} not found.";
+                    Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                     result = false;
                 }
                 else
@@ -396,6 +401,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)
                         {
                             error = "Failed to get performance monitoring services.";
+                            Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                             result = false;
                         }
                         else
@@ -405,6 +411,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             if (session.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
                             {
                                 error = "Failed to get supported GPU metrics.";
+                                Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                 result = false;
                             }
                             else
@@ -414,6 +421,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                 if (session.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
                                 {
                                     error = "GPU temperature monitoring is not supported.";
+                                    Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                     result = false;
                                 }
                                 else
@@ -423,6 +431,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                     if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
                                     {
                                         error = "Failed to get current GPU metrics.";
+                                        Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                         result = false;
                                     }
                                     else
@@ -432,11 +441,13 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                         if (session.GetGpuTemperature(metrics, out double celsius) != 0)
                                         {
                                             error = "Failed to get GPU temperature reading.";
+                                            Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                             result = false;
                                         }
                                         else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
                                         {
                                             error = "GPU temperature is NaN or Infinity.";
+                                            Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                             result = false;
                                         }
                                         else
