@@ -304,6 +304,7 @@ namespace BlackIceGPUTemp.Tests
             var startBarrier = new Barrier(threadCount);
             var results = new IGpuProviderLifecycle?[threadCount];
             var threads = new Thread[threadCount];
+            var started = new bool[threadCount];
             try
             {
                 for (int i = 0; i < threadCount; i++)
@@ -320,6 +321,7 @@ namespace BlackIceGPUTemp.Tests
                     });
                     threads[i] = t;
                     t.Start();
+                    started[i] = true;
                 }
 
                 // Wait for all threads to complete with timeout
@@ -331,7 +333,7 @@ namespace BlackIceGPUTemp.Tests
                     allDone = true;
                     foreach (var t in threads)
                     {
-                        if (t.IsAlive)
+                        if (t != null && t.IsAlive)
                         {
                             allDone = false;
                             break;
@@ -360,12 +362,25 @@ namespace BlackIceGPUTemp.Tests
             }
             finally
             {
-                // Ensure all threads are joined even if assertion fails
-                foreach (var t in threads)
+                // Ensure all started threads are joined with timeout
+                // Account for barrier timeout (5s) + small buffer
+                var joinTimeout = TimeSpan.FromSeconds(7);
+                for (int i = 0; i < threadCount; i++)
                 {
-                    if (t != null && t.IsAlive)
+                    var t = threads[i];
+                    if (started[i] && t != null && t.IsAlive)
                     {
-                        t.Join(TimeSpan.FromSeconds(2));
+                        bool joined = t.Join(joinTimeout);
+                        if (!joined)
+                        {
+                            // Thread did not finish in time - cannot force it, but mark as background
+                            // so it doesn't block process exit, and record the failure
+                            if (!t.IsBackground)
+                            {
+                                t.IsBackground = true;
+                            }
+                            Assert.Fail($"Thread {i} did not finish within cleanup timeout");
+                        }
                     }
                 }
             }
