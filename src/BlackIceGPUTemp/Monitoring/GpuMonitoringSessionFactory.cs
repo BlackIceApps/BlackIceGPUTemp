@@ -28,12 +28,13 @@ namespace BlackIceGPUTemp.Monitoring
             var providers = _providerFactory.CreateProviders();
             if (providers == null || providers.Count == 0)
             {
-                return new GpuMonitoringInitializationResult("No GPU providers available.");
+                return new GpuMonitoringInitializationResult("No GPU providers are available.");
             }
 
             bool hasAvailableProvider = false;
             string? lastEnumerationError = null;
-            string? firstConnectOrProbeError = null;
+            string? firstConcreteError = null;
+            string? firstFallbackError = null;
 
             foreach (var provider in providers)
             {
@@ -49,12 +50,17 @@ namespace BlackIceGPUTemp.Monitoring
                     {
                         if (!lifecycleProvider.Connect(out var connectError))
                         {
-                            // Connect failed - preserve first non-empty error
-                            if (firstConnectOrProbeError == null)
+                            // Connect failed - preserve first concrete error, else first fallback
+                            if (!string.IsNullOrWhiteSpace(connectError))
                             {
-                                firstConnectOrProbeError = string.IsNullOrWhiteSpace(connectError)
-                                    ? "GPU provider connection failed."
-                                    : connectError;
+                                if (firstConcreteError == null)
+                                {
+                                    firstConcreteError = connectError;
+                                }
+                            }
+                            else if (firstFallbackError == null)
+                            {
+                                firstFallbackError = "GPU provider connection failed.";
                             }
                             // Connect didn't establish session, no Disconnect needed
                             continue;
@@ -75,12 +81,17 @@ namespace BlackIceGPUTemp.Monitoring
 
                         if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                         {
-                            // Probe failed - preserve first non-empty error
-                            if (firstConnectOrProbeError == null)
+                            // Probe failed - preserve first concrete error, else first fallback
+                            if (!string.IsNullOrWhiteSpace(probeError))
                             {
-                                firstConnectOrProbeError = string.IsNullOrWhiteSpace(probeError)
-                                    ? "GPU provider probe failed."
-                                    : probeError;
+                                if (firstConcreteError == null)
+                                {
+                                    firstConcreteError = probeError;
+                                }
+                            }
+                            else if (firstFallbackError == null)
+                            {
+                                firstFallbackError = "GPU provider probe failed.";
                             }
                             // Probe failed - disconnect (normal cleanup, propagate Disconnect exception)
                             disconnectCalled = true;
@@ -145,12 +156,17 @@ namespace BlackIceGPUTemp.Monitoring
                     // Provider without lifecycle - old behavior, but preserve probe error
                     if (!((IGpuProviderProbe)provider).TryProbe(out var probeError, cancellationToken))
                     {
-                        // Probe failed - preserve first non-empty error
-                        if (firstConnectOrProbeError == null)
+                        // Probe failed - preserve first concrete error, else first fallback
+                        if (!string.IsNullOrWhiteSpace(probeError))
                         {
-                            firstConnectOrProbeError = string.IsNullOrWhiteSpace(probeError)
-                                ? "GPU provider probe failed."
-                                : probeError;
+                            if (firstConcreteError == null)
+                            {
+                                firstConcreteError = probeError;
+                            }
+                        }
+                        else if (firstFallbackError == null)
+                        {
+                            firstFallbackError = "GPU provider probe failed.";
                         }
                         continue;
                     }
@@ -191,10 +207,14 @@ namespace BlackIceGPUTemp.Monitoring
                 return new GpuMonitoringInitializationResult("No supported GPU devices found.");
             }
 
-            // No provider passed TryProbe - return first Connect/Probe error if available
-            if (firstConnectOrProbeError != null)
+            // No provider passed TryProbe - prefer first concrete error, then first fallback
+            if (firstConcreteError != null)
             {
-                return new GpuMonitoringInitializationResult(firstConnectOrProbeError);
+                return new GpuMonitoringInitializationResult(firstConcreteError);
+            }
+            if (firstFallbackError != null)
+            {
+                return new GpuMonitoringInitializationResult(firstFallbackError);
             }
 
             return new GpuMonitoringInitializationResult("No GPU providers are available.");

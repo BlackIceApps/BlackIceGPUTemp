@@ -1573,5 +1573,78 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("Probe failed", result.Message);
             Assert.Null(result.HardwareMonitorService);
         }
+
+        // Fix 1: Fallback should not override later concrete error
+
+        [Fact]
+        public void Create_FirstLifecycleConnectEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new LifecycleProviderConnectFailsEmptyError();
+            var provider2 = new LifecycleProviderConnectFails { ConnectError = "Second connect failed" };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Second connect failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_FirstLifecycleProbeEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new LifecycleProviderProbeFailsEmptyError();
+            var provider2 = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Probe failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_FirstNonLifecycleProbeEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new UnavailableProviderEmptyError();
+            var provider2 = new UnavailableProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Provider not available", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        // Fix 2: Empty provider list message unchanged
+        [Fact]
+        public void Create_EmptyProviderList_ReturnsUnchangedMessage()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>()));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("No GPU providers are available.", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
     }
 }
