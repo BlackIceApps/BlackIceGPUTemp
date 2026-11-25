@@ -4907,14 +4907,15 @@ namespace BlackIceGPUTemp.Tests
             string? secondConnectErrorMessage = null;
 
             // First fake for the initial session - its Terminate will be paused
-            var fake1 = new TerminateSequenceFake
+            // Use plain FakeAdlxNative with TerminateHandler (TerminateSequenceFake doesn't invoke TerminateHandler)
+            var fake1 = new FakeAdlxNative
             {
                 GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
                 GpuUniqueIds = new List<int> { 12345 },
                 GpuTypes = new List<int> { 2 },
                 GpuTemperatureSupported = new List<bool> { true }
             };
-            // First Terminate call will be paused (we don't enqueue a result, so it waits)
+            // First Terminate call will be paused via handler
             fake1.TerminateHandler = () =>
             {
                 terminatePaused.Set(); // Signal that Terminate has been reached
@@ -4978,8 +4979,9 @@ namespace BlackIceGPUTemp.Tests
                 Assert.True(terminatePaused.Wait(TimeSpan.FromSeconds(10)),
                     "Disconnect did not reach Terminate pause point in time");
 
-                // Verify first session is still active (not yet terminated)
-                Assert.Equal(0, fake1.TerminateCalls); // Terminate not yet completed (handler hasn't returned)
+                // Verify first session: Terminate was called (counter incremented before handler),
+                // but session not yet disposed because handler hasn't returned
+                Assert.Equal(1, fake1.TerminateCalls); // Terminate called, handler paused
                 Assert.False(fake1.IsDisposed);
 
                 // NOW start Connect on another thread - it should block on the provider lock
@@ -5111,9 +5113,9 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
 
-            // Verify no double-release of gpuList (0x2000) for both sessions
-            Assert.Equal(2, fake1.ReleasedPointers.Count(p => p == 0x2000));
-            Assert.Equal(2, fake2.ReleasedPointers.Count(p => p == 0x2000));
+            // Verify gpuList (0x2000) released exactly once per session
+            Assert.Single(fake1.ReleasedPointers, p => p == 0x2000);
+            Assert.Single(fake2.ReleasedPointers, p => p == 0x2000);
 
             // Verify System (0x1000) NOT released via Release (managed by ADLX) for either session
             Assert.DoesNotContain(0x1000, fake1.ReleasedPointers);
