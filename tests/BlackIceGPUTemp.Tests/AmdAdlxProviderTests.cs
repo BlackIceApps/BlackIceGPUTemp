@@ -24,6 +24,7 @@ namespace BlackIceGPUTemp.Tests
             public List<int> ReleaseReturnCodes { get; } = new List<int>();
             public bool IsDisposed { get; protected set; }
             public int LastReleaseResult { get; private set; }
+            public int GetGpuTemperatureCallCount { get; private set; }
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
             public bool ThrowOnRelease { get; set; } = false;
@@ -201,8 +202,10 @@ namespace BlackIceGPUTemp.Tests
                 celsius = gpuIndex >= 0 && gpuIndex < GpuTemperatures.Count ? GpuTemperatures[gpuIndex] : 65.5;
                 if (GetGpuTempHandler != null)
                 {
+                    Interlocked.Increment(ref GetGpuTemperatureCallCount);
                     return GetGpuTempHandler(metrics, out celsius);
                 }
+                Interlocked.Increment(ref GetGpuTemperatureCallCount);
                 return 0;
             }
 
@@ -4633,20 +4636,26 @@ namespace BlackIceGPUTemp.Tests
 
             // Pause the FIRST read operation inside GetGpuTemperature (final native call in the chain)
             // while it holds the provider lock. This ensures the second read will block on the lock.
+            // Only the FIRST call to GetGpuTemperature pauses; subsequent calls return immediately.
             fake.GetGpuTempHandler = (IntPtr metrics, out double celsius) =>
             {
                 celsius = fake.GpuTemperatures[0];
 
-                // Signal that first read has reached the pause point (holding the provider lock)
-                firstReadReachedPause.Set();
-
-                // Wait for release signal
-                if (!releaseFirstRead.Wait(TimeSpan.FromSeconds(30)))
+                // Pause only on the first call (when call count becomes 1)
+                int callNumber = fake.GetGpuTemperatureCallCount;
+                if (callNumber == 1)
                 {
-                    firstReadError = true;
-                    firstReadErrorMessage = "Timeout waiting for release signal";
-                    firstReadCompleted.Set();
-                    return -1;
+                    // Signal that first read has reached the pause point (holding the provider lock)
+                    firstReadReachedPause.Set();
+
+                    // Wait for release signal
+                    if (!releaseFirstRead.Wait(TimeSpan.FromSeconds(30)))
+                    {
+                        firstReadError = true;
+                        firstReadErrorMessage = "Timeout waiting for release signal";
+                        firstReadCompleted.Set();
+                        return -1;
+                    }
                 }
 
                 return 0;
@@ -4775,12 +4784,8 @@ namespace BlackIceGPUTemp.Tests
                 Assert.False(secondReadError, $"Second read failed unexpectedly: {secondReadErrorMessage}");
 
                 // Verify second read did NOT execute the native temperature read (GetGpuTemperature)
-                // The first read executed it once (when released), second read should not have reached it
-                // Note: GetGpuTempHandler is called once per completed read that reaches that point
-                // Since second read was cancelled while waiting for lock, it should not have called GetGpuTemperature
-                // We can't directly count GetGpuTempHandler calls, but we can verify the first read's result
-                // and that no additional temperature reads occurred beyond the first one.
-                // The fake tracks temperatures by index, so we verify only one read completed successfully.
+                // Only the first read should have called GetGpuTemperature (call count = 1)
+                Assert.Equal(1, fake.GetGpuTemperatureCallCount);
 
                 // Verify cancellation did NOT cause Disconnect/Terminate
                 Assert.Equal(0, fake.TerminateCalls);
@@ -4789,6 +4794,14 @@ namespace BlackIceGPUTemp.Tests
                 // Verify second read entered wait state (was actually blocked on lock)
                 Assert.True(secondReadEnteredWaitState, "Second read did not enter wait state on lock");
 
+                // NOW verify subsequent read WITHOUT cancellation succeeds (session preserved)
+                var subsequentResult = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var subsequentReading, out var subsequentError);
+                Assert.True(subsequentResult, $"Subsequent read failed: {subsequentError}");
+                Assert.NotNull(subsequentReading);
+                Assert.Equal(65.5, subsequentReading!.Celsius);
+
+                // Verify GetGpuTemperature was called again for the subsequent read (call count = 2)
+                Assert.Equal(2, fake.GetGpuTemperatureCallCount);
             }
             finally
             {
@@ -4865,178 +4878,6 @@ namespace BlackIceGPUTemp.Tests
             {
                 Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
             }
-        }
-
-        [Fact]
-        public void TryReadTemperature_CancellationWhileWaitingOnLock_SubsequentReadSucceeds()
-        {
-            // This test verifies that after a cancellation while waiting on the lock,
-            // the shared session remains functional and subsequent reads succeed.
-
-            var firstReadReachedPause = new ManualResetEventSlim(false);
-            var releaseFirstRead = new ManualResetEventSlim(false);
-            var firstReadCompleted = new ManualResetEventSlim(false);
-            var secondReadCompleted = new ManualResetEventSlim(false);
-
-            bool firstReadError = false;
-            string? firstReadErrorMessage = null;
-            TemperatureReading? firstReadResult = null;
-            OperationCanceledException? secondReadCancellationException = null;
-            bool secondReadEnteredWaitState = false;
-
-            var fake = new FakeAdlxNative
-            {
-                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
-                GpuUniqueIds = new List<int> { 12345 },
-                GpuTypes = new List<int> { 2 },
-                GpuTemperatureSupported = new List<bool> { true },
-                GpuTemperatures = new List<double> { 65.5 }
-            };
-
-            // Pause the FIRST read operation inside GetGpuTemperature
-            fake.GetGpuTempHandler = (IntPtr metrics, out double celsius) =>
-            {
-                celsius = fake.GpuTemperatures[0];
-                firstReadReachedPause.Set();
-                if (!releaseFirstRead.Wait(TimeSpan.FromSeconds(30)))
-                {
-                    firstReadError = true;
-                    firstReadErrorMessage = "Timeout waiting for release signal";
-                    firstReadCompleted.Set();
-                    return -1;
-                }
-                return 0;
-            };
-
-            var provider = new AmdAdlxProvider(() => fake);
-
-            // Initialize session
-            var initResult = ((IGpuProviderProbe)provider).TryProbe(out var initError);
-            Assert.True(initResult, $"Initial session creation failed: {initError}");
-
-            Task? firstReadTask = null;
-            Thread? secondReadThread = null;
-            var secondReadCts = new CancellationTokenSource();
-
-            try
-            {
-                // Start FIRST read - will pause in GetGpuTemperature
-                firstReadTask = Task.Run(() =>
-                {
-                    try
-                    {
-                        bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out firstReadResult, out var error);
-                        if (!success)
-                        {
-                            firstReadError = true;
-                            firstReadErrorMessage = error;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        firstReadError = true;
-                        firstReadErrorMessage = ex.ToString();
-                    }
-                    finally
-                    {
-                        firstReadCompleted.Set();
-                    }
-                });
-
-                Assert.True(firstReadReachedPause.Wait(TimeSpan.FromSeconds(10)),
-                    "First read did not reach pause point");
-
-                // Start SECOND read with cancellation token - will block on lock
-                secondReadThread = new Thread(() =>
-                {
-                    try
-                    {
-                        bool success = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out _, out _, secondReadCts.Token);
-                        if (!success)
-                        {
-                            // Should not reach here - should throw OperationCanceledException
-                        }
-                    }
-                    catch (OperationCanceledException oce)
-                    {
-                        secondReadCancellationException = oce;
-                    }
-                    finally
-                    {
-                        secondReadCompleted.Set();
-                    }
-                });
-                secondReadThread.Start();
-
-                // Wait for second thread to block on lock
-                bool secondThreadBlocked = false;
-                var waitTimeout = TimeSpan.FromSeconds(10);
-                var waitStart = DateTime.UtcNow;
-                while (DateTime.UtcNow - waitStart < waitTimeout)
-                {
-                    var state = secondReadThread.ThreadState;
-                    if ((state & ThreadState.WaitSleepJoin) != 0)
-                    {
-                        secondThreadBlocked = true;
-                        secondReadEnteredWaitState = true;
-                        break;
-                    }
-                    Thread.Yield();
-                }
-                Assert.True(secondThreadBlocked, "Second thread did not block on lock");
-
-                // Cancel second read while first still holds lock
-                secondReadCts.Cancel();
-
-                // Release first read
-                releaseFirstRead.Set();
-
-                // Wait for both to complete
-                Assert.True(firstReadCompleted.Wait(TimeSpan.FromSeconds(10)));
-                Assert.True(secondReadCompleted.Wait(TimeSpan.FromSeconds(10)));
-
-                // Verify first succeeded, second cancelled
-                Assert.False(firstReadError, $"First read failed: {firstReadErrorMessage}");
-                Assert.NotNull(firstReadResult);
-                Assert.NotNull(secondReadCancellationException);
-                Assert.True(secondReadEnteredWaitState);
-
-                // Session should still be active
-                Assert.Equal(0, fake.TerminateCalls);
-                Assert.False(fake.IsDisposed);
-            }
-            finally
-            {
-                releaseFirstRead.Set();
-                secondReadCts.Cancel();
-
-                bool firstTaskDone = firstReadTask?.Wait(TimeSpan.FromSeconds(10)) ?? true;
-                bool secondThreadDone = secondReadThread?.Join(TimeSpan.FromSeconds(10)) ?? true;
-
-                if (!firstTaskDone || !secondThreadDone)
-                {
-                    throw new InvalidOperationException("Test cleanup failed: threads still running");
-                }
-
-                try { provider.Disconnect(); } catch { }
-
-                firstReadReachedPause.Dispose();
-                releaseFirstRead.Dispose();
-                firstReadCompleted.Dispose();
-                secondReadCompleted.Dispose();
-                secondReadCts.Dispose();
-            }
-
-            // NOW verify subsequent read WITHOUT cancellation succeeds (session preserved)
-            var subsequentResult = ((IGpuTemperatureReader)provider).TryReadTemperature("amd-adlx:12345", out var subsequentReading, out var subsequentError);
-            Assert.True(subsequentResult, $"Subsequent read failed: {subsequentError}");
-            Assert.NotNull(subsequentReading);
-            Assert.Equal(65.5, subsequentReading!.Celsius);
-
-            // Clean up
-            provider.Disconnect();
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
         }
     }
 
