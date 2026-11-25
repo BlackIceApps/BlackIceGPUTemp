@@ -4880,6 +4880,275 @@ namespace BlackIceGPUTemp.Tests
                 Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
             }
         }
+
+        [Fact]
+        public void Connect_DuringDisconnect_WaitsForCleanupAndReinitializesSession()
+        {
+            // This test verifies that Connect() called during an ongoing Disconnect() 
+            // properly waits for the cleanup to complete, then creates a new session.
+            // It confirms:
+            // 1. Operations are serialized by the internal lock
+            // 2. New session is not created until old session cleanup finishes
+            // 3. Connect() after Disconnect() successfully reinitializes
+            // 4. Subsequent Connect() is idempotent
+            // 5. Both sessions are cleaned up exactly once, no double-release
+
+            var terminatePaused = new ManualResetEventSlim(false);
+            var releaseTerminate = new ManualResetEventSlim(false);
+            var disconnectCompleted = new ManualResetEventSlim(false);
+            var connectCompleted = new ManualResetEventSlim(false);
+
+            bool disconnectError = false;
+            string? disconnectErrorMessage = null;
+            bool connectError = false;
+            string? connectErrorMessage = null;
+            bool connectEnteredWaitState = false;
+            bool secondConnectError = false;
+            string? secondConnectErrorMessage = null;
+
+            // First fake for the initial session - its Terminate will be paused
+            var fake1 = new TerminateSequenceFake
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+            // First Terminate call will be paused (we don't enqueue a result, so it waits)
+            fake1.TerminateHandler = () =>
+            {
+                terminatePaused.Set(); // Signal that Terminate has been reached
+                if (!releaseTerminate.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    return -1; // Timeout
+                }
+                return 0; // Success after release
+            };
+
+            // Second fake for the new session after re-Connect
+            var fake2 = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake1 : fake2;
+            });
+
+            // First Connect - creates first session
+            var firstConnectResult = provider.Connect(out var firstConnectError);
+            Assert.True(firstConnectResult, $"First Connect failed: {firstConnectError}");
+            Assert.Null(firstConnectError);
+            Assert.Equal(1, fake1.InitializeCalls);
+            Assert.Equal(0, fake2.InitializeCalls);
+            Assert.Equal(1, factoryCallCount);
+
+            // Declare outside try so finally can access them
+            Thread? disconnectThread = null;
+            Thread? connectThread = null;
+
+            try
+            {
+                // Start Disconnect on background thread - it will pause in Terminate
+                disconnectThread = new Thread(() =>
+                {
+                    try
+                    {
+                        provider.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        disconnectError = true;
+                        disconnectErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        disconnectCompleted.Set();
+                    }
+                });
+                disconnectThread.Start();
+
+                // Wait for Disconnect to reach Terminate (holding the lock)
+                Assert.True(terminatePaused.Wait(TimeSpan.FromSeconds(10)),
+                    "Disconnect did not reach Terminate pause point in time");
+
+                // Verify first session is still active (not yet terminated)
+                Assert.Equal(0, fake1.TerminateCalls); // Terminate not yet completed (handler hasn't returned)
+                Assert.False(fake1.IsDisposed);
+
+                // NOW start Connect on another thread - it should block on the provider lock
+                connectThread = new Thread(() =>
+                {
+                    try
+                    {
+                        bool result = provider.Connect(out var error);
+                        if (!result)
+                        {
+                            connectError = true;
+                            connectErrorMessage = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        connectError = true;
+                        connectErrorMessage = ex.ToString();
+                    }
+                    finally
+                    {
+                        connectCompleted.Set();
+                    }
+                });
+                connectThread.Start();
+
+                // Wait for Connect thread to block on the lock (WaitSleepJoin state)
+                bool connectThreadBlocked = false;
+                var waitTimeout = TimeSpan.FromSeconds(10);
+                var waitStart = DateTime.UtcNow;
+
+                while (DateTime.UtcNow - waitStart < waitTimeout)
+                {
+                    var state = connectThread.ThreadState;
+                    if ((state & ThreadState.WaitSleepJoin) != 0)
+                    {
+                        connectThreadBlocked = true;
+                        connectEnteredWaitState = true;
+                        break;
+                    }
+                    Thread.Yield();
+                }
+
+                Assert.True(connectThreadBlocked, "Connect thread did not enter WaitSleepJoin state (blocked on lock) within timeout");
+
+                // At this point: Disconnect is paused in Terminate (holding lock), Connect is blocked on lock
+                // Verify second session NOT yet created
+                Assert.Equal(0, fake2.InitializeCalls);
+                Assert.Equal(1, factoryCallCount);
+
+                // Release the Terminate - Disconnect will complete, then Connect will proceed
+                releaseTerminate.Set();
+
+                // Wait for both operations to complete
+                Assert.True(disconnectCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Disconnect did not complete in time after Terminate release");
+                Assert.True(connectCompleted.Wait(TimeSpan.FromSeconds(10)),
+                    "Connect did not complete in time after Disconnect finished");
+
+                // Verify both operations succeeded
+                Assert.False(disconnectError, $"Disconnect failed: {disconnectErrorMessage}");
+                Assert.False(connectError, $"Connect failed: {connectErrorMessage}");
+
+                // Verify first session was terminated and disposed
+                Assert.Equal(1, fake1.TerminateCalls);
+                Assert.True(fake1.IsDisposed);
+
+                // Verify second session was created by the Connect
+                Assert.Equal(1, fake2.InitializeCalls);
+                Assert.Equal(2, factoryCallCount);
+                Assert.Equal(0, fake2.TerminateCalls);
+                Assert.False(fake2.IsDisposed);
+
+                // Verify Connect thread actually waited on lock
+                Assert.True(connectEnteredWaitState, "Connect did not enter wait state on lock");
+
+                // NOW call Connect again - should be idempotent, no new session
+                var secondConnectResult = provider.Connect(out var secondConnectError);
+                Assert.True(secondConnectResult, $"Second Connect failed: {secondConnectError}");
+                Assert.Null(secondConnectError);
+                Assert.Equal(1, fake2.InitializeCalls); // No new initialization
+                Assert.Equal(2, factoryCallCount); // Factory not called again
+            }
+            finally
+            {
+                // Always release Terminate to avoid deadlock
+                releaseTerminate.Set();
+
+                // Wait for actual thread termination
+                bool disconnectThreadDone = false;
+                bool connectThreadDone = false;
+
+                if (disconnectThread != null)
+                {
+                    disconnectThreadDone = disconnectThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    disconnectThreadDone = true;
+                }
+
+                if (connectThread != null)
+                {
+                    connectThreadDone = connectThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    connectThreadDone = true;
+                }
+
+                if (!disconnectThreadDone || !connectThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: disconnectThreadDone={disconnectThreadDone}, connectThreadDone={connectThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+
+                // Clean up provider - only after both threads confirmed done
+                try { provider.Disconnect(); } catch { }
+
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
+                terminatePaused.Dispose();
+                releaseTerminate.Dispose();
+                disconnectCompleted.Dispose();
+                connectCompleted.Dispose();
+            }
+
+            // Verify final cleanup: second session terminated and disposed exactly once
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
+
+            // Verify no double-release of gpuList (0x2000) for both sessions
+            Assert.Equal(2, fake1.ReleasedPointers.Count(p => p == 0x2000));
+            Assert.Equal(2, fake2.ReleasedPointers.Count(p => p == 0x2000));
+
+            // Verify System (0x1000) NOT released via Release (managed by ADLX) for either session
+            Assert.DoesNotContain(0x1000, fake1.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake2.ReleasedPointers);
+
+            // Verify cleanup order for first session: gpuList released before Terminate
+            int gpuListReleaseIdx1 = fake1.Events.IndexOf("Release:0x2000");
+            int terminateIdx1 = fake1.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx1 >= 0, "First session gpuList should be released");
+            Assert.True(terminateIdx1 >= 0, "First session Terminate should be called");
+            Assert.True(gpuListReleaseIdx1 < terminateIdx1, "First session gpuList released before Terminate");
+
+            // Verify cleanup order for second session
+            int gpuListReleaseIdx2 = fake2.Events.IndexOf("Release:0x2000");
+            int terminateIdx2 = fake2.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx2 >= 0, "Second session gpuList should be released");
+            Assert.True(terminateIdx2 >= 0, "Second session Terminate should be called");
+            Assert.True(gpuListReleaseIdx2 < terminateIdx2, "Second session gpuList released before Terminate");
+
+            // Verify no double-release of any interface for either session
+            foreach (var fake in new[] { fake1, fake2 })
+            {
+                var releaseCounts = new Dictionary<int, int>();
+                foreach (var ptr in fake.ReleasedPointers)
+                {
+                    if (!releaseCounts.ContainsKey(ptr))
+                        releaseCounts[ptr] = 0;
+                    releaseCounts[ptr]++;
+                }
+                foreach (var kvp in releaseCounts)
+                {
+                    Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+                }
+            }
+        }
     }
 
     public class AmdAdlxDeviceTests
