@@ -4105,6 +4105,155 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(lifecycle.Connect(out _));
             Assert.Equal(1, fake.InitializeCalls);
         }
+
+        [Fact]
+        public void TryProbe_ConcurrentOperations_AreSerializedAndSessionInitializedOnce()
+        {
+            // This test verifies that two concurrent TryProbe() calls on the same provider
+            // are properly serialized by the internal lock, and the ADLX session is initialized only once.
+            
+            var firstOperationReachedPause = new ManualResetEventSlim(false);
+            var releaseFirstOperation = new ManualResetEventSlim(false);
+            var firstOperationCompleted = new ManualResetEventSlim(false);
+            var secondOperationCompleted = new ManualResetEventSlim(false);
+            
+            bool firstOperationError = false;
+            bool secondOperationError = false;
+            string? firstError = null;
+            string? secondError = null;
+            int initializeCallCountAtFirstPause = 0;
+            int terminateCallCountAtEnd = 0;
+            bool isDisposedAtEnd = false;
+            
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true }
+            };
+            
+            // Pause the first operation inside GetGpuListSize (called during TryProbe after session creation)
+            fake.GetGpuListSizeHandler = (IntPtr gpuList, out int count) =>
+            {
+                count = fake.GpuNames.Count;
+                initializeCallCountAtFirstPause = fake.InitializeCalls;
+                
+                // Signal that first operation has reached the pause point
+                firstOperationReachedPause.Set();
+                
+                // Wait for release signal
+                if (!releaseFirstOperation.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    firstOperationError = true;
+                    firstError = "Timeout waiting for release signal";
+                    firstOperationCompleted.Set();
+                    return -1;
+                }
+                
+                return 0;
+            };
+            
+            var provider = new AmdAdlxProvider(() => fake);
+            
+            // Start first TryProbe on background thread
+            var firstTask = Task.Run(() =>
+            {
+                try
+                {
+                    bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                    if (!result)
+                    {
+                        firstOperationError = true;
+                        firstError = error;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    firstOperationError = true;
+                    firstError = ex.ToString();
+                }
+                finally
+                {
+                    firstOperationCompleted.Set();
+                }
+            });
+            
+            // Wait for first operation to reach the pause point (inside GetGpuListSize)
+            Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
+                "First operation did not reach pause point in time");
+            
+            // Verify session was initialized exactly once before the pause
+            Assert.Equal(1, initializeCallCountAtFirstPause);
+            
+            // Start second TryProbe on another thread while first is paused
+            var secondTask = Task.Run(() =>
+            {
+                try
+                {
+                    bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                    if (!result)
+                    {
+                        secondOperationError = true;
+                        secondError = error;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    secondOperationError = true;
+                    secondError = ex.ToString();
+                }
+                finally
+                {
+                    secondOperationCompleted.Set();
+                }
+            });
+            
+            // Give second operation a moment to start and attempt to acquire the lock
+            Thread.Sleep(100);
+            
+            // At this point, second operation should be blocked on the lock
+            // First operation should still be paused in GetGpuListSize
+            Assert.Equal(1, fake.InitializeCalls); // Still only one initialization
+            
+            // Release first operation
+            releaseFirstOperation.Set();
+            
+            // Wait for both operations to complete
+            Assert.True(firstOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                "First operation did not complete in time");
+            Assert.True(secondOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                "Second operation did not complete in time");
+            
+            // Verify both operations succeeded
+            Assert.False(firstOperationError, $"First operation failed: {firstError}");
+            Assert.False(secondOperationError, $"Second operation failed: {secondError}");
+            
+            // Clean up
+            provider.Disconnect();
+            
+            // Verify session was initialized exactly once total
+            Assert.Equal(1, fake.InitializeCalls);
+            
+            // Verify Terminate was called once on Disconnect
+            terminateCallCountAtEnd = fake.TerminateCalls;
+            isDisposedAtEnd = fake.IsDisposed;
+            Assert.Equal(1, terminateCallCountAtEnd);
+            Assert.True(isDisposedAtEnd);
+            
+            // Verify no double-release of gpuList (0x2000)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            
+            // Verify System (0x1000) NOT released via Release (managed by ADLX)
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            
+            // Verify cleanup order: gpuList released before Terminate
+            int gpuListReleaseIdx = fake.Events.IndexOf("Release:0x2000");
+            int terminateIdx = fake.Events.IndexOf("Terminate");
+            Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
+            Assert.True(terminateIdx >= 0, "Terminate should be called");
+            Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+        }
     }
 
     public class AmdAdlxDeviceTests
