@@ -375,7 +375,7 @@ namespace BlackIceGPUTemp.Tests
                         var remaining = cleanupDeadline - DateTime.UtcNow;
                         if (remaining <= TimeSpan.Zero)
                         {
-                            remaining = TimeSpan.FromMilliseconds(1);
+                            remaining = TimeSpan.Zero;
                         }
                         bool joined = t.Join(remaining);
                         if (!joined)
@@ -389,9 +389,16 @@ namespace BlackIceGPUTemp.Tests
                 foreach (var i in failedThreads)
                 {
                     var t = threads[i];
-                    if (!t.IsBackground)
+                    try
                     {
-                        t.IsBackground = true;
+                        if (!t.IsBackground)
+                        {
+                            t.IsBackground = true;
+                        }
+                    }
+                    catch (ThreadStateException)
+                    {
+                        // Thread finished between Join and IsBackground check - ignore
                     }
                 }
 

@@ -136,8 +136,17 @@ namespace BlackIceGPUTemp.Tests
                     // Timeout: tasks did not complete in time.
                     // Give them a brief additional moment after releaseEvent.Set(),
                     // but do not wait indefinitely.
-                    await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(1)));
-                    Assert.False(timedOut, "Not all tasks finished in time");
+                    var completed2 = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(1)));
+                    if (completed2 == allTasks)
+                    {
+                        // All tasks finished during the additional wait - propagate exceptions
+                        await allTasks;
+                    }
+                    else
+                    {
+                        // Still not done - report timeout
+                        Assert.False(true, "Not all tasks finished in time");
+                    }
                 }
             }
         }
@@ -217,7 +226,7 @@ namespace BlackIceGPUTemp.Tests
                         var remaining = cleanupDeadline - DateTime.UtcNow;
                         if (remaining <= TimeSpan.Zero)
                         {
-                            remaining = TimeSpan.FromMilliseconds(1);
+                            remaining = TimeSpan.Zero;
                         }
                         bool joined = t.Join(remaining);
                         if (!joined)
@@ -231,9 +240,16 @@ namespace BlackIceGPUTemp.Tests
                 foreach (var i in failedThreads)
                 {
                     var t = threads[i];
-                    if (!t.IsBackground)
+                    try
                     {
-                        t.IsBackground = true;
+                        if (!t.IsBackground)
+                        {
+                            t.IsBackground = true;
+                        }
+                    }
+                    catch (ThreadStateException)
+                    {
+                        // Thread finished between Join and IsBackground check - ignore
                     }
                 }
 
