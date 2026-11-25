@@ -24,7 +24,8 @@ namespace BlackIceGPUTemp.Tests
             public List<int> ReleaseReturnCodes { get; } = new List<int>();
             public bool IsDisposed { get; protected set; }
             public int LastReleaseResult { get; private set; }
-            public int GetGpuTemperatureCallCount { get; private set; }
+            private int _getGpuTemperatureCallCount;
+            public int GetGpuTemperatureCallCount => _getGpuTemperatureCallCount;
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
             public bool ThrowOnRelease { get; set; } = false;
@@ -202,10 +203,10 @@ namespace BlackIceGPUTemp.Tests
                 celsius = gpuIndex >= 0 && gpuIndex < GpuTemperatures.Count ? GpuTemperatures[gpuIndex] : 65.5;
                 if (GetGpuTempHandler != null)
                 {
-                    Interlocked.Increment(ref GetGpuTemperatureCallCount);
+                    Interlocked.Increment(ref _getGpuTemperatureCallCount);
                     return GetGpuTempHandler(metrics, out celsius);
                 }
-                Interlocked.Increment(ref GetGpuTemperatureCallCount);
+                Interlocked.Increment(ref _getGpuTemperatureCallCount);
                 return 0;
             }
 
