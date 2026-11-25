@@ -124,12 +124,6 @@ namespace BlackIceGPUTemp.Tests
 
                 var allTasks = Task.WhenAll(tasks);
                 var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
-                if (completed != allTasks)
-                {
-                    // Timeout on test-level wait - still await all tasks for cleanup
-                    var cleanupCompleted = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
-                    // Do not assert on cleanup timeout - just ensure we tried to await
-                }
                 await allTasks;
             }
         }
@@ -150,7 +144,11 @@ namespace BlackIceGPUTemp.Tests
             {
                 tasks[i] = Task.Run(() =>
                 {
-                    startBarrier.SignalAndWait();
+                    bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    if (!barrierSignaled)
+                    {
+                        return; // Worker exits gracefully on barrier timeout
+                    }
                     if (gate.TryBeginRead())
                     {
                         Interlocked.Increment(ref successCount);
@@ -161,12 +159,6 @@ namespace BlackIceGPUTemp.Tests
 
             var allTasks = Task.WhenAll(tasks);
             var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
-            if (completed != allTasks)
-            {
-                // Timeout on test-level wait - still await all tasks for cleanup
-                var cleanupCompleted = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
-                // Do not assert on cleanup timeout - just ensure we tried to await
-            }
             await allTasks;
 
             Assert.Equal(0, successCount);

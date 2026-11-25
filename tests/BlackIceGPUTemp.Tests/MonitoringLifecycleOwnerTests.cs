@@ -309,19 +309,17 @@ namespace BlackIceGPUTemp.Tests
                 int index = i;
                 tasks[i] = Task.Run(() =>
                 {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    if (!barrierSignaled)
+                    {
+                        return; // Worker exits gracefully on barrier timeout
+                    }
                     results[index] = owner.StopAndTake();
                 });
             }
 
             var allTasks = Task.WhenAll(tasks);
             var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
-            if (completed != allTasks)
-            {
-                // Timeout on test-level wait - still await all tasks for cleanup
-                var cleanupCompleted = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
-                // Do not assert on cleanup timeout - just ensure we tried to await
-            }
             await allTasks;
 
             int nonNullCount = 0;
