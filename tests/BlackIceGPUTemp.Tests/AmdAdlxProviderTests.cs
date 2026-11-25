@@ -1198,19 +1198,19 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
 
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
 
             provider.Disconnect();
 
-            // No active session (creation failed), Disconnect does nothing
+            Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
             Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
-            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
         }
 
         [Fact]
