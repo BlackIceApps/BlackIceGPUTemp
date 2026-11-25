@@ -507,7 +507,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 if (retryException == null && (retryResult == 0 || retryResult == AdlxSession.ADLX_ORPHAN_OBJECTS))
                 {
-                    Logger.LogInfo($"Retry Terminate succeeded with HRESULT: 0x{retryResult:X}");
                     try
                     {
                         _pendingDisposable?.Dispose();

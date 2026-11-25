@@ -16,7 +16,6 @@ namespace BlackIceGPUTemp.Logging
     {
         private static readonly string LogFilePath;
         private static readonly object FileLock = new();
-        private static bool _initialized;
 
         static Logger()
         {
@@ -30,24 +29,6 @@ namespace BlackIceGPUTemp.Logging
             catch
             {
                 LogFilePath = null!;
-            }
-        }
-
-        public static void Initialize()
-        {
-            if (_initialized)
-            {
-                return;
-            }
-
-            _initialized = true;
-
-            try
-            {
-                WriteEntry(LogLevel.Info, "Application starting");
-            }
-            catch
-            {
             }
         }
 

@@ -295,17 +295,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private void Cleanup()
         {
-            Logger.LogInfo("AdlxSession Cleanup: entry");
-
-            Logger.LogInfo($"AdlxSession Cleanup: releasing gpuList=0x{_gpuList:X}");
             AdlxInterop.ReleaseInterface(_native, ref _gpuList);
-            Logger.LogInfo($"AdlxSession Cleanup: gpuList released");
-
-            Logger.LogInfo($"AdlxSession Cleanup: zeroing system=0x{_system:X} (no Release, managed by ADLX)");
 
             if (_initialized && _native != null)
             {
-                Logger.LogInfo("AdlxSession Cleanup: Terminate start");
                 int terminateResult = 0;
                 Exception? terminateException = null;
 
@@ -321,10 +314,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
                 {
-                    Logger.LogInfo($"AdlxSession Cleanup: Terminate succeeded with HRESULT: 0x{terminateResult:X}");
                     if (_disposableNative != null)
                     {
-                        Logger.LogInfo("AdlxSession Cleanup: Dispose start");
                         try
                         {
                             _disposableNative.Dispose();
@@ -335,7 +326,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             PendingDisposeNative = _native;
                             PendingDisposeDisposable = _disposableNative;
                         }
-                        Logger.LogInfo("AdlxSession Cleanup: Dispose end");
                     }
                 }
                 else
@@ -344,11 +334,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     PendingNative = _native;
                     PendingDisposable = _disposableNative;
                 }
-                Logger.LogInfo("AdlxSession Cleanup: Terminate end");
             }
             else if (_disposableNative != null)
             {
-                Logger.LogInfo("AdlxSession Cleanup: Dispose start (not initialized)");
                 try
                 {
                     _disposableNative.Dispose();
@@ -359,7 +347,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     PendingDisposeNative = _native;
                     PendingDisposeDisposable = _disposableNative;
                 }
-                Logger.LogInfo("AdlxSession Cleanup: Dispose end");
             }
         }
 
@@ -379,19 +366,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             pendingDisposeNative = null;
             pendingDisposeDisposable = null;
 
-            Logger.LogInfo("AdlxSession CleanupRef: entry");
-
-            Logger.LogInfo($"AdlxSession CleanupRef: releasing gpuList=0x{gpuList:X}");
             AdlxInterop.ReleaseInterface(native, ref gpuList);
-            Logger.LogInfo($"AdlxSession CleanupRef: gpuList released");
-
-            Logger.LogInfo($"AdlxSession CleanupRef: zeroing system=0x{system:X} (no Release, managed by ADLX)");
             system = IntPtr.Zero;
-            Logger.LogInfo($"AdlxSession CleanupRef: system zeroed");
 
             if (initialized && native != null)
             {
-                Logger.LogInfo("AdlxSession CleanupRef: Terminate start");
                 int terminateResult = 0;
                 Exception? terminateException = null;
 
@@ -407,10 +386,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
                 {
-                    Logger.LogInfo($"AdlxSession CleanupRef: Terminate succeeded with HRESULT: 0x{terminateResult:X}");
                     if (disposableNative != null)
                     {
-                        Logger.LogInfo("AdlxSession CleanupRef: Dispose start");
                         try
                         {
                             disposableNative.Dispose();
@@ -421,7 +398,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             pendingDisposeNative = native;
                             pendingDisposeDisposable = disposableNative;
                         }
-                        Logger.LogInfo("AdlxSession CleanupRef: Dispose end");
                     }
                 }
                 else
@@ -430,11 +406,9 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     pendingNative = native;
                     pendingDisposable = disposableNative;
                 }
-                Logger.LogInfo("AdlxSession CleanupRef: Terminate end");
             }
             else if (disposableNative != null)
             {
-                Logger.LogInfo("AdlxSession CleanupRef: Dispose start (not initialized)");
                 try
                 {
                     disposableNative.Dispose();
@@ -445,7 +419,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     pendingDisposeNative = native;
                     pendingDisposeDisposable = disposableNative;
                 }
-                Logger.LogInfo("AdlxSession CleanupRef: Dispose end");
             }
         }
     }

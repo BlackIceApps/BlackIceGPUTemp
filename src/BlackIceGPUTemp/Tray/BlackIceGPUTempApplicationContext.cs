@@ -85,7 +85,6 @@ namespace BlackIceGPUTemp.Tray
         {
             _monitoringSessionFactory = monitoringSessionFactory ?? throw new ArgumentNullException(nameof(monitoringSessionFactory));
 
-            Logger.LogInfo("BlackIceGPUTempApplicationContext created");
             _notifyIcon = new NotifyIcon
             {
                 Icon = CreateTemperatureIcon("--"),
@@ -149,7 +148,6 @@ namespace BlackIceGPUTemp.Tray
         {
             try
             {
-                Logger.LogInfo("Initializing GPU monitoring");
                 var result = _monitoringSessionFactory.Create(cancellationToken);
 
                 if (!result.IsSuccess)
@@ -197,9 +195,6 @@ namespace BlackIceGPUTemp.Tray
                     InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initialization error"));
                     return;
                 }
-
-                Logger.LogInfo($"Selected GPU: {deviceName} (Provider: {providerId}, Device: {deviceId})");
-                Logger.LogInfo("HardwareMonitorService created");
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -513,8 +508,6 @@ namespace BlackIceGPUTemp.Tray
         {
             if (disposing)
             {
-                Logger.LogInfo("Application shutting down");
-                
                 // Mark as disposing and stop timer under lock to prevent new reads
                 IGpuProviderLifecycle? lifecycleToDisconnect = null;
                 lock (_disposeLock)

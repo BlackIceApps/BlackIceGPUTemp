@@ -171,7 +171,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
     public int Terminate()
     {
-        if (_disposed)
+            if (_disposed)
         {
             throw new ObjectDisposedException(nameof(AdlxNative));
         }
@@ -192,7 +192,6 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         else if (result == ADLX_ORPHAN_OBJECTS)
         {
             _isInitialized = false;
-            Logger.LogInfo("ADLX reported orphan objects (0xB); local initialization state cleared.");
         }
         return result;
     }
@@ -433,7 +432,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
     public int Release(IntPtr adlxInterface)
     {
-        if (_disposed)
+            if (_disposed)
         {
             throw new ObjectDisposedException(nameof(AdlxNative));
         }
@@ -442,12 +441,8 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             return 0;
         }
 
-        Logger.LogInfo($"Release: entry adlxInterface=0x{adlxInterface:X}");
-
         var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
-        Logger.LogInfo($"Release: calling delegate");
         int result = del(adlxInterface);
-        Logger.LogInfo($"Release: returned reference count={result}");
 
         return result;
     }
