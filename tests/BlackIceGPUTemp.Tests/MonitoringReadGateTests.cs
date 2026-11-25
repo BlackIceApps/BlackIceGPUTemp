@@ -145,7 +145,7 @@ namespace BlackIceGPUTemp.Tests
                     else
                     {
                         // Still not done - report timeout
-                        Assert.False(true, "Not all tasks finished in time");
+                        Assert.Fail("Not all tasks finished in time");
                     }
                 }
             }
