@@ -4182,31 +4182,35 @@ namespace BlackIceGPUTemp.Tests
             
             var provider = new AmdAdlxProvider(() => fake);
             
-            // Start first TryProbe on background thread
-            var firstTask = Task.Run(() =>
-            {
-                try
-                {
-                    bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
-                    if (!result)
-                    {
-                        firstOperationError = true;
-                        firstError = error;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    firstOperationError = true;
-                    firstError = ex.ToString();
-                }
-                finally
-                {
-                    firstOperationCompleted.Set();
-                }
-            });
+            // Declare outside try so finally can access them
+            Task? firstTask = null;
+            Thread? secondThread = null;
             
             try
             {
+                // Start first TryProbe on background thread
+                firstTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+                        if (!result)
+                        {
+                            firstOperationError = true;
+                            firstError = error;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        firstOperationError = true;
+                        firstError = ex.ToString();
+                    }
+                    finally
+                    {
+                        firstOperationCompleted.Set();
+                    }
+                });
+                
                 // Wait for first operation to reach the pause point (inside GetGpuListSize)
                 Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
                     "First operation did not reach pause point in time");
@@ -4215,8 +4219,6 @@ namespace BlackIceGPUTemp.Tests
                 Assert.Equal(1, initializeCallCountAtFirstPause);
                 
                 // NOW start second thread - first operation is confirmed paused in handler holding the lock
-                Thread? secondThread = null;
-                
                 secondThread = new Thread(() =>
                 {
                     try
@@ -4271,7 +4273,7 @@ namespace BlackIceGPUTemp.Tests
                 // Release first operation
                 releaseFirstOperation.Set();
                 
-                // Wait for both operations to complete
+                // Wait for both operations to complete (auxiliary signals)
                 Assert.True(firstOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
                     "First operation did not complete in time");
                 Assert.True(secondOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
@@ -4286,32 +4288,43 @@ namespace BlackIceGPUTemp.Tests
                 
                 // Verify max concurrent handler entries never exceeded 1 (serialized)
                 Assert.Equal(1, maxConcurrentHandlerEntries);
-                
-                // Wait for second thread to fully terminate
-                if (secondThread != null && secondThread.IsAlive)
-                {
-                    Assert.True(secondThread.Join(TimeSpan.FromSeconds(5)), "Second thread did not terminate in time");
-                }
             }
             finally
             {
                 // Always release first operation to avoid deadlock
                 releaseFirstOperation.Set();
                 
-                // Wait for completion events with timeout
-                bool firstDone = firstOperationCompleted.Wait(TimeSpan.FromSeconds(5));
-                bool secondDone = secondOperationCompleted.Wait(TimeSpan.FromSeconds(5));
+                // Wait for actual thread/task termination - not just signals
+                bool firstTaskDone = false;
+                bool secondThreadDone = false;
                 
-                // If threads didn't complete, they may still be using synchronization objects
-                // Fail the test and do not dispose objects that live threads might access
-                if (!firstDone || !secondDone)
+                if (firstTask != null)
                 {
-                    throw new InvalidOperationException(
-                        $"Test cleanup failed: firstDone={firstDone}, secondDone={secondDone}. " +
-                        "Threads still running; synchronization objects not disposed to avoid race.");
+                    firstTaskDone = firstTask.Wait(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    firstTaskDone = true; // No task to wait for
                 }
                 
-                // Clean up provider
+                if (secondThread != null)
+                {
+                    secondThreadDone = secondThread.Join(TimeSpan.FromSeconds(10));
+                }
+                else
+                {
+                    secondThreadDone = true; // No thread to wait for
+                }
+                
+                // If either didn't complete, fail cleanup and don't dispose/Disconnect
+                if (!firstTaskDone || !secondThreadDone)
+                {
+                    throw new InvalidOperationException(
+                        $"Test cleanup failed: firstTaskDone={firstTaskDone}, secondThreadDone={secondThreadDone}. " +
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
+                }
+                
+                // Clean up provider - only after both threads confirmed done
                 try { provider.Disconnect(); } catch { }
                 
                 // Deterministic disposal of synchronization objects (after threads confirmed done)
