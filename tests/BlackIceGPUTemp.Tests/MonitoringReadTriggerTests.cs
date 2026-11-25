@@ -212,7 +212,7 @@ namespace BlackIceGPUTemp.Tests
         public void TryStart_TokenPassedToOperation_IsSameToken()
         {
             var capturedActions = new List<Action>();
-            var capturedToken = new object?();
+            CancellationToken? capturedToken = null;
             var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
             var trigger = new MonitoringReadTrigger(executor);
             var expectedToken = new CancellationTokenSource().Token;
@@ -227,7 +227,7 @@ namespace BlackIceGPUTemp.Tests
 
             capturedActions[0]();
 
-            Assert.Same(expectedToken, capturedToken);
+            Assert.Equal(expectedToken, capturedToken);
         }
     }
 }

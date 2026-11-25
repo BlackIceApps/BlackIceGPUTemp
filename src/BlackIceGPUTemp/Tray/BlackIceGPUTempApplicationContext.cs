@@ -295,10 +295,6 @@ namespace BlackIceGPUTemp.Tray
         private void OnTimerTick(object? sender, EventArgs e)
         {
             var session = _session;
-            if (session == null)
-            {
-                return;
-            }
 
             bool isDisposing;
             lock (_disposeLock)
@@ -309,12 +305,17 @@ namespace BlackIceGPUTemp.Tray
             var token = _cancellationTokenSource.Token;
 
             _readTrigger.TryStart(
-                hasSession: true,
-                providerId: session.ProviderId,
-                deviceId: session.DeviceId,
+                hasSession: session != null,
+                providerId: session?.ProviderId,
+                deviceId: session?.DeviceId,
                 isDisposing: isDisposing,
                 operation: ct =>
                 {
+                    if (session == null)
+                    {
+                        return;
+                    }
+
                     try
                     {
                         if (ct.IsCancellationRequested)
