@@ -285,6 +285,8 @@ namespace BlackIceGPUTemp.Tests
             int? tooltipThreadId = null;
             int? iconThreadId = null;
 
+            Exception? backgroundException = null;
+
             BlockingCollection<Action>? actionQueue = null;
             ManualResetEventSlim? dispatcherReadyEvent = null;
             ManualResetEventSlim? actionExecutedEvent = null;
@@ -297,20 +299,31 @@ namespace BlackIceGPUTemp.Tests
                 dispatcherReadyEvent = new ManualResetEventSlim(false);
                 actionExecutedEvent = new ManualResetEventSlim(false);
 
+                var localActionQueue = actionQueue;
+                var localDispatcherReadyEvent = dispatcherReadyEvent;
+                var localActionExecutedEvent = actionExecutedEvent;
+
                 dispatcherThread = new Thread(() =>
                 {
-                    dispatcherReadyEvent.Set();
-                    foreach (var action in actionQueue.GetConsumingEnumerable())
+                    try
                     {
-                        dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
-                        try
+                        localDispatcherReadyEvent.Set();
+                        foreach (var action in localActionQueue.GetConsumingEnumerable())
                         {
-                            action();
+                            dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
+                            try
+                            {
+                                action();
+                            }
+                            finally
+                            {
+                                localActionExecutedEvent.Set();
+                            }
                         }
-                        finally
-                        {
-                            actionExecutedEvent.Set();
-                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(ref backgroundException, ex, null);
                     }
                 })
                 {
@@ -322,7 +335,10 @@ namespace BlackIceGPUTemp.Tests
 
                 Action<Action> dedicatedDispatcher = action =>
                 {
-                    actionQueue.Add(action);
+                    if (!localActionQueue.IsAddingCompleted)
+                    {
+                        localActionQueue.Add(action);
+                    }
                 };
 
                 var updater = new MonitoringDisplayUpdater(
@@ -341,8 +357,15 @@ namespace BlackIceGPUTemp.Tests
 
                 updateThread = new Thread(() =>
                 {
-                    callingThreadId = Environment.CurrentManagedThreadId;
-                    updater.Update("Test GPU", true, reading);
+                    try
+                    {
+                        callingThreadId = Environment.CurrentManagedThreadId;
+                        updater.Update("Test GPU", true, reading);
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(ref backgroundException, ex, null);
+                    }
                 })
                 {
                     IsBackground = true
@@ -351,6 +374,11 @@ namespace BlackIceGPUTemp.Tests
                 updateThread.Start();
                 Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
                 Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
+
+                if (backgroundException != null)
+                {
+                    throw new System.Reflection.TargetInvocationException("Exception thrown on background thread", backgroundException);
+                }
 
                 Assert.NotNull(callingThreadId);
                 Assert.NotNull(dispatcherCallbackThreadId);
@@ -364,6 +392,8 @@ namespace BlackIceGPUTemp.Tests
             }
             finally
             {
+                bool updateJoined = updateThread == null || !updateThread.IsAlive || updateThread.Join(TimeSpan.FromSeconds(5));
+
                 if (actionQueue != null)
                 {
                     try
@@ -375,19 +405,14 @@ namespace BlackIceGPUTemp.Tests
                     }
                 }
 
-                if (dispatcherThread != null && dispatcherThread.IsAlive)
-                {
-                    dispatcherThread.Join(TimeSpan.FromSeconds(5));
-                }
+                bool dispatcherJoined = dispatcherThread == null || !dispatcherThread.IsAlive || dispatcherThread.Join(TimeSpan.FromSeconds(5));
 
-                if (updateThread != null && updateThread.IsAlive)
+                if (updateJoined && dispatcherJoined)
                 {
-                    updateThread.Join(TimeSpan.FromSeconds(5));
+                    try { actionQueue?.Dispose(); } catch { }
+                    try { dispatcherReadyEvent?.Dispose(); } catch { }
+                    try { actionExecutedEvent?.Dispose(); } catch { }
                 }
-
-                actionQueue?.Dispose();
-                dispatcherReadyEvent?.Dispose();
-                actionExecutedEvent?.Dispose();
             }
         }
     }
