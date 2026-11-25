@@ -32,7 +32,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
         private volatile bool _disposing;
-        private bool _readInProgress;
+        private readonly MonitoringReadGate _readGate = new();
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
         private IGpuProviderLifecycle? _providerLifecycle;
@@ -320,11 +320,15 @@ namespace BlackIceGPUTemp.Tray
 
             lock (_disposeLock)
             {
-                if (_disposing || _readInProgress)
+                if (_disposing)
                 {
                     return;
                 }
-                _readInProgress = true;
+            }
+
+            if (!_readGate.TryBeginRead())
+            {
+                return;
             }
 
             var token = _cancellationTokenSource.Token;
@@ -375,10 +379,7 @@ namespace BlackIceGPUTemp.Tray
                 }
                 finally
                 {
-                    lock (_disposeLock)
-                    {
-                        _readInProgress = false;
-                    }
+                    _readGate.EndRead();
                 }
             }, token);
         }
@@ -508,6 +509,9 @@ namespace BlackIceGPUTemp.Tray
                     lifecycleToDisconnect = _providerLifecycle;
                     _providerLifecycle = null;
                 }
+
+                // Permanently block new reads before cleaning up resources used by reads
+                _readGate.Stop();
 
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
