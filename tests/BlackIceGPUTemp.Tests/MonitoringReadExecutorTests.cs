@@ -73,7 +73,7 @@ namespace BlackIceGPUTemp.Tests
             bool first = executor.TryExecute(_ => throw new InvalidOperationException("test"), CancellationToken.None);
             Assert.True(first);
 
-            capturedActions[0]();
+            Assert.Throws<InvalidOperationException>(() => capturedActions[0]());
 
             bool second = executor.TryExecute(_ => { }, CancellationToken.None);
 
@@ -87,12 +87,15 @@ namespace BlackIceGPUTemp.Tests
             var capturedActions = new List<Action>();
             var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
             var cts = new CancellationTokenSource();
+            bool operationInvoked = false;
 
-            bool first = executor.TryExecute(_ => { }, cts.Token);
+            bool first = executor.TryExecute(_ => { operationInvoked = true; }, cts.Token);
             Assert.True(first);
 
             cts.Cancel();
             capturedActions[0]();
+
+            Assert.False(operationInvoked);
 
             bool second = executor.TryExecute(_ => { }, CancellationToken.None);
 
@@ -110,6 +113,26 @@ namespace BlackIceGPUTemp.Tests
             bool accepted = executor.TryExecute(_ => { }, CancellationToken.None);
 
             Assert.True(accepted);
+        }
+
+        [Fact]
+        public void TryExecute_SchedulerExecutesSynchronouslyThenThrows_GateReleased()
+        {
+            var capturedActions = new List<Action>();
+            var executor = new MonitoringReadExecutor(action =>
+            {
+                action();
+                throw new InvalidOperationException("scheduler failed after execution");
+            });
+
+            Assert.Throws<InvalidOperationException>(() => executor.TryExecute(_ => { }, CancellationToken.None));
+
+            Assert.Single(capturedActions);
+
+            bool accepted = executor.TryExecute(_ => { }, CancellationToken.None);
+
+            Assert.True(accepted);
+            Assert.Equal(2, capturedActions.Count);
         }
     }
 }
