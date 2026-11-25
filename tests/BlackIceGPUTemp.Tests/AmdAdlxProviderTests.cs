@@ -852,6 +852,41 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void Probe_WhenGetGpuListReturnsErrorWithNonZeroPointer_ReleasesGpuListPointerOnceAndCleansUp()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuListHandler = (IntPtr sys, out IntPtr list) =>
+                {
+                    list = new IntPtr(0x2000);
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
+
+            Assert.False(result);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU list", error);
+            Assert.Contains("-1", error);
+
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            // No active session (creation failed), Disconnect does nothing
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+        }
+
+        [Fact]
         public void Probe_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
