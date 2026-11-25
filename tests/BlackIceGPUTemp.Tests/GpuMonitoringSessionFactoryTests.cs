@@ -30,6 +30,25 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
+        private class UnavailableProviderEmptyError : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator
+        {
+            public string Id => "unavailable-empty-error";
+            public string DisplayName => "Unavailable Provider Empty Error";
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                error = "";
+                return false;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
+            }
+        }
+
         private class AvailableButNoDevicesProvider : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator
         {
             public string Id => "available-no-devices";
@@ -175,7 +194,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Create_AllProvidersUnavailable_ReturnsFailureWithProvidersUnavailableMessage()
+        public void Create_AllProvidersUnavailable_ReturnsFirstProbeError()
         {
             var factory = new GpuMonitoringSessionFactory(
                 new TestProviderFactory(new List<IGpuProvider>
@@ -187,7 +206,7 @@ namespace BlackIceGPUTemp.Tests
             var result = factory.Create(CancellationToken.None);
 
             Assert.False(result.IsSuccess);
-            Assert.Equal("No GPU providers are available.", result.Message);
+            Assert.Equal("Provider not available", result.Message);
             Assert.Null(result.HardwareMonitorService);
             Assert.Null(result.ProviderId);
             Assert.Null(result.DeviceId);
@@ -626,6 +645,113 @@ namespace BlackIceGPUTemp.Tests
                 EnumerateCalled = true;
                 TokenSource?.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
+            }
+        }
+
+        private class LifecycleProviderConnectFails : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-connect-fails";
+            public string DisplayName => "Lifecycle Connect Fails";
+            public bool ConnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                error = null;
+                return true;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
+            }
+        }
+
+        private class LifecycleProviderConnectFailsEmptyError : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-connect-fails-empty";
+            public string DisplayName => "Lifecycle Connect Fails Empty Error";
+            public bool ConnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = "";
+                return false;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                error = null;
+                return true;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
+                devices = Array.Empty<IGpuDevice>();
+                error = null;
+                return true;
+            }
+        }
+
+        private class LifecycleProviderProbeFailsEmptyError : IGpuProvider, IGpuProviderProbe, IGpuDeviceEnumerator, IGpuProviderLifecycle
+        {
+            public string Id => "lifecycle-probe-fails-empty";
+            public string DisplayName => "Lifecycle Probe Fails Empty Error";
+            public bool ConnectCalled { get; private set; }
+            public bool ProbeCalled { get; private set; }
+            public bool DisconnectCalled { get; private set; }
+            public string? ConnectError { get; set; }
+
+            public bool Connect(out string? error)
+            {
+                ConnectCalled = true;
+                error = ConnectError;
+                return ConnectError == null;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCalled = true;
+            }
+
+            public bool TryProbe(out string? error, CancellationToken cancellationToken = default)
+            {
+                ProbeCalled = true;
+                error = "";
+                return false;
+            }
+
+            public bool TryEnumerateDevices(out IReadOnlyList<IGpuDevice> devices, out string? error, CancellationToken cancellationToken = default)
+            {
                 devices = Array.Empty<IGpuDevice>();
                 error = null;
                 return true;
@@ -1242,6 +1368,282 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.False(result.IsSuccess);
             Assert.Equal("First provider enum failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        // New tests for preserving Connect/Probe errors
+
+        [Fact]
+        public void Create_AllNonLifecycleProvidersProbeError_ReturnsFirstProbeError()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    new UnavailableProvider(),
+                    new UnavailableProvider()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Provider not available", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_AllNonLifecycleProvidersProbeEmptyError_ReturnsFallbackMessage()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    new UnavailableProviderEmptyError(),
+                    new UnavailableProviderEmptyError()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("GPU provider probe failed.", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_FirstProviderProbeFailsSecondSucceeds_ReturnsSuccess()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    new UnavailableProvider(),
+                    new AvailableWithDevicesProvider()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.HardwareMonitorService);
+            Assert.Equal("available-with-devices", result.ProviderId);
+        }
+
+        [Fact]
+        public void Create_AllLifecycleProvidersConnectError_ReturnsFirstConnectError()
+        {
+            var provider1 = new LifecycleProviderConnectFails { ConnectError = "First connect failed" };
+            var provider2 = new LifecycleProviderConnectFails { ConnectError = "Second connect failed" };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("First connect failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+            Assert.True(provider1.ConnectCalled);
+            Assert.False(provider1.ProbeCalled);
+            Assert.False(provider1.DisconnectCalled);
+            Assert.True(provider2.ConnectCalled);
+            Assert.False(provider2.ProbeCalled);
+            Assert.False(provider2.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_AllLifecycleProvidersConnectEmptyError_ReturnsFallbackMessage()
+        {
+            var provider1 = new LifecycleProviderConnectFailsEmptyError();
+            var provider2 = new LifecycleProviderConnectFailsEmptyError();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("GPU provider connection failed.", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_AllLifecycleProvidersProbeError_ReturnsFirstProbeError()
+        {
+            var provider1 = new LifecycleProviderProbeFails();
+            var provider2 = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Probe failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+            Assert.True(provider1.ConnectCalled);
+            Assert.True(provider1.ProbeCalled);
+            Assert.True(provider1.DisconnectCalled);
+            Assert.True(provider2.ConnectCalled);
+            Assert.True(provider2.ProbeCalled);
+            Assert.True(provider2.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_AllLifecycleProvidersProbeEmptyError_ReturnsFallbackMessage()
+        {
+            var provider1 = new LifecycleProviderProbeFailsEmptyError();
+            var provider2 = new LifecycleProviderProbeFailsEmptyError();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("GPU provider probe failed.", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_LifecycleProviderProbeFailsThenNonLifecycleSucceeds_ReturnsSuccess()
+        {
+            var lifecycleProvider = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    lifecycleProvider,
+                    new AvailableWithDevicesProvider()
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.HardwareMonitorService);
+            Assert.Equal("available-with-devices", result.ProviderId);
+            Assert.True(lifecycleProvider.ConnectCalled);
+            Assert.True(lifecycleProvider.ProbeCalled);
+            Assert.True(lifecycleProvider.DisconnectCalled);
+        }
+
+        [Fact]
+        public void Create_EarlierProbeErrorDoesNotReplaceEnumerationError_WhenAnotherProviderPassedProbe()
+        {
+            // First provider passes Probe but fails enumeration
+            // Second provider fails Probe
+            // Result should be the enumeration error from first provider, not the probe error from second
+            var enumErrorProvider = new LifecycleEnumerationErrorProvider { EnumerationErrorMessage = "ADLX enumeration error" };
+            var probeFailProvider = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    enumErrorProvider,
+                    probeFailProvider
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("ADLX enumeration error", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_MixedLifecycleAndNonLifecycle_AllFailProbe_ReturnsFirstProbeError()
+        {
+            var lifecycleProvider = new LifecycleProviderProbeFails();
+            var nonLifecycleProvider = new UnavailableProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    lifecycleProvider,
+                    nonLifecycleProvider
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Probe failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        // Fix 1: Fallback should not override later concrete error
+
+        [Fact]
+        public void Create_FirstLifecycleConnectEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new LifecycleProviderConnectFailsEmptyError();
+            var provider2 = new LifecycleProviderConnectFails { ConnectError = "Second connect failed" };
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Second connect failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_FirstLifecycleProbeEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new LifecycleProviderProbeFailsEmptyError();
+            var provider2 = new LifecycleProviderProbeFails();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Probe failed", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        [Fact]
+        public void Create_FirstNonLifecycleProbeEmptyError_SecondConcreteError_ReturnsConcreteError()
+        {
+            var provider1 = new UnavailableProviderEmptyError();
+            var provider2 = new UnavailableProvider();
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>
+                {
+                    provider1,
+                    provider2
+                }));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("Provider not available", result.Message);
+            Assert.Null(result.HardwareMonitorService);
+        }
+
+        // Fix 2: Empty provider list message unchanged
+        [Fact]
+        public void Create_EmptyProviderList_ReturnsUnchangedMessage()
+        {
+            var factory = new GpuMonitoringSessionFactory(
+                new TestProviderFactory(new List<IGpuProvider>()));
+
+            var result = factory.Create(CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("No GPU providers are available.", result.Message);
             Assert.Null(result.HardwareMonitorService);
         }
     }
