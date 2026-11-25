@@ -8,6 +8,17 @@ namespace BlackIceGPUTemp.Monitoring.Abstractions
     public sealed class TemperatureReading
     {
         /// <summary>
+        /// Initializes a new instance of the <see cref="TemperatureReading"/> class for testing purposes.
+        /// This constructor bypasses validation and should only be used in tests.
+        /// </summary>
+        internal TemperatureReading(double celsius, string sensorName, DateTimeOffset timestampUtc, bool skipValidation)
+        {
+            Celsius = celsius;
+            SensorName = sensorName;
+            TimestampUtc = timestampUtc;
+        }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="TemperatureReading"/> class.
         /// </summary>
         /// <param name="celsius">The temperature in degrees Celsius.</param>
