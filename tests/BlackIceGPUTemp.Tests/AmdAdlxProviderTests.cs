@@ -4256,7 +4256,7 @@ namespace BlackIceGPUTemp.Tests
                 while (DateTime.UtcNow - waitStart < waitTimeout)
                 {
                     var state = secondThread.ThreadState;
-                    if ((state & ThreadState.WaitSleepJoin) != 0)
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
                     {
                         secondThreadBlocked = true;
                         break;
@@ -4486,7 +4486,7 @@ namespace BlackIceGPUTemp.Tests
                 while (DateTime.UtcNow - waitStart < waitTimeout)
                 {
                     var state = disconnectThread.ThreadState;
-                    if ((state & ThreadState.WaitSleepJoin) != 0)
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
                     {
                         disconnectThreadBlocked = true;
                         break;
@@ -4602,7 +4602,7 @@ namespace BlackIceGPUTemp.Tests
             }
             foreach (var kvp in releaseCounts)
             {
-                Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
             }
         }
 
@@ -4744,7 +4744,7 @@ namespace BlackIceGPUTemp.Tests
                 while (DateTime.UtcNow - waitStart < waitTimeout)
                 {
                     var state = secondReadThread.ThreadState;
-                    if ((state & ThreadState.WaitSleepJoin) != 0)
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
                     {
                         secondThreadBlocked = true;
                         secondReadEnteredWaitState = true;
@@ -4781,7 +4781,7 @@ namespace BlackIceGPUTemp.Tests
                 Assert.Equal(65.5, firstReadResult!.Celsius);
 
                 // Verify second read was cancelled with OperationCanceledException
-                Assert.NotNull(secondReadCancellationException, "Second read should have thrown OperationCanceledException");
+                Assert.NotNull(secondReadCancellationException);
                 Assert.False(secondReadError, $"Second read failed unexpectedly: {secondReadErrorMessage}");
 
                 // Verify second read did NOT execute the native temperature read (GetGpuTemperature)
@@ -4877,7 +4877,7 @@ namespace BlackIceGPUTemp.Tests
             }
             foreach (var kvp in releaseCounts)
             {
-                Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
             }
         }
 
@@ -4903,8 +4903,6 @@ namespace BlackIceGPUTemp.Tests
             bool connectError = false;
             string? connectErrorMessage = null;
             bool connectEnteredWaitState = false;
-            bool secondConnectError = false;
-            string? secondConnectErrorMessage = null;
 
             // First fake for the initial session - its Terminate will be paused
             // Use plain FakeAdlxNative with TerminateHandler (TerminateSequenceFake doesn't invoke TerminateHandler)
@@ -5016,7 +5014,7 @@ namespace BlackIceGPUTemp.Tests
                 while (DateTime.UtcNow - waitStart < waitTimeout)
                 {
                     var state = connectThread.ThreadState;
-                    if ((state & ThreadState.WaitSleepJoin) != 0)
+                    if ((state & System.Threading.ThreadState.WaitSleepJoin) != 0)
                     {
                         connectThreadBlocked = true;
                         connectEnteredWaitState = true;
@@ -5145,10 +5143,10 @@ namespace BlackIceGPUTemp.Tests
                         releaseCounts[ptr] = 0;
                     releaseCounts[ptr]++;
                 }
-                foreach (var kvp in releaseCounts)
-                {
-                    Assert.Equal(1, kvp.Value, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
-                }
+foreach (var kvp in releaseCounts)
+            {
+                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+            }
             }
         }
     }
