@@ -101,6 +101,7 @@ namespace BlackIceGPUTemp.Tests
             var endBarrier = new Barrier(2);
             var owners = new MonitoringLifecycleOwner[iterations];
             var lifecycles = new FakeLifecycle[iterations];
+            var stopRequested = false;
 
             Thread? registerThread = null;
             Thread? stopThread = null;
@@ -111,18 +112,42 @@ namespace BlackIceGPUTemp.Tests
                 {
                     for (int i = 0; i < iterations; i++)
                     {
+                        bool startSync;
                         try
                         {
-                            startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                        catch (BarrierPostPhaseException)
+                        {
+                            break; // Main thread broke the barrier
+                        }
+
+                        if (!startSync || stopRequested)
+                        {
+                            break;
+                        }
+
+                        try
+                        {
                             registerResults[i] = owners[i].TryRegister(lifecycles[i]);
                         }
                         catch (Exception ex)
                         {
                             registerExceptions[i] = ex;
                         }
-                        finally
+
+                        try
                         {
                             endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                        catch (BarrierPostPhaseException)
+                        {
+                            break;
+                        }
+
+                        if (stopRequested)
+                        {
+                            break;
                         }
                     }
                 });
@@ -131,18 +156,42 @@ namespace BlackIceGPUTemp.Tests
                 {
                     for (int i = 0; i < iterations; i++)
                     {
+                        bool startSync;
                         try
                         {
-                            startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                        catch (BarrierPostPhaseException)
+                        {
+                            break; // Main thread broke the barrier
+                        }
+
+                        if (!startSync || stopRequested)
+                        {
+                            break;
+                        }
+
+                        try
+                        {
                             stopResults[i] = owners[i].StopAndTake();
                         }
                         catch (Exception ex)
                         {
                             stopExceptions[i] = ex;
                         }
-                        finally
+
+                        try
                         {
                             endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                        catch (BarrierPostPhaseException)
+                        {
+                            break;
+                        }
+
+                        if (stopRequested)
+                        {
+                            break;
                         }
                     }
                 });
@@ -160,12 +209,14 @@ namespace BlackIceGPUTemp.Tests
                     bool startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!startSync)
                     {
+                        stopRequested = true;
                         throw new InvalidOperationException($"Start barrier timed out at iteration {i}");
                     }
 
                     bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!endSync)
                     {
+                        stopRequested = true;
                         throw new InvalidOperationException($"End barrier timed out at iteration {i}");
                     }
                 }
