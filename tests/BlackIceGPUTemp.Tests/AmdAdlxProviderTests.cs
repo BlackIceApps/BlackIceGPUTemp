@@ -4531,12 +4531,16 @@ namespace BlackIceGPUTemp.Tests
                     readTaskDone = true;
                 }
 
-                if (disconnectThread != null)
+                bool disconnectThreadWasStarted = disconnectThread != null;
+
+                if (disconnectThreadWasStarted)
                 {
+                    // Disconnect was started on a separate thread - wait for it to complete
                     disconnectThreadDone = disconnectThread.Join(TimeSpan.FromSeconds(10));
                 }
                 else
                 {
+                    // Disconnect was never started - clean up the session directly
                     disconnectThreadDone = true;
                 }
 
@@ -4544,10 +4548,17 @@ namespace BlackIceGPUTemp.Tests
                 {
                     throw new InvalidOperationException(
                         $"Test cleanup failed: readTaskDone={readTaskDone}, disconnectThreadDone={disconnectThreadDone}. " +
-                        "Threads still running; synchronization objects not disposed.");
+                        "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
                 }
 
-                // Deterministic disposal of synchronization objects
+                // Only call Disconnect if the disconnect thread was never started
+                // (if it was started, it already called Disconnect internally)
+                if (!disconnectThreadWasStarted)
+                {
+                    try { provider.Disconnect(); } catch { }
+                }
+
+                // Deterministic disposal of synchronization objects (after threads confirmed done)
                 readReachedPause.Dispose();
                 releaseRead.Dispose();
                 readCompleted.Dispose();
