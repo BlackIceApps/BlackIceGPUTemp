@@ -99,8 +99,8 @@ namespace BlackIceGPUTemp.Tests
 
             var startBarrier = new Barrier(2);
             var endBarrier = new Barrier(2);
-            var ownerHolder = new MonitoringLifecycleOwner[1];
-            var lifecycleHolder = new FakeLifecycle[1];
+            var owners = new MonitoringLifecycleOwner[iterations];
+            var lifecycles = new FakeLifecycle[iterations];
 
             Thread? registerThread = null;
             Thread? stopThread = null;
@@ -114,7 +114,7 @@ namespace BlackIceGPUTemp.Tests
                         try
                         {
                             startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                            registerResults[i] = ownerHolder[0].TryRegister(lifecycleHolder[0]);
+                            registerResults[i] = owners[i].TryRegister(lifecycles[i]);
                         }
                         catch (Exception ex)
                         {
@@ -134,7 +134,7 @@ namespace BlackIceGPUTemp.Tests
                         try
                         {
                             startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                            stopResults[i] = ownerHolder[0].StopAndTake();
+                            stopResults[i] = owners[i].StopAndTake();
                         }
                         catch (Exception ex)
                         {
@@ -147,19 +147,27 @@ namespace BlackIceGPUTemp.Tests
                     }
                 });
 
+                registerThread.IsBackground = true;
+                stopThread.IsBackground = true;
                 registerThread.Start();
                 stopThread.Start();
 
                 for (int i = 0; i < iterations; i++)
                 {
-                    ownerHolder[0] = new MonitoringLifecycleOwner();
-                    lifecycleHolder[0] = new FakeLifecycle();
+                    owners[i] = new MonitoringLifecycleOwner();
+                    lifecycles[i] = new FakeLifecycle();
 
                     bool startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    Assert.True(startSync, $"Start barrier timed out at iteration {i}");
+                    if (!startSync)
+                    {
+                        throw new InvalidOperationException($"Start barrier timed out at iteration {i}");
+                    }
 
                     bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    Assert.True(endSync, $"End barrier timed out at iteration {i}");
+                    if (!endSync)
+                    {
+                        throw new InvalidOperationException($"End barrier timed out at iteration {i}");
+                    }
                 }
 
                 bool registerThreadDone = registerThread.Join(TimeSpan.FromSeconds(30));
@@ -184,20 +192,20 @@ namespace BlackIceGPUTemp.Tests
                     if (registerSuccess)
                     {
                         // Registration won - StopAndTake must return the same provider
-                        Assert.Same(lifecycleHolder[0], stopResults[i]);
-                        var cleanup = ownerHolder[0].StopAndTake();
+                        Assert.Same(lifecycles[i], stopResults[i]);
+                        var cleanup = owners[i].StopAndTake();
                         Assert.Null(cleanup);
                     }
                     else
                     {
                         // Stop won - registration failed, StopAndTake returned null
                         Assert.Null(stopResults[i]);
-                        bool lateRegister = ownerHolder[0].TryRegister(lifecycleHolder[0]);
+                        bool lateRegister = owners[i].TryRegister(lifecycles[i]);
                         Assert.False(lateRegister);
                     }
 
                     // After race completes, any further registration must fail regardless of winner
-                    bool lateRegisterResult = ownerHolder[0].TryRegister(new FakeLifecycle());
+                    bool lateRegisterResult = owners[i].TryRegister(new FakeLifecycle());
                     Assert.False(lateRegisterResult, $"Late register should always fail after stop at iteration {i}");
                 }
             }
