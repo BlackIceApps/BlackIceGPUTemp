@@ -92,58 +92,125 @@ namespace BlackIceGPUTemp.Tests
         {
             const int iterations = 1000;
 
-            for (int i = 0; i < iterations; i++)
+            var registerResults = new bool?[iterations];
+            var stopResults = new IGpuProviderLifecycle?[iterations];
+            var registerExceptions = new Exception?[iterations];
+            var stopExceptions = new Exception?[iterations];
+
+            var startBarrier = new Barrier(2);
+            var endBarrier = new Barrier(2);
+            var ownerHolder = new MonitoringLifecycleOwner[1];
+            var lifecycleHolder = new FakeLifecycle[1];
+
+            Thread? registerThread = null;
+            Thread? stopThread = null;
+
+            try
             {
-                var owner = new MonitoringLifecycleOwner();
-                var lifecycle = new FakeLifecycle();
-                var startBarrier = new Barrier(2);
-                var registerDone = new ManualResetEventSlim(false);
-                var stopDone = new ManualResetEventSlim(false);
-                bool? registerResult = null;
-                IGpuProviderLifecycle? stopResult = null;
-
-                var registerTask = Task.Run(() =>
+                registerThread = new Thread(() =>
                 {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    registerResult = owner.TryRegister(lifecycle);
-                    registerDone.Set();
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        try
+                        {
+                            startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            registerResults[i] = ownerHolder[0].TryRegister(lifecycleHolder[0]);
+                        }
+                        catch (Exception ex)
+                        {
+                            registerExceptions[i] = ex;
+                        }
+                        finally
+                        {
+                            endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                    }
                 });
 
-                var stopTask = Task.Run(() =>
+                stopThread = new Thread(() =>
                 {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    stopResult = owner.StopAndTake();
-                    stopDone.Set();
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        try
+                        {
+                            startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            stopResults[i] = ownerHolder[0].StopAndTake();
+                        }
+                        catch (Exception ex)
+                        {
+                            stopExceptions[i] = ex;
+                        }
+                        finally
+                        {
+                            endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        }
+                    }
                 });
 
-                bool registerCompleted = registerDone.Wait(TimeSpan.FromSeconds(5));
-                bool stopCompleted = stopDone.Wait(TimeSpan.FromSeconds(5));
-                Assert.True(registerCompleted, "Register task timed out");
-                Assert.True(stopCompleted, "Stop task timed out");
+                registerThread.Start();
+                stopThread.Start();
 
-                registerTask.Wait(TimeSpan.FromSeconds(5));
-                stopTask.Wait(TimeSpan.FromSeconds(5));
-
-                bool registerSuccess = registerResult == true;
-
-                if (registerSuccess)
+                for (int i = 0; i < iterations; i++)
                 {
-                    // Registration won - StopAndTake must return the same provider
-                    Assert.Same(lifecycle, stopResult);
-                    var cleanup = owner.StopAndTake();
-                    Assert.Null(cleanup);
-                }
-                else
-                {
-                    // Stop won - registration failed, StopAndTake returned null
-                    Assert.Null(stopResult);
-                    bool lateRegister = owner.TryRegister(lifecycle);
-                    Assert.False(lateRegister);
+                    ownerHolder[0] = new MonitoringLifecycleOwner();
+                    lifecycleHolder[0] = new FakeLifecycle();
+
+                    bool startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    Assert.True(startSync, $"Start barrier timed out at iteration {i}");
+
+                    bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    Assert.True(endSync, $"End barrier timed out at iteration {i}");
                 }
 
-                // After race completes, any further registration must fail regardless of winner
-                bool lateRegisterResult = owner.TryRegister(new FakeLifecycle());
-                Assert.False(lateRegisterResult, "Late register should always fail after stop");
+                bool registerThreadDone = registerThread.Join(TimeSpan.FromSeconds(30));
+                bool stopThreadDone = stopThread.Join(TimeSpan.FromSeconds(30));
+
+                Assert.True(registerThreadDone, "Register thread did not complete in time");
+                Assert.True(stopThreadDone, "Stop thread did not complete in time");
+
+                for (int i = 0; i < iterations; i++)
+                {
+                    if (registerExceptions[i] != null)
+                    {
+                        throw new InvalidOperationException($"Register thread exception at iteration {i}", registerExceptions[i]);
+                    }
+                    if (stopExceptions[i] != null)
+                    {
+                        throw new InvalidOperationException($"Stop thread exception at iteration {i}", stopExceptions[i]);
+                    }
+
+                    bool registerSuccess = registerResults[i] == true;
+
+                    if (registerSuccess)
+                    {
+                        // Registration won - StopAndTake must return the same provider
+                        Assert.Same(lifecycleHolder[0], stopResults[i]);
+                        var cleanup = ownerHolder[0].StopAndTake();
+                        Assert.Null(cleanup);
+                    }
+                    else
+                    {
+                        // Stop won - registration failed, StopAndTake returned null
+                        Assert.Null(stopResults[i]);
+                        bool lateRegister = ownerHolder[0].TryRegister(lifecycleHolder[0]);
+                        Assert.False(lateRegister);
+                    }
+
+                    // After race completes, any further registration must fail regardless of winner
+                    bool lateRegisterResult = ownerHolder[0].TryRegister(new FakeLifecycle());
+                    Assert.False(lateRegisterResult, $"Late register should always fail after stop at iteration {i}");
+                }
+            }
+            finally
+            {
+                if (registerThread != null && registerThread.IsAlive)
+                {
+                    registerThread.Join(TimeSpan.FromSeconds(5));
+                }
+                if (stopThread != null && stopThread.IsAlive)
+                {
+                    stopThread.Join(TimeSpan.FromSeconds(5));
+                }
             }
         }
 
