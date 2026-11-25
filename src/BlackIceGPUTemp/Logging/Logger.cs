@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -16,6 +17,8 @@ namespace BlackIceGPUTemp.Logging
     {
         private static readonly string LogFilePath;
         private static readonly object FileLock = new();
+        private static readonly HashSet<string> WrittenWarningsAndErrors = new();
+        private static readonly object DedupLock = new();
 
         static Logger()
         {
@@ -59,18 +62,51 @@ namespace BlackIceGPUTemp.Logging
                 return;
             }
 
-            try
-            {
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                string entry = $"{timestamp} [{level}] {message}{Environment.NewLine}";
+            bool shouldDeduplicate = level == LogLevel.Warn || level == LogLevel.Error;
 
-                lock (FileLock)
+            if (shouldDeduplicate)
+            {
+                string dedupKey = $"{level}:{message}";
+
+                lock (DedupLock)
                 {
-                    File.AppendAllText(LogFilePath, entry, Encoding.UTF8);
+                    if (WrittenWarningsAndErrors.Contains(dedupKey))
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                        string entry = $"{timestamp} [{level}] {message}{Environment.NewLine}";
+
+                        lock (FileLock)
+                        {
+                            File.AppendAllText(LogFilePath, entry, Encoding.UTF8);
+                        }
+
+                        WrittenWarningsAndErrors.Add(dedupKey);
+                    }
+                    catch
+                    {
+                    }
                 }
             }
-            catch
+            else
             {
+                try
+                {
+                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                    string entry = $"{timestamp} [{level}] {message}{Environment.NewLine}";
+
+                    lock (FileLock)
+                    {
+                        File.AppendAllText(LogFilePath, entry, Encoding.UTF8);
+                    }
+                }
+                catch
+                {
+                }
             }
         }
     }
