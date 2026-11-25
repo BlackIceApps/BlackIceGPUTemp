@@ -1694,6 +1694,53 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void TryReadTemperatureInternal_WhenGetPerfServicesFailsWithNonZeroPointer_ReleasesServicesTargetGpuAndGpuList()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
+                {
+                    svc = new IntPtr(0x4000);
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+
+            Assert.False(success);
+            Assert.Null(reading);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get performance monitoring services", error);
+
+            // Services pointer (0x4000) released exactly once
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
+            // Target GPU (0x3000) released exactly once
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+            // System (0x1000) and gpuList (0x2000) NOT released before Disconnect
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
+
+            // Terminate NOT called yet, fake NOT disposed
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            // gpuList (0x2000) released exactly once on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            // Terminate called exactly once
+            Assert.Equal(1, fake.TerminateCalls);
+            // Fake disposed
+            Assert.True(fake.IsDisposed);
+            // Services pointer (0x4000) still released exactly once (not again on Disconnect)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
+        }
+
+        [Fact]
         public void TryReadTemperatureInternal_WhenGetSupportedMetricsFails_ReleasesServicesTargetGpuAndGpuList()
         {
             var fake = new FakeAdlxNative
