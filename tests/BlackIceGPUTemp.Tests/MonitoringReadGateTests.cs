@@ -74,13 +74,14 @@ namespace BlackIceGPUTemp.Tests
             const int threadCount = 10;
             var startBarrier = new Barrier(threadCount);
             var releaseEvent = new ManualResetEventSlim(false);
+            var attemptCompletedEvent = new CountdownEvent(threadCount);
             var doneEvent = new CountdownEvent(threadCount);
             int successCount = 0;
 
             var tasks = new Task[threadCount];
             for (int i = 0; i < threadCount; i++)
             {
-                tasks[i] = Task.Run(() =>
+                tasks[i] = Task.Factory.StartNew(() =>
                 {
                     try
                     {
@@ -88,28 +89,31 @@ namespace BlackIceGPUTemp.Tests
                         if (gate.TryBeginRead())
                         {
                             Interlocked.Increment(ref successCount);
-                            releaseEvent.Wait();
+                            attemptCompletedEvent.Signal();
+                            releaseEvent.Wait(TimeSpan.FromSeconds(5));
                             gate.EndRead();
+                        }
+                        else
+                        {
+                            attemptCompletedEvent.Signal();
                         }
                     }
                     finally
                     {
                         doneEvent.Signal();
                     }
-                });
+                }, TaskCreationOptions.LongRunning);
             }
 
-            try
-            {
-                doneEvent.Wait();
-            }
-            finally
-            {
-                releaseEvent.Set();
-                Task.WaitAll(tasks);
-            }
+            bool attemptsDone = attemptCompletedEvent.Wait(TimeSpan.FromSeconds(5));
+            Assert.True(attemptsDone, "Not all threads completed TryBeginRead attempt in time");
 
             Assert.Equal(1, successCount);
+
+            releaseEvent.Set();
+
+            bool allDone = doneEvent.Wait(TimeSpan.FromSeconds(5));
+            Assert.True(allDone, "Not all tasks finished in time");
         }
 
         [Fact]
