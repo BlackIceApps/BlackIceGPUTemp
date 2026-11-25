@@ -1822,6 +1822,17 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(fake.IsDisposed);
             // System (0x1000) NOT released
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+
+            // Verify release order: child before parent
+            int metricsSupportIdx = fake.ReleaseOrder.IndexOf(0x6000);
+            int servicesIdx = fake.ReleaseOrder.IndexOf(0x4000);
+            int targetGpuIdx = fake.ReleaseOrder.IndexOf(0x3000);
+            int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
+
+            Assert.True(metricsSupportIdx >= 0 && servicesIdx >= 0 && targetGpuIdx >= 0 && gpuListIdx >= 0, "All interfaces should be released");
+            Assert.True(metricsSupportIdx < servicesIdx, "metricsSupport (0x6000) before services (0x4000)");
+            Assert.True(servicesIdx < targetGpuIdx, "services (0x4000) before targetGpu (0x3000)");
+            Assert.True(targetGpuIdx < gpuListIdx, "targetGpu (0x3000) before gpuList (0x2000)");
         }
 
         [Fact]
