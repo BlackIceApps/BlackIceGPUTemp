@@ -293,7 +293,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void ConcurrentStopAndTake_OnlyOneGetsProvider()
+        public async Task ConcurrentStopAndTake_OnlyOneGetsProvider()
         {
             const int threadCount = 20;
             var owner = new MonitoringLifecycleOwner();
@@ -314,7 +314,7 @@ namespace BlackIceGPUTemp.Tests
                 });
             }
 
-            Task.WaitAll(tasks, TimeSpan.FromSeconds(10));
+            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(10));
 
             int nonNullCount = 0;
             for (int i = 0; i < threadCount; i++)

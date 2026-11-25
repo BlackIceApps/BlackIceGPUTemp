@@ -68,7 +68,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryBeginRead_ConcurrentCalls_OnlyOneSucceeds()
+        public async Task TryBeginRead_ConcurrentCalls_OnlyOneSucceeds()
         {
             var gate = new MonitoringReadGate();
             const int threadCount = 10;
@@ -122,13 +122,13 @@ namespace BlackIceGPUTemp.Tests
             {
                 releaseEvent.Set();
 
-                bool allDone = Task.WaitAll(tasks, TimeSpan.FromSeconds(5));
+                bool allDone = await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.True(allDone, "Not all tasks finished in time");
             }
         }
 
         [Fact]
-        public void TryBeginRead_AfterStop_AlwaysReturnsFalse()
+        public async Task TryBeginRead_AfterStop_AlwaysReturnsFalse()
         {
             var gate = new MonitoringReadGate();
 
@@ -152,7 +152,7 @@ namespace BlackIceGPUTemp.Tests
                 });
             }
 
-            Task.WaitAll(tasks);
+            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(0, successCount);
         }

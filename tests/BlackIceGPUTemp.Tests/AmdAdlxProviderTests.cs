@@ -4615,7 +4615,11 @@ namespace BlackIceGPUTemp.Tests
                 if (disconnectThreadWasStarted)
                 {
                     // Disconnect was started on a separate thread - wait for it to complete
-                    disconnectThreadDone = disconnectThread.Join(TimeSpan.FromSeconds(10));
+                    Thread? localDisconnectThread = disconnectThread;
+                    if (localDisconnectThread != null)
+                    {
+                        disconnectThreadDone = localDisconnectThread.Join(TimeSpan.FromSeconds(10));
+                    }
                 }
                 else
                 {
