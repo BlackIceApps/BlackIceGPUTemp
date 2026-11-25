@@ -169,33 +169,32 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return result;
     }
 
-    public int Terminate()
-    {
-        if (_disposed)
+public int Terminate()
         {
-            throw new ObjectDisposedException(nameof(AdlxNative));
-        }
-        if (!_isLoaded || _terminate == null)
-        {
-            throw new InvalidOperationException("ADLX library is not loaded.");
-        }
-        if (!_isInitialized)
-        {
-            throw new InvalidOperationException("ADLX is not initialized.");
-        }
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(AdlxNative));
+            }
+            if (!_isLoaded || _terminate == null)
+            {
+                throw new InvalidOperationException("ADLX library is not loaded.");
+            }
+            if (!_isInitialized)
+            {
+                throw new InvalidOperationException("ADLX is not initialized.");
+            }
 
-        int result = _terminate();
-        if (result == 0)
-        {
-            _isInitialized = false;
+            int result = _terminate();
+            if (result == 0)
+            {
+                _isInitialized = false;
+            }
+            else if (result == ADLX_ORPHAN_OBJECTS)
+            {
+                _isInitialized = false;
+            }
+            return result;
         }
-        else if (result == ADLX_ORPHAN_OBJECTS)
-        {
-            _isInitialized = false;
-            Logger.LogInfo("ADLX reported orphan objects (0xB); local initialization state cleared.");
-        }
-        return result;
-    }
 
     public int GetGpuList(IntPtr system, out IntPtr gpuList)
     {
@@ -431,26 +430,22 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return del(metrics, out celsius);
     }
 
-    public int Release(IntPtr adlxInterface)
-    {
-        if (_disposed)
+public int Release(IntPtr adlxInterface)
         {
-            throw new ObjectDisposedException(nameof(AdlxNative));
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(AdlxNative));
+            }
+            if (adlxInterface == IntPtr.Zero)
+            {
+                return 0;
+            }
+
+            var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
+            int result = del(adlxInterface);
+
+            return result;
         }
-        if (adlxInterface == IntPtr.Zero)
-        {
-            return 0;
-        }
-
-        Logger.LogInfo($"Release: entry adlxInterface=0x{adlxInterface:X}");
-
-        var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
-        Logger.LogInfo($"Release: calling delegate");
-        int result = del(adlxInterface);
-        Logger.LogInfo($"Release: returned reference count={result}");
-
-        return result;
-    }
 
     private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, AdlxVtableIndex vtableIndex) where TDelegate : Delegate
     {
