@@ -339,7 +339,7 @@ namespace BlackIceGPUTemp.Tray
                             }
                         }
 
-                        _displayUpdater.Update(session.DeviceName, success, reading);
+                        _displayUpdater.Update(session.DeviceName, success, reading, error);
                     }
                     catch (Exception ex)
                     {
