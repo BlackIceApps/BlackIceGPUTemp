@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BlackIceGPUTemp.Monitoring.Abstractions;
@@ -302,59 +303,72 @@ namespace BlackIceGPUTemp.Tests
 
             var startBarrier = new Barrier(threadCount);
             var results = new IGpuProviderLifecycle?[threadCount];
-            var threads = new List<Thread>();
-
-            for (int i = 0; i < threadCount; i++)
+            var threads = new Thread[threadCount];
+            try
             {
-                int index = i;
-                var t = new Thread(() =>
+                for (int i = 0; i < threadCount; i++)
                 {
-                    bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    if (!barrierSignaled)
+                    int index = i;
+                    var t = new Thread(() =>
                     {
-                        return; // Worker exits gracefully on barrier timeout
+                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        if (!barrierSignaled)
+                        {
+                            return; // Worker exits gracefully on barrier timeout
+                        }
+                        results[index] = owner.StopAndTake();
+                    });
+                    threads[i] = t;
+                    t.Start();
+                }
+
+                // Wait for all threads to complete with timeout
+                var timeout = TimeSpan.FromSeconds(10);
+                var start = DateTime.UtcNow;
+                bool allDone = false;
+                while (DateTime.UtcNow - start < timeout)
+                {
+                    allDone = true;
+                    foreach (var t in threads)
+                    {
+                        if (t.IsAlive)
+                        {
+                            allDone = false;
+                            break;
+                        }
                     }
-                    results[index] = owner.StopAndTake();
-                });
-                threads.Add(t);
-                t.Start();
-            }
-
-            // Wait for all threads to complete with timeout
-            var timeout = TimeSpan.FromSeconds(10);
-            var start = DateTime.UtcNow;
-            bool allDone = false;
-            while (DateTime.UtcNow - start < timeout)
-            {
-                allDone = true;
-                foreach (var t in threads)
-                {
-                    if (t.IsAlive)
+                    if (allDone)
                     {
-                        allDone = false;
                         break;
                     }
+                    Thread.Sleep(10);
                 }
-                if (allDone)
+
+                Assert.True(allDone, "Not all threads finished in time");
+
+                int nonNullCount = 0;
+                for (int i = 0; i < threadCount; i++)
                 {
-                    break;
+                    if (results[i] != null)
+                    {
+                        nonNullCount++;
+                        Assert.Same(lifecycle, results[i]);
+                    }
                 }
-                Thread.Sleep(10);
+
+                Assert.Equal(1, nonNullCount);
             }
-
-            Assert.True(allDone, "Not all threads finished in time");
-
-            int nonNullCount = 0;
-            for (int i = 0; i < threadCount; i++)
+            finally
             {
-                if (results[i] != null)
+                // Ensure all threads are joined even if assertion fails
+                foreach (var t in threads)
                 {
-                    nonNullCount++;
-                    Assert.Same(lifecycle, results[i]);
+                    if (t != null && t.IsAlive)
+                    {
+                        t.Join(TimeSpan.FromSeconds(2));
+                    }
                 }
             }
-
-            Assert.Equal(1, nonNullCount);
         }
 
         [Fact]

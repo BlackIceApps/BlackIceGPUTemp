@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BlackIceGPUTemp.Tray;
@@ -141,50 +142,64 @@ namespace BlackIceGPUTemp.Tests
             var startBarrier = new Barrier(threadCount);
             int successCount = 0;
 
-            var threads = new List<Thread>();
-            for (int i = 0; i < threadCount; i++)
+            var threads = new Thread[threadCount];
+            try
             {
-                var t = new Thread(() =>
+                for (int i = 0; i < threadCount; i++)
                 {
-                    bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    if (!barrierSignaled)
+                    var t = new Thread(() =>
                     {
-                        return; // Worker exits gracefully on barrier timeout
-                    }
-                    if (gate.TryBeginRead())
-                    {
-                        Interlocked.Increment(ref successCount);
-                        gate.EndRead();
-                    }
-                });
-                threads.Add(t);
-                t.Start();
-            }
+                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        if (!barrierSignaled)
+                        {
+                            return; // Worker exits gracefully on barrier timeout
+                        }
+                        if (gate.TryBeginRead())
+                        {
+                            Interlocked.Increment(ref successCount);
+                            gate.EndRead();
+                        }
+                    });
+                    threads[i] = t;
+                    t.Start();
+                }
 
-            // Wait for all threads to complete with timeout
-            var timeout = TimeSpan.FromSeconds(5);
-            var start = DateTime.UtcNow;
-            bool allDone = false;
-            while (DateTime.UtcNow - start < timeout)
-            {
-                allDone = true;
-                foreach (var t in threads)
+                // Wait for all threads to complete with timeout
+                var timeout = TimeSpan.FromSeconds(5);
+                var start = DateTime.UtcNow;
+                bool allDone = false;
+                while (DateTime.UtcNow - start < timeout)
                 {
-                    if (t.IsAlive)
+                    allDone = true;
+                    foreach (var t in threads)
                     {
-                        allDone = false;
+                        if (t.IsAlive)
+                        {
+                            allDone = false;
+                            break;
+                        }
+                    }
+                    if (allDone)
+                    {
                         break;
                     }
+                    Thread.Sleep(10);
                 }
-                if (allDone)
-                {
-                    break;
-                }
-                Thread.Sleep(10);
-            }
 
-            Assert.True(allDone, "Not all threads finished in time");
-            Assert.Equal(0, successCount);
+                Assert.True(allDone, "Not all threads finished in time");
+                Assert.Equal(0, successCount);
+            }
+            finally
+            {
+                // Ensure all threads are joined even if assertion fails
+                foreach (var t in threads)
+                {
+                    if (t != null && t.IsAlive)
+                    {
+                        t.Join(TimeSpan.FromSeconds(2));
+                    }
+                }
+            }
         }
 
         [Fact]
