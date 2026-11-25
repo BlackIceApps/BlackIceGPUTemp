@@ -22,11 +22,11 @@ namespace BlackIceGPUTemp.Tray
             _reportError = reportError ?? throw new ArgumentNullException(nameof(reportError));
         }
 
-        public void Update(string deviceName, bool success, TemperatureReading? reading)
+        public void Update(string deviceName, bool success, TemperatureReading? reading, string? error = null)
         {
             _dispatcher(() =>
             {
-                var displayState = TemperatureDisplayState.Create(deviceName, success, reading);
+                var displayState = TemperatureDisplayState.Create(deviceName, success, reading, error);
 
                 try
                 {

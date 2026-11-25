@@ -105,6 +105,80 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void Update_FailedReading_WithNullError_PassesUnavailableTooltipAndDashIcon()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+
+            updater.Update("Test GPU", false, null, null);
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: Temp unavailable", _tooltipResult);
+            Assert.Equal("--", _iconResult);
+        }
+
+        [Fact]
+        public void Update_FailedReading_WithEmptyError_PassesUnavailableTooltipAndDashIcon()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+
+            updater.Update("Test GPU", false, null, "");
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: Temp unavailable", _tooltipResult);
+            Assert.Equal("--", _iconResult);
+        }
+
+        [Fact]
+        public void Update_FailedReading_WithWhitespaceError_PassesUnavailableTooltipAndDashIcon()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+
+            updater.Update("Test GPU", false, null, "   ");
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: Temp unavailable", _tooltipResult);
+            Assert.Equal("--", _iconResult);
+        }
+
+        [Fact]
+        public void Update_FailedReading_WithSpecificError_PassesErrorTooltipAndDashIcon()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+
+            updater.Update("Test GPU", false, null, "Device not found");
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: Device not found", _tooltipResult);
+            Assert.Equal("--", _iconResult);
+        }
+
+        [Fact]
+        public void Update_FailedReading_WithNonNullReading_PassesErrorTooltipAndDashIcon()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+            var reading = new TemperatureReading(75.0, "GPU Core", DateTimeOffset.UtcNow);
+
+            updater.Update("Test GPU", false, reading, "Failed to read temperature from device.");
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: Failed to read temperature from device.", _tooltipResult);
+            Assert.Equal("--", _iconResult);
+        }
+
+        [Fact]
+        public void Update_SuccessfulReading_WithErrorMessage_IgnoresErrorAndReturnsSuccessTooltip()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+            var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
+
+            updater.Update("Test GPU", true, reading, "Some error");
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: 65.5°C", _tooltipResult);
+            Assert.Equal("66", _iconResult);
+        }
+
+        [Fact]
         public void Update_TooltipThrows_ReportsErrorAndIconStillUpdates()
         {
             var tooltipException = new InvalidOperationException("Tooltip failed");

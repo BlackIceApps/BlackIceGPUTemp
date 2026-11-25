@@ -17,9 +17,9 @@ namespace BlackIceGPUTemp.Tray
             }
         }
 
-        public static Result Create(string deviceName, bool success, TemperatureReading? reading)
+        public static Result Create(string deviceName, bool success, TemperatureReading? reading, string? error = null)
         {
-            if (success && reading != null)
+            if (success && reading != null && IsFinite(reading.Celsius))
             {
                 var tooltipText = $"{deviceName}: {reading.Celsius:F1}°C";
                 var iconText = ((int)Math.Round(reading.Celsius)).ToString();
@@ -27,10 +27,17 @@ namespace BlackIceGPUTemp.Tray
             }
             else
             {
-                var tooltipText = $"{deviceName}: Temp unavailable";
+                var tooltipText = string.IsNullOrWhiteSpace(error)
+                    ? $"{deviceName}: Temp unavailable"
+                    : $"{deviceName}: {error}";
                 var iconText = "--";
                 return new Result(tooltipText, iconText);
             }
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
     }
 }
