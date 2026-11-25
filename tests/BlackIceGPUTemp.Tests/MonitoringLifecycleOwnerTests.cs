@@ -97,8 +97,8 @@ namespace BlackIceGPUTemp.Tests
             var registerExceptions = new Exception?[iterations];
             var stopExceptions = new Exception?[iterations];
 
-            var startBarrier = new Barrier(2);
-            var endBarrier = new Barrier(2);
+            var startBarrier = new Barrier(3);
+            var endBarrier = new Barrier(3);
             var owners = new MonitoringLifecycleOwner[iterations];
             var lifecycles = new FakeLifecycle[iterations];
             int stopRequested = 0;
@@ -141,7 +141,11 @@ namespace BlackIceGPUTemp.Tests
 
                         try
                         {
-                            endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            if (!endSync)
+                            {
+                                Interlocked.Exchange(ref stopRequested, 1);
+                            }
                         }
                         catch (BarrierPostPhaseException)
                         {
@@ -188,7 +192,11 @@ namespace BlackIceGPUTemp.Tests
 
                         try
                         {
-                            endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                            if (!endSync)
+                            {
+                                Interlocked.Exchange(ref stopRequested, 1);
+                            }
                         }
                         catch (BarrierPostPhaseException)
                         {
