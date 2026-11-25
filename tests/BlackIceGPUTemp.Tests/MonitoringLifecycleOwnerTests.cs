@@ -101,7 +101,7 @@ namespace BlackIceGPUTemp.Tests
             var endBarrier = new Barrier(2);
             var owners = new MonitoringLifecycleOwner[iterations];
             var lifecycles = new FakeLifecycle[iterations];
-            var stopRequested = false;
+            int stopRequested = 0;
 
             Thread? registerThread = null;
             Thread? stopThread = null;
@@ -122,7 +122,7 @@ namespace BlackIceGPUTemp.Tests
                             break; // Main thread broke the barrier
                         }
 
-                        if (!startSync || stopRequested)
+                        if (!startSync || Volatile.Read(ref stopRequested) != 0)
                         {
                             break;
                         }
@@ -147,7 +147,12 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
-                        if (stopRequested || hadException)
+                        if (hadException)
+                        {
+                            Interlocked.Exchange(ref stopRequested, 1);
+                        }
+
+                        if (Volatile.Read(ref stopRequested) != 0 || hadException)
                         {
                             break;
                         }
@@ -168,7 +173,7 @@ namespace BlackIceGPUTemp.Tests
                             break; // Main thread broke the barrier
                         }
 
-                        if (!startSync || stopRequested)
+                        if (!startSync || Volatile.Read(ref stopRequested) != 0)
                         {
                             break;
                         }
@@ -193,7 +198,12 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
-                        if (stopRequested || hadException)
+                        if (hadException)
+                        {
+                            Interlocked.Exchange(ref stopRequested, 1);
+                        }
+
+                        if (Volatile.Read(ref stopRequested) != 0 || hadException)
                         {
                             break;
                         }
@@ -213,14 +223,14 @@ namespace BlackIceGPUTemp.Tests
                     bool startSync = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!startSync)
                     {
-                        stopRequested = true;
+                        Interlocked.Exchange(ref stopRequested, 1);
                         throw new InvalidOperationException($"Start barrier timed out at iteration {i}");
                     }
 
                     bool endSync = endBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
                     if (!endSync)
                     {
-                        stopRequested = true;
+                        Interlocked.Exchange(ref stopRequested, 1);
                         throw new InvalidOperationException($"End barrier timed out at iteration {i}");
                     }
                 }
