@@ -37,6 +37,7 @@ namespace BlackIceGPUTemp.Tray
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
         private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
+        private readonly MonitoringDisplayUpdater _displayUpdater;
 
         private sealed class MonitoringSession
         {
@@ -103,6 +104,11 @@ namespace BlackIceGPUTemp.Tray
 
             _readExecutor = new MonitoringReadExecutor(action => Task.Run(action));
             _readTrigger = new MonitoringReadTrigger(_readExecutor);
+            _displayUpdater = new MonitoringDisplayUpdater(
+                InvokeOnUiThread,
+                UpdateTooltip,
+                UpdateIcon,
+                ex => Logger.LogError("Monitoring display update failed", ex));
 
             Task.Run(() => Initialize(_cancellationTokenSource.Token));
         }
@@ -333,12 +339,7 @@ namespace BlackIceGPUTemp.Tray
                             }
                         }
 
-                        InvokeOnUiThread(() =>
-                        {
-                            var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
-                            UpdateTooltip(displayState.TooltipText);
-                            UpdateIcon(displayState.IconText);
-                        });
+                        _displayUpdater.Update(session.DeviceName, success, reading);
                     }
                     catch (Exception ex)
                     {
@@ -351,12 +352,7 @@ namespace BlackIceGPUTemp.Tray
                         }
 
                         Logger.LogError("Error reading temperature", ex);
-                        InvokeOnUiThread(() =>
-                        {
-                            var displayState = TemperatureDisplayState.Create(session.DeviceName, false, null);
-                            UpdateTooltip(displayState.TooltipText);
-                            UpdateIcon(displayState.IconText);
-                        });
+                        _displayUpdater.Update(session.DeviceName, false, null);
                     }
                 },
                 cancellationToken: token);
