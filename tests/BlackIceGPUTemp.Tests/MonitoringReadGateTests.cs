@@ -90,8 +90,14 @@ namespace BlackIceGPUTemp.Tests
                         {
                             Interlocked.Increment(ref successCount);
                             attemptCompletedEvent.Signal();
-                            releaseEvent.Wait(TimeSpan.FromSeconds(5));
-                            gate.EndRead();
+                            try
+                            {
+                                releaseEvent.Wait(TimeSpan.FromSeconds(5));
+                            }
+                            finally
+                            {
+                                gate.EndRead();
+                            }
                         }
                         else
                         {
@@ -105,15 +111,22 @@ namespace BlackIceGPUTemp.Tests
                 }, TaskCreationOptions.LongRunning);
             }
 
-            bool attemptsDone = attemptCompletedEvent.Wait(TimeSpan.FromSeconds(5));
-            Assert.True(attemptsDone, "Not all threads completed TryBeginRead attempt in time");
+            try
+            {
+                bool attemptsDone = attemptCompletedEvent.Wait(TimeSpan.FromSeconds(5));
+                Assert.True(attemptsDone, "Not all threads completed TryBeginRead attempt in time");
 
-            Assert.Equal(1, successCount);
+                Assert.Equal(1, successCount);
+            }
+            finally
+            {
+                releaseEvent.Set();
 
-            releaseEvent.Set();
+                bool allDone = doneEvent.Wait(TimeSpan.FromSeconds(5));
+                Assert.True(allDone, "Not all tasks finished in time");
 
-            bool allDone = doneEvent.Wait(TimeSpan.FromSeconds(5));
-            Assert.True(allDone, "Not all tasks finished in time");
+                Task.WaitAll(tasks, TimeSpan.FromSeconds(5));
+            }
         }
 
         [Fact]
