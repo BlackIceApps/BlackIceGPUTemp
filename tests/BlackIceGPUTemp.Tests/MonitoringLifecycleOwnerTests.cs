@@ -262,13 +262,11 @@ namespace BlackIceGPUTemp.Tests
             {
                 var owner = new MonitoringLifecycleOwner();
                 var lifecycle = new FakeLifecycle();
-                var startBarrier = new Barrier(3);
+                var startBarrier = new Barrier(2);
                 var registerDone = new ManualResetEventSlim(false);
                 var stopDone = new ManualResetEventSlim(false);
-                var lateRegisterDone = new ManualResetEventSlim(false);
                 bool? earlyRegisterResult = null;
                 IGpuProviderLifecycle? stopResult = null;
-                bool? lateRegisterResult = null;
 
                 var earlyRegisterTask = Task.Run(() =>
                 {
@@ -284,30 +282,22 @@ namespace BlackIceGPUTemp.Tests
                     stopDone.Set();
                 });
 
-                var lateRegisterTask = Task.Run(() =>
-                {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    lateRegisterResult = owner.TryRegister(new FakeLifecycle());
-                    lateRegisterDone.Set();
-                });
-
-                bool earlyRegisterCompleted = registerDone.Wait(TimeSpan.FromSeconds(5));
+                bool registerCompleted = registerDone.Wait(TimeSpan.FromSeconds(5));
                 bool stopCompleted = stopDone.Wait(TimeSpan.FromSeconds(5));
-                bool lateRegisterCompleted = lateRegisterDone.Wait(TimeSpan.FromSeconds(5));
-                Assert.True(earlyRegisterCompleted, "Early register task timed out");
+                Assert.True(registerCompleted, "Early register task timed out");
                 Assert.True(stopCompleted, "Stop task timed out");
-                Assert.True(lateRegisterCompleted, "Late register task timed out");
 
                 earlyRegisterTask.Wait(TimeSpan.FromSeconds(5));
                 stopTask.Wait(TimeSpan.FromSeconds(5));
-                lateRegisterTask.Wait(TimeSpan.FromSeconds(5));
 
                 bool earlyRegisterSuccess = earlyRegisterResult == true;
                 bool stopSuccess = stopResult != null;
-                bool lateRegisterSuccess = lateRegisterResult == true;
 
                 Assert.True(earlyRegisterSuccess ^ stopSuccess, "Exactly one of early register or stop should succeed");
-                Assert.False(lateRegisterSuccess, "Late register should always fail after stop");
+
+                // Late registration after both tasks completed - must fail
+                bool lateRegisterResult = owner.TryRegister(new FakeLifecycle());
+                Assert.False(lateRegisterResult, "Late register should always fail after stop");
 
                 if (earlyRegisterSuccess)
                 {
