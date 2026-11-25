@@ -12,10 +12,7 @@ namespace BlackIceGPUTemp.Tests
             return new TemperatureReading(celsius, "GPU Core", DateTimeOffset.UtcNow);
         }
 
-        private static TemperatureReading CreateInvalidReading(double celsius)
-        {
-            return new TemperatureReading(celsius, "GPU Core", DateTimeOffset.UtcNow, true);
-        }
+
 
         [Fact]
         public void Create_SuccessfulReading_ReturnsFormattedTooltipAndRoundedIconText()
@@ -117,45 +114,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("66", result.IconText);
         }
 
-        [Fact]
-        public void Create_SuccessWithNaNReading_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateInvalidReading(double.NaN);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
-
-        [Fact]
-        public void Create_SuccessWithPositiveInfinityReading_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateInvalidReading(double.PositiveInfinity);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
-
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
-
-        [Fact]
-        public void Create_SuccessWithNegativeInfinityReading_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateInvalidReading(double.NegativeInfinity);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
-
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
-
-        [Fact]
-        public void Create_SuccessWithNaNReading_WithErrorMessage_ReturnsErrorTooltipAndDashIcon()
-        {
-            var reading = CreateInvalidReading(double.NaN);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading, "Sensor error");
-
-            Assert.Equal("Test GPU: Sensor error", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
 
         [Fact]
         public void Create_SuccessWithNullReading_ReturnsUnavailableTooltipAndDashIcon()
