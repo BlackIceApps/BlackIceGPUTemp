@@ -135,6 +135,7 @@ namespace BlackIceGPUTemp.Tests
                         catch (Exception ex)
                         {
                             registerExceptions[i] = ex;
+                            Interlocked.Exchange(ref stopRequested, 1);
                             hadException = true;
                         }
 
@@ -145,11 +146,6 @@ namespace BlackIceGPUTemp.Tests
                         catch (BarrierPostPhaseException)
                         {
                             break;
-                        }
-
-                        if (hadException)
-                        {
-                            Interlocked.Exchange(ref stopRequested, 1);
                         }
 
                         if (Volatile.Read(ref stopRequested) != 0 || hadException)
@@ -186,6 +182,7 @@ namespace BlackIceGPUTemp.Tests
                         catch (Exception ex)
                         {
                             stopExceptions[i] = ex;
+                            Interlocked.Exchange(ref stopRequested, 1);
                             hadException = true;
                         }
 
@@ -196,11 +193,6 @@ namespace BlackIceGPUTemp.Tests
                         catch (BarrierPostPhaseException)
                         {
                             break;
-                        }
-
-                        if (hadException)
-                        {
-                            Interlocked.Exchange(ref stopRequested, 1);
                         }
 
                         if (Volatile.Read(ref stopRequested) != 0 || hadException)
@@ -232,6 +224,11 @@ namespace BlackIceGPUTemp.Tests
                     {
                         Interlocked.Exchange(ref stopRequested, 1);
                         throw new InvalidOperationException($"End barrier timed out at iteration {i}");
+                    }
+
+                    if (Volatile.Read(ref stopRequested) != 0)
+                    {
+                        break;
                     }
                 }
 
