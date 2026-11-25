@@ -185,13 +185,13 @@ namespace BlackIceGPUTemp.Tests
             var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
 
             var originalCulture = Thread.CurrentThread.CurrentCulture;
-            Thread.CurrentThread.CurrentCulture = new CultureInfo("pl-PL");
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
 
             try
             {
                 updater.Update("Test GPU", true, reading);
 
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("pl-PL");
                 _capturedAction!();
 
                 Assert.Contains("65,5", _tooltipResult);
