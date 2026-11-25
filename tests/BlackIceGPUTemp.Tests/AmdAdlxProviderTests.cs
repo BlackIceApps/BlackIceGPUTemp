@@ -1176,6 +1176,44 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void EnumerateDevices_WhenGetGpuAtReturnsErrorWithNonZeroPointer_ReleasesGpuPointerOnce()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GetGpuAtHandler = (IntPtr gpuList, int index, out IntPtr gpu) =>
+                {
+                    gpu = new IntPtr(0x3000);
+                    return -1;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            bool success = ((IGpuDeviceEnumerator)provider).TryEnumerateDevices(out var devices, out var error);
+
+            Assert.False(success);
+            Assert.NotNull(error);
+            Assert.Contains("Failed to get GPU at index 0", error);
+            Assert.Contains("-1", error);
+            Assert.Empty(devices);
+
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+        }
+
+        [Fact]
         public void TryEnumerateDevices_WhenGpuListSizeFails_ReleasesGpuList()
         {
             var fake = new FakeAdlxNative
