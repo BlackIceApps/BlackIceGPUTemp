@@ -170,31 +170,31 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     }
 
     public int Terminate()
-        {
+    {
             if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(AdlxNative));
-            }
-            if (!_isLoaded || _terminate == null)
-            {
-                throw new InvalidOperationException("ADLX library is not loaded.");
-            }
-            if (!_isInitialized)
-            {
-                throw new InvalidOperationException("ADLX is not initialized.");
-            }
-
-            int result = _terminate();
-            if (result == 0)
-            {
-                _isInitialized = false;
-            }
-            else if (result == ADLX_ORPHAN_OBJECTS)
-            {
-                _isInitialized = false;
-            }
-            return result;
+        {
+            throw new ObjectDisposedException(nameof(AdlxNative));
         }
+        if (!_isLoaded || _terminate == null)
+        {
+            throw new InvalidOperationException("ADLX library is not loaded.");
+        }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized.");
+        }
+
+        int result = _terminate();
+        if (result == 0)
+        {
+            _isInitialized = false;
+        }
+        else if (result == ADLX_ORPHAN_OBJECTS)
+        {
+            _isInitialized = false;
+        }
+        return result;
+    }
 
     public int GetGpuList(IntPtr system, out IntPtr gpuList)
     {
@@ -431,21 +431,21 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     }
 
     public int Release(IntPtr adlxInterface)
-        {
+    {
             if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(AdlxNative));
-            }
-            if (adlxInterface == IntPtr.Zero)
-            {
-                return 0;
-            }
-
-            var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
-            int result = del(adlxInterface);
-
-            return result;
+        {
+            throw new ObjectDisposedException(nameof(AdlxNative));
         }
+        if (adlxInterface == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        var del = GetVtableDelegate<ReleaseDelegate>(adlxInterface, AdlxVtableIndex.IAdlxInterface_Release);
+        int result = del(adlxInterface);
+
+        return result;
+    }
 
     private static TDelegate GetVtableDelegate<TDelegate>(IntPtr instancePtr, AdlxVtableIndex vtableIndex) where TDelegate : Delegate
     {
