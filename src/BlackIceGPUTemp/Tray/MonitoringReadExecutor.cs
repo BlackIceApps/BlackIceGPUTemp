@@ -7,7 +7,6 @@ namespace BlackIceGPUTemp.Tray
     {
         private readonly MonitoringReadGate _readGate = new();
         private readonly Action<Action> _scheduler;
-        private int _gateReleased;
 
         public MonitoringReadExecutor(Action<Action> scheduler)
         {
@@ -19,6 +18,16 @@ namespace BlackIceGPUTemp.Tray
             if (!_readGate.TryBeginRead())
             {
                 return false;
+            }
+
+            int gateReleased = 0;
+
+            void ReleaseGateOnce()
+            {
+                if (Interlocked.Exchange(ref gateReleased, 1) == 0)
+                {
+                    _readGate.EndRead();
+                }
             }
 
             try
@@ -46,14 +55,6 @@ namespace BlackIceGPUTemp.Tray
             }
 
             return true;
-        }
-
-        private void ReleaseGateOnce()
-        {
-            if (Interlocked.Exchange(ref _gateReleased, 1) == 0)
-            {
-                _readGate.EndRead();
-            }
         }
 
         public void Stop()

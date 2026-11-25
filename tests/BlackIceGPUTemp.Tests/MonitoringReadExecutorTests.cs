@@ -119,20 +119,55 @@ namespace BlackIceGPUTemp.Tests
         public void TryExecute_SchedulerExecutesSynchronouslyThenThrows_GateReleased()
         {
             var capturedActions = new List<Action>();
+            bool firstCall = true;
+
             var executor = new MonitoringReadExecutor(action =>
             {
-                action();
-                throw new InvalidOperationException("scheduler failed after execution");
+                if (firstCall)
+                {
+                    firstCall = false;
+                    action();
+                    throw new InvalidOperationException("scheduler failed after execution");
+                }
+                else
+                {
+                    capturedActions.Add(action);
+                }
             });
 
             Assert.Throws<InvalidOperationException>(() => executor.TryExecute(_ => { }, CancellationToken.None));
 
-            Assert.Single(capturedActions);
-
             bool accepted = executor.TryExecute(_ => { }, CancellationToken.None);
 
             Assert.True(accepted);
+            Assert.Single(capturedActions);
+
+            capturedActions[0]();
+
+            bool third = executor.TryExecute(_ => { }, CancellationToken.None);
+
+            Assert.True(third);
             Assert.Equal(2, capturedActions.Count);
+        }
+
+        [Fact]
+        public void TryExecute_MultipleSequentialReads_AllAccepted()
+        {
+            var capturedActions = new List<Action>();
+            var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
+
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+            capturedActions[0]();
+
+            bool second = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(second);
+            capturedActions[1]();
+
+            bool third = executor.TryExecute(_ => { }, CancellationToken.None);
+
+            Assert.True(third);
+            Assert.Equal(3, capturedActions.Count);
         }
     }
 }
