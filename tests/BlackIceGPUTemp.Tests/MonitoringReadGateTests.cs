@@ -124,7 +124,9 @@ namespace BlackIceGPUTemp.Tests
 
                 var allTasks = Task.WhenAll(tasks);
                 var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
+                bool timedOut = completed != allTasks;
                 await allTasks;
+                Assert.False(timedOut, "Not all tasks finished in time");
             }
         }
 
@@ -159,7 +161,9 @@ namespace BlackIceGPUTemp.Tests
 
             var allTasks = Task.WhenAll(tasks);
             var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
+            bool timedOut = completed != allTasks;
             await allTasks;
+            Assert.False(timedOut, "Not all tasks finished in time");
 
             Assert.Equal(0, successCount);
         }
