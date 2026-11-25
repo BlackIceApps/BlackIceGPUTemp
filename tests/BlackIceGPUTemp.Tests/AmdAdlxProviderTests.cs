@@ -4187,13 +4187,13 @@ namespace BlackIceGPUTemp.Tests
             var provider = new AmdAdlxProvider(() => fake);
             
             // Declare outside try so finally can access them
-            Task? firstTask = null;
+            Thread? firstThread = null;
             Thread? secondThread = null;
             
             try
             {
-                // Start first TryProbe on background thread
-                firstTask = Task.Run(() =>
+                // Start first TryProbe on dedicated thread
+                firstThread = new Thread(() =>
                 {
                     try
                     {
@@ -4214,6 +4214,7 @@ namespace BlackIceGPUTemp.Tests
                         firstOperationCompleted.Set();
                     }
                 });
+                firstThread.Start();
                 
                 // Wait for first operation to reach the pause point (inside GetGpuListSize)
                 Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
@@ -4298,17 +4299,17 @@ namespace BlackIceGPUTemp.Tests
                 // Always release first operation to avoid deadlock
                 releaseFirstOperation.Set();
                 
-                // Wait for actual thread/task termination - not just signals
-                bool firstTaskDone = false;
+                // Wait for actual thread termination - not just signals
+                bool firstThreadDone = false;
                 bool secondThreadDone = false;
                 
-                if (firstTask != null)
+                if (firstThread != null)
                 {
-                    firstTaskDone = firstTask.Wait(TimeSpan.FromSeconds(10));
+                    firstThreadDone = firstThread.Join(TimeSpan.FromSeconds(10));
                 }
                 else
                 {
-                    firstTaskDone = true; // No task to wait for
+                    firstThreadDone = true; // No thread to wait for
                 }
                 
                 if (secondThread != null)
@@ -4321,10 +4322,10 @@ namespace BlackIceGPUTemp.Tests
                 }
                 
                 // If either didn't complete, fail cleanup and don't dispose/Disconnect
-                if (!firstTaskDone || !secondThreadDone)
+                if (!firstThreadDone || !secondThreadDone)
                 {
                     throw new InvalidOperationException(
-                        $"Test cleanup failed: firstTaskDone={firstTaskDone}, secondThreadDone={secondThreadDone}. " +
+                        $"Test cleanup failed: firstThreadDone={firstThreadDone}, secondThreadDone={secondThreadDone}. " +
                         "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
                 }
                 
