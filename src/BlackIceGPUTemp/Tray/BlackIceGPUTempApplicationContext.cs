@@ -33,6 +33,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly object _disposeLock = new();
         private volatile bool _disposing;
         private readonly MonitoringReadExecutor _readExecutor;
+        private readonly MonitoringReadTrigger _readTrigger;
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
         private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
@@ -101,6 +102,7 @@ namespace BlackIceGPUTemp.Tray
             _ = _uiDispatcher.Handle;
 
             _readExecutor = new MonitoringReadExecutor(action => Task.Run(action));
+            _readTrigger = new MonitoringReadTrigger(_readExecutor);
 
             Task.Run(() => Initialize(_cancellationTokenSource.Token));
         }
@@ -293,71 +295,71 @@ namespace BlackIceGPUTemp.Tray
         private void OnTimerTick(object? sender, EventArgs e)
         {
             var session = _session;
-            if (session == null)
-            {
-                return;
-            }
 
-            if (string.IsNullOrEmpty(session.ProviderId) || string.IsNullOrEmpty(session.DeviceId))
-            {
-                return;
-            }
-
+            bool isDisposing;
             lock (_disposeLock)
             {
-                if (_disposing)
-                {
-                    return;
-                }
+                isDisposing = _disposing;
             }
 
             var token = _cancellationTokenSource.Token;
 
-            _readExecutor.TryExecute(ct =>
-            {
-                try
+            _readTrigger.TryStart(
+                hasSession: session != null,
+                providerId: session?.ProviderId,
+                deviceId: session?.DeviceId,
+                isDisposing: isDisposing,
+                operation: ct =>
                 {
-                    if (ct.IsCancellationRequested)
+                    if (session == null)
                     {
                         return;
                     }
 
-                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, ct);
-
-                    lock (_disposeLock)
+                    try
                     {
-                        if (_disposing)
+                        if (ct.IsCancellationRequested)
                         {
                             return;
                         }
-                    }
 
-                    InvokeOnUiThread(() =>
-                    {
-                        var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
-                        UpdateTooltip(displayState.TooltipText);
-                        UpdateIcon(displayState.IconText);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    lock (_disposeLock)
-                    {
-                        if (_disposing)
+                        bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, ct);
+
+                        lock (_disposeLock)
                         {
-                            return;
+                            if (_disposing)
+                            {
+                                return;
+                            }
                         }
-                    }
 
-                    Logger.LogError("Error reading temperature", ex);
-                    InvokeOnUiThread(() =>
+                        InvokeOnUiThread(() =>
+                        {
+                            var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
+                            UpdateTooltip(displayState.TooltipText);
+                            UpdateIcon(displayState.IconText);
+                        });
+                    }
+                    catch (Exception ex)
                     {
-                        var displayState = TemperatureDisplayState.Create(session.DeviceName, false, null);
-                        UpdateTooltip(displayState.TooltipText);
-                        UpdateIcon(displayState.IconText);
-                    });
-                }
-            }, token);
+                        lock (_disposeLock)
+                        {
+                            if (_disposing)
+                            {
+                                return;
+                            }
+                        }
+
+                        Logger.LogError("Error reading temperature", ex);
+                        InvokeOnUiThread(() =>
+                        {
+                            var displayState = TemperatureDisplayState.Create(session.DeviceName, false, null);
+                            UpdateTooltip(displayState.TooltipText);
+                            UpdateIcon(displayState.IconText);
+                        });
+                    }
+                },
+                cancellationToken: token);
         }
 
         private void UpdateIcon(string text)
