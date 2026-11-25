@@ -75,7 +75,6 @@ namespace BlackIceGPUTemp.Tests
             var startBarrier = new Barrier(threadCount);
             var releaseEvent = new ManualResetEventSlim(false);
             var attemptCompletedEvent = new CountdownEvent(threadCount);
-            var doneEvent = new CountdownEvent(threadCount);
             int successCount = 0;
 
             var tasks = new Task[threadCount];
@@ -85,7 +84,11 @@ namespace BlackIceGPUTemp.Tests
                 {
                     try
                     {
-                        startBarrier.SignalAndWait();
+                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                        if (!barrierSignaled)
+                        {
+                            throw new TimeoutException("Barrier timeout");
+                        }
                         if (gate.TryBeginRead())
                         {
                             Interlocked.Increment(ref successCount);
@@ -106,7 +109,6 @@ namespace BlackIceGPUTemp.Tests
                     }
                     finally
                     {
-                        doneEvent.Signal();
                     }
                 }, TaskCreationOptions.LongRunning);
             }
@@ -122,10 +124,8 @@ namespace BlackIceGPUTemp.Tests
             {
                 releaseEvent.Set();
 
-                bool allDone = doneEvent.Wait(TimeSpan.FromSeconds(5));
+                bool allDone = Task.WaitAll(tasks, TimeSpan.FromSeconds(5));
                 Assert.True(allDone, "Not all tasks finished in time");
-
-                Task.WaitAll(tasks, TimeSpan.FromSeconds(5));
             }
         }
 
