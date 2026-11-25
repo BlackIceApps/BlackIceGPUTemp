@@ -375,11 +375,6 @@ namespace BlackIceGPUTemp.Tests
                 Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
                 Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
 
-                if (backgroundException != null)
-                {
-                    throw new System.Reflection.TargetInvocationException("Exception thrown on background thread", backgroundException);
-                }
-
                 Assert.NotNull(callingThreadId);
                 Assert.NotNull(dispatcherCallbackThreadId);
                 Assert.NotNull(tooltipThreadId);
@@ -413,6 +408,11 @@ namespace BlackIceGPUTemp.Tests
                     try { dispatcherReadyEvent?.Dispose(); } catch { }
                     try { actionExecutedEvent?.Dispose(); } catch { }
                 }
+            }
+
+            if (backgroundException != null)
+            {
+                throw new System.Reflection.TargetInvocationException("Exception thrown on background thread", backgroundException);
             }
         }
     }
