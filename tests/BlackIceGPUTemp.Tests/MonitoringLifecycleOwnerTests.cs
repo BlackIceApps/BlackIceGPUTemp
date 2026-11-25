@@ -314,7 +314,10 @@ namespace BlackIceGPUTemp.Tests
                 });
             }
 
-            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(10));
+            var allTasks = Task.WhenAll(tasks);
+            var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.True(completed == allTasks, "Not all tasks finished in time");
+            await allTasks;
 
             int nonNullCount = 0;
             for (int i = 0; i < threadCount; i++)

@@ -122,8 +122,10 @@ namespace BlackIceGPUTemp.Tests
             {
                 releaseEvent.Set();
 
-                bool allDone = await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
-                Assert.True(allDone, "Not all tasks finished in time");
+                var allTasks = Task.WhenAll(tasks);
+                var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
+                Assert.True(completed == allTasks, "Not all tasks finished in time");
+                await allTasks;
             }
         }
 
@@ -152,7 +154,10 @@ namespace BlackIceGPUTemp.Tests
                 });
             }
 
-            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+            var allTasks = Task.WhenAll(tasks);
+            var completed = await Task.WhenAny(allTasks, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.True(completed == allTasks, "Not all tasks finished in time");
+            await allTasks;
 
             Assert.Equal(0, successCount);
         }
