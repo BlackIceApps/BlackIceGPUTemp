@@ -312,7 +312,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     Logger.LogError("ADLX Terminate threw exception", ex);
                 }
 
-                if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
+                if (terminateException != null)
+                {
+                    PendingNative = _native;
+                    PendingDisposable = _disposableNative;
+                }
+                else if (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS)
                 {
                     if (_disposableNative != null)
                     {
@@ -330,7 +335,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
                 else
                 {
-                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}" + (terminateException != null ? $", exception: {terminateException.Message}" : ""));
+                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
                     PendingNative = _native;
                     PendingDisposable = _disposableNative;
                 }
@@ -384,7 +389,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     Logger.LogError("ADLX Terminate threw exception", ex);
                 }
 
-                if (terminateException == null && (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS))
+                if (terminateException != null)
+                {
+                    pendingNative = native;
+                    pendingDisposable = disposableNative;
+                }
+                else if (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS)
                 {
                     if (disposableNative != null)
                     {
@@ -402,7 +412,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
                 else
                 {
-                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}" + (terminateException != null ? $", exception: {terminateException.Message}" : ""));
+                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
                     pendingNative = native;
                     pendingDisposable = disposableNative;
                 }
