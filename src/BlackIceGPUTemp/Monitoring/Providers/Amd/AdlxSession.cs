@@ -22,6 +22,26 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         public IAdlxNative? PendingDisposeNative { get; private set; }
         public IDisposable? PendingDisposeDisposable { get; private set; }
 
+        private readonly struct CleanupResult
+        {
+            public readonly IAdlxNative? PendingNative;
+            public readonly IDisposable? PendingDisposable;
+            public readonly IAdlxNative? PendingDisposeNative;
+            public readonly IDisposable? PendingDisposeDisposable;
+
+            public CleanupResult(
+                IAdlxNative? pendingNative,
+                IDisposable? pendingDisposable,
+                IAdlxNative? pendingDisposeNative,
+                IDisposable? pendingDisposeDisposable)
+            {
+                PendingNative = pendingNative;
+                PendingDisposable = pendingDisposable;
+                PendingDisposeNative = pendingDisposeNative;
+                PendingDisposeDisposable = pendingDisposeDisposable;
+            }
+        }
+
         private AdlxSession(
             IAdlxNative native,
             IDisposable? disposableNative,
@@ -297,82 +317,19 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         {
             AdlxInterop.ReleaseInterface(_native, ref _gpuList);
 
-            if (_initialized && _native != null)
-            {
-                int terminateResult = 0;
-                Exception? terminateException = null;
-
-                try
-                {
-                    terminateResult = _native.Terminate();
-                }
-                catch (Exception ex)
-                {
-                    terminateException = ex;
-                    Logger.LogError("ADLX Terminate threw exception", ex);
-                }
-
-                if (terminateException != null)
-                {
-                    PendingNative = _native;
-                    PendingDisposable = _disposableNative;
-                }
-                else if (terminateResult == 0 || terminateResult == ADLX_ORPHAN_OBJECTS)
-                {
-                    if (_disposableNative != null)
-                    {
-                        try
-                        {
-                            _disposableNative.Dispose();
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError("AdlxNative Dispose threw exception", ex);
-                            PendingDisposeNative = _native;
-                            PendingDisposeDisposable = _disposableNative;
-                        }
-                    }
-                }
-                else
-                {
-                    Logger.LogError($"ADLX Terminate failed with HRESULT: 0x{terminateResult:X}");
-                    PendingNative = _native;
-                    PendingDisposable = _disposableNative;
-                }
-            }
-            else if (_disposableNative != null)
-            {
-                try
-                {
-                    _disposableNative.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError("AdlxNative Dispose threw exception", ex);
-                    PendingDisposeNative = _native;
-                    PendingDisposeDisposable = _disposableNative;
-                }
-            }
+            var result = PerformCleanup(_native, _disposableNative, _initialized);
+            PendingNative = result.PendingNative;
+            PendingDisposable = result.PendingDisposable;
+            PendingDisposeNative = result.PendingDisposeNative;
+            PendingDisposeDisposable = result.PendingDisposeDisposable;
         }
 
-        private static void CleanupRef(
-            IAdlxNative? native,
-            ref IntPtr gpuList,
-            ref IntPtr system,
-            bool initialized,
-            IDisposable? disposableNative,
-            out IAdlxNative? pendingNative,
-            out IDisposable? pendingDisposable,
-            out IAdlxNative? pendingDisposeNative,
-            out IDisposable? pendingDisposeDisposable)
+        private static CleanupResult PerformCleanup(IAdlxNative? native, IDisposable? disposableNative, bool initialized)
         {
-            pendingNative = null;
-            pendingDisposable = null;
-            pendingDisposeNative = null;
-            pendingDisposeDisposable = null;
-
-            AdlxInterop.ReleaseInterface(native, ref gpuList);
-            system = IntPtr.Zero;
+            IAdlxNative? pendingNative = null;
+            IDisposable? pendingDisposable = null;
+            IAdlxNative? pendingDisposeNative = null;
+            IDisposable? pendingDisposeDisposable = null;
 
             if (initialized && native != null)
             {
@@ -430,6 +387,29 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     pendingDisposeDisposable = disposableNative;
                 }
             }
+
+            return new CleanupResult(pendingNative, pendingDisposable, pendingDisposeNative, pendingDisposeDisposable);
+        }
+
+        private static void CleanupRef(
+            IAdlxNative? native,
+            ref IntPtr gpuList,
+            ref IntPtr system,
+            bool initialized,
+            IDisposable? disposableNative,
+            out IAdlxNative? pendingNative,
+            out IDisposable? pendingDisposable,
+            out IAdlxNative? pendingDisposeNative,
+            out IDisposable? pendingDisposeDisposable)
+        {
+            AdlxInterop.ReleaseInterface(native, ref gpuList);
+            system = IntPtr.Zero;
+
+            var result = PerformCleanup(native, disposableNative, initialized);
+            pendingNative = result.PendingNative;
+            pendingDisposable = result.PendingDisposable;
+            pendingDisposeNative = result.PendingDisposeNative;
+            pendingDisposeDisposable = result.PendingDisposeDisposable;
         }
     }
 }
