@@ -4635,6 +4635,34 @@ namespace BlackIceGPUTemp.Tests
                 GpuTemperatures = new List<double> { 65.5 }
             };
 
+            // Make GetSupportedGpuMetrics return unique pointers per call so release tracking
+            // can distinguish between different interface instances (TryProbe + 2 successful reads)
+            int metricsSupportCallCount = 0;
+            fake.GetSupportedMetricsHandler = (IntPtr services, IntPtr gpu, out IntPtr metricsSupport) =>
+            {
+                metricsSupport = new IntPtr(0x6000 + metricsSupportCallCount);
+                metricsSupportCallCount++;
+                return 0;
+            };
+
+            // Similarly for GetPerformanceMonitoringServices and GetCurrentGpuMetrics
+            int perfServicesCallCount = 0;
+            fake.GetPerfServicesHandler = (IntPtr system, out IntPtr services) =>
+            {
+                services = new IntPtr(0x4000 + perfServicesCallCount);
+                perfServicesCallCount++;
+                return 0;
+            };
+
+            int currentMetricsCallCount = 0;
+            fake.GetCurrentMetricsHandler = (IntPtr services, IntPtr gpu, out IntPtr metrics) =>
+            {
+                int index = (int)(gpu.ToInt64() - 0x3000);
+                metrics = new IntPtr(0x5000 + index + currentMetricsCallCount * 100); // unique per call
+                currentMetricsCallCount++;
+                return 0;
+            };
+
             // Pause the FIRST read operation inside GetGpuTemperature (final native call in the chain)
             // while it holds the provider lock. This ensures the second read will block on the lock.
             // Only the FIRST call to GetGpuTemperature pauses; subsequent calls return immediately.
