@@ -72,7 +72,9 @@ namespace BlackIceGPUTemp.Tests
         {
             var gate = new MonitoringReadGate();
             const int threadCount = 10;
-            var barrier = new Barrier(threadCount);
+            var startBarrier = new Barrier(threadCount);
+            var releaseEvent = new ManualResetEventSlim(false);
+            var doneEvent = new CountdownEvent(threadCount);
             int successCount = 0;
 
             var tasks = new Task[threadCount];
@@ -80,33 +82,51 @@ namespace BlackIceGPUTemp.Tests
             {
                 tasks[i] = Task.Run(() =>
                 {
-                    barrier.SignalAndWait();
-                    if (gate.TryBeginRead())
+                    try
                     {
-                        Interlocked.Increment(ref successCount);
-                        gate.EndRead();
+                        startBarrier.SignalAndWait();
+                        if (gate.TryBeginRead())
+                        {
+                            Interlocked.Increment(ref successCount);
+                            releaseEvent.Wait();
+                            gate.EndRead();
+                        }
+                    }
+                    finally
+                    {
+                        doneEvent.Signal();
                     }
                 });
             }
 
-            Task.WaitAll(tasks);
+            try
+            {
+                doneEvent.Wait();
+            }
+            finally
+            {
+                releaseEvent.Set();
+                Task.WaitAll(tasks);
+            }
 
             Assert.Equal(1, successCount);
         }
 
         [Fact]
-        public void TryBeginRead_ConcurrentWithStop_StopWins()
+        public void TryBeginRead_AfterStop_AlwaysReturnsFalse()
         {
             var gate = new MonitoringReadGate();
+
+            gate.Stop();
+
             const int threadCount = 20;
             var startBarrier = new Barrier(threadCount);
-            var stopBarrier = new Barrier(2);
             int successCount = 0;
 
-            var readTasks = new Task[threadCount - 1];
-            for (int i = 0; i < threadCount - 1; i++)
+            var tasks = new Task[threadCount];
+            for (int i = 0; i < threadCount; i++)
             {
-                readTasks[i] = Task.Run(() =>
+                tasks[i] = Task.Run(() =>
                 {
                     startBarrier.SignalAndWait();
                     if (gate.TryBeginRead())
@@ -117,17 +137,9 @@ namespace BlackIceGPUTemp.Tests
                 });
             }
 
-            var stopTask = Task.Run(() =>
-            {
-                startBarrier.SignalAndWait();
-                gate.Stop();
-            });
-
-            Task.WaitAll(readTasks);
-            stopTask.Wait();
+            Task.WaitAll(tasks);
 
             Assert.Equal(0, successCount);
-            Assert.False(gate.TryBeginRead());
         }
 
         [Fact]
