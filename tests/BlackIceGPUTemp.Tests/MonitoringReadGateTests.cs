@@ -82,33 +82,31 @@ namespace BlackIceGPUTemp.Tests
             {
                 tasks[i] = Task.Factory.StartNew(() =>
                 {
-                    try
+                    bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
+                    if (!barrierSignaled)
                     {
-                        bool barrierSignaled = startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                        if (!barrierSignaled)
+                        throw new TimeoutException("Barrier timeout");
+                    }
+                    if (gate.TryBeginRead())
+                    {
+                        Interlocked.Increment(ref successCount);
+                        attemptCompletedEvent.Signal();
+                        try
                         {
-                            throw new TimeoutException("Barrier timeout");
-                        }
-                        if (gate.TryBeginRead())
-                        {
-                            Interlocked.Increment(ref successCount);
-                            attemptCompletedEvent.Signal();
-                            try
+                            bool released = releaseEvent.Wait(TimeSpan.FromSeconds(5));
+                            if (!released)
                             {
-                                releaseEvent.Wait(TimeSpan.FromSeconds(5));
-                            }
-                            finally
-                            {
-                                gate.EndRead();
+                                throw new TimeoutException("Release event timeout");
                             }
                         }
-                        else
+                        finally
                         {
-                            attemptCompletedEvent.Signal();
+                            gate.EndRead();
                         }
                     }
-                    finally
+                    else
                     {
+                        attemptCompletedEvent.Signal();
                     }
                 }, TaskCreationOptions.LongRunning);
             }
