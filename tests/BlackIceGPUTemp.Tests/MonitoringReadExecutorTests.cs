@@ -106,13 +106,35 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void TryExecute_SchedulerThrowsSynchronously_GateReleased()
         {
-            var executor = new MonitoringReadExecutor(_ => throw new InvalidOperationException("scheduler failed"));
+            var capturedActions = new List<Action>();
+            bool firstCall = true;
+
+            var executor = new MonitoringReadExecutor(action =>
+            {
+                if (firstCall)
+                {
+                    firstCall = false;
+                    throw new InvalidOperationException("scheduler failed");
+                }
+                else
+                {
+                    capturedActions.Add(action);
+                }
+            });
 
             Assert.Throws<InvalidOperationException>(() => executor.TryExecute(_ => { }, CancellationToken.None));
 
             bool accepted = executor.TryExecute(_ => { }, CancellationToken.None);
 
             Assert.True(accepted);
+            Assert.Single(capturedActions);
+
+            capturedActions[0]();
+
+            bool third = executor.TryExecute(_ => { }, CancellationToken.None);
+
+            Assert.True(third);
+            Assert.Equal(2, capturedActions.Count);
         }
 
         [Fact]
