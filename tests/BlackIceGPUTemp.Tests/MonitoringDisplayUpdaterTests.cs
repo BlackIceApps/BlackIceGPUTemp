@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Tray;
 using Xunit;
@@ -174,6 +176,30 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Null(exception);
             Assert.Equal("66", _iconResult);
+        }
+
+        [Fact]
+        public void Update_UsesDispatcherThreadCultureForFormatting()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+            var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
+
+            var originalCulture = Thread.CurrentThread.CurrentCulture;
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("pl-PL");
+
+            try
+            {
+                updater.Update("Test GPU", true, reading);
+
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
+                _capturedAction!();
+
+                Assert.Contains("65,5", _tooltipResult);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = originalCulture;
+            }
         }
     }
 }

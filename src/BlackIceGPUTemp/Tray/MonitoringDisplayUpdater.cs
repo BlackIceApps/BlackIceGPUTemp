@@ -23,10 +23,10 @@ namespace BlackIceGPUTemp.Tray
 
         public void Update(string deviceName, bool success, TemperatureReading? reading)
         {
-            var displayState = TemperatureDisplayState.Create(deviceName, success, reading);
-
             _dispatcher(() =>
             {
+                var displayState = TemperatureDisplayState.Create(deviceName, success, reading);
+
                 try
                 {
                     _updateTooltip(displayState.TooltipText);

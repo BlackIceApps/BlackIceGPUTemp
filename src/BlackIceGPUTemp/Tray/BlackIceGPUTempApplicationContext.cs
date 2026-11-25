@@ -108,7 +108,7 @@ namespace BlackIceGPUTemp.Tray
                 InvokeOnUiThread,
                 UpdateTooltip,
                 UpdateIcon,
-                Logger.LogError);
+                ex => Logger.LogError("Monitoring display update failed", ex));
 
             Task.Run(() => Initialize(_cancellationTokenSource.Token));
         }
