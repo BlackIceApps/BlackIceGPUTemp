@@ -169,7 +169,7 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         return result;
     }
 
-public int Terminate()
+    public int Terminate()
         {
             if (_disposed)
             {
@@ -430,7 +430,7 @@ public int Terminate()
         return del(metrics, out celsius);
     }
 
-public int Release(IntPtr adlxInterface)
+    public int Release(IntPtr adlxInterface)
         {
             if (_disposed)
             {
