@@ -1,4 +1,5 @@
 using System;
+using BlackIceGPUTemp.Monitoring.Abstractions;
 
 namespace BlackIceGPUTemp.Tray
 {
