@@ -4708,14 +4708,14 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.InitializeCalls);
 
             // Declare outside try so finally can access them
-            Task? firstReadTask = null;
+            Thread? firstReadThread = null;
             Thread? secondReadThread = null;
             var secondReadCts = new CancellationTokenSource();
 
             try
             {
-                // Start FIRST TryReadTemperature on background thread - it will pause in GetGpuTemperature
-                firstReadTask = Task.Run(() =>
+                // Start FIRST TryReadTemperature on dedicated thread - it will pause in GetGpuTemperature
+                firstReadThread = new Thread(() =>
                 {
                     try
                     {
@@ -4736,6 +4736,7 @@ namespace BlackIceGPUTemp.Tests
                         firstReadCompleted.Set();
                     }
                 });
+                firstReadThread.Start();
 
                 // Wait for first read to reach the pause point (inside GetGpuTemperature, holding the lock)
                 Assert.True(firstReadReachedPause.Wait(TimeSpan.FromSeconds(10)),
@@ -4848,17 +4849,17 @@ namespace BlackIceGPUTemp.Tests
                 releaseFirstRead.Set();
                 secondReadCts.Cancel(); // Ensure cancellation in case test failed before
 
-                // Wait for actual thread/task termination
-                bool firstTaskDone = false;
+                // Wait for actual thread termination
+                bool firstThreadDone = false;
                 bool secondThreadDone = false;
 
-                if (firstReadTask != null)
+                if (firstReadThread != null)
                 {
-                    firstTaskDone = firstReadTask.Wait(TimeSpan.FromSeconds(10));
+                    firstThreadDone = firstReadThread.Join(TimeSpan.FromSeconds(10));
                 }
                 else
                 {
-                    firstTaskDone = true;
+                    firstThreadDone = true;
                 }
 
                 if (secondReadThread != null)
@@ -4870,10 +4871,10 @@ namespace BlackIceGPUTemp.Tests
                     secondThreadDone = true;
                 }
 
-                if (!firstTaskDone || !secondThreadDone)
+                if (!firstThreadDone || !secondThreadDone)
                 {
                     throw new InvalidOperationException(
-                        $"Test cleanup failed: firstTaskDone={firstTaskDone}, secondThreadDone={secondThreadDone}. " +
+                        $"Test cleanup failed: firstThreadDone={firstThreadDone}, secondThreadDone={secondThreadDone}. " +
                         "Threads still running; synchronization objects not disposed and provider not disconnected to avoid race.");
                 }
 
