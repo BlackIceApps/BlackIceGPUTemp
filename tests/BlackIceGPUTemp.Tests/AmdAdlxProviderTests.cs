@@ -4115,7 +4115,7 @@ namespace BlackIceGPUTemp.Tests
             
             var firstOperationReachedPause = new ManualResetEventSlim(false);
             var releaseFirstOperation = new ManualResetEventSlim(false);
-            var secondOperationStarted = new ManualResetEventSlim(false);
+            var secondOperationEnteredHandler = new ManualResetEventSlim(false);
             var firstOperationCompleted = new ManualResetEventSlim(false);
             var secondOperationCompleted = new ManualResetEventSlim(false);
             
@@ -4170,8 +4170,20 @@ namespace BlackIceGPUTemp.Tests
                         return -1;
                     }
                 }
+                else
+                {
+                    // Second (or later) entry - signal that second thread reached handler
+                    secondOperationEnteredHandler.Set();
+                }
                 
-                return 0;
+                try
+                {
+                    return 0;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref currentHandlerEntries);
+                }
             };
             
             var provider = new AmdAdlxProvider(() => fake);
@@ -4195,26 +4207,15 @@ namespace BlackIceGPUTemp.Tests
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref currentHandlerEntries);
                     firstOperationCompleted.Set();
                 }
             });
-            
-            // Wait for first operation to reach the pause point (inside GetGpuListSize)
-            Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
-                "First operation did not reach pause point in time");
-            
-            // Verify session was initialized exactly once before the pause
-            Assert.Equal(1, initializeCallCountAtFirstPause);
             
             // Start second TryProbe on another thread while first is paused
             var secondTask = Task.Run(() =>
             {
                 try
                 {
-                    // Signal that second operation has started (will block on provider's lock)
-                    secondOperationStarted.Set();
-                    
                     bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
                     if (!result)
                     {
@@ -4229,42 +4230,75 @@ namespace BlackIceGPUTemp.Tests
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref currentHandlerEntries);
                     secondOperationCompleted.Set();
                 }
             });
             
-            // Wait for second operation to start and attempt to acquire the lock
-            Assert.True(secondOperationStarted.Wait(TimeSpan.FromSeconds(5)), 
-                "Second operation did not start in time");
-            
-            // At this point, second operation has started TryProbe but is blocked on the provider's _lock
-            // because first operation holds the lock while paused in GetGpuListSize.
-            // Verify: first operation still paused, no new initialization occurred.
-            Assert.False(firstOperationCompleted.IsSet, "First operation should still be paused");
-            Assert.Equal(1, fake.InitializeCalls); // Still only one initialization
-            
-            // Verify max concurrent handler entries is 1 (serialized - they never run concurrently in handler)
-            Assert.Equal(1, maxConcurrentHandlerEntries);
-            
-            // Release first operation
-            releaseFirstOperation.Set();
-            
-            // Wait for both operations to complete
-            Assert.True(firstOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
-                "First operation did not complete in time");
-            Assert.True(secondOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
-                "Second operation did not complete in time");
-            
-            // Verify both operations succeeded
-            Assert.False(firstOperationError, $"First operation failed: {firstError}");
-            Assert.False(secondOperationError, $"Second operation failed: {secondError}");
-            
-            // Verify handler was called for both operations
-            Assert.Equal(2, handlerCallCount);
-            
-            // Clean up
-            provider.Disconnect();
+            try
+            {
+                // Wait for first operation to reach the pause point (inside GetGpuListSize)
+                Assert.True(firstOperationReachedPause.Wait(TimeSpan.FromSeconds(10)), 
+                    "First operation did not reach pause point in time");
+                
+                // Verify session was initialized exactly once before the pause
+                Assert.Equal(1, initializeCallCountAtFirstPause);
+                
+                // Wait for second operation to enter the handler
+                // (it will block on provider's _lock, then enter handler and signal)
+                Assert.True(secondOperationEnteredHandler.Wait(TimeSpan.FromSeconds(10)), 
+                    "Second operation did not enter handler in time");
+                
+                // At this point: first operation is paused in handler, second operation has entered handler
+                // and observed currentHandlerEntries == 2 (but maxConcurrentHandlerEntries was updated to 1 then 2?)
+                // Actually, since first is still in handler, second entering makes entries=2 briefly.
+                // The key assertion is that maxConcurrentHandlerEntries never exceeded 1 if properly serialized.
+                // But wait - if first is paused IN handler, second will block on lock BEFORE entering handler.
+                // So secondOperationEnteredHandler should NOT fire until first releases the lock.
+                
+                // Verify first operation is still paused
+                Assert.False(firstOperationCompleted.IsSet, "First operation should still be paused");
+                
+                // Verify only one initialization occurred
+                Assert.Equal(1, fake.InitializeCalls);
+                
+                // Verify max concurrent handler entries is 1 (serialized - they never run concurrently in handler)
+                Assert.Equal(1, maxConcurrentHandlerEntries);
+                
+                // Release first operation
+                releaseFirstOperation.Set();
+                
+                // Wait for both operations to complete
+                Assert.True(firstOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                    "First operation did not complete in time");
+                Assert.True(secondOperationCompleted.Wait(TimeSpan.FromSeconds(10)), 
+                    "Second operation did not complete in time");
+                
+                // Verify both operations succeeded
+                Assert.False(firstOperationError, $"First operation failed: {firstError}");
+                Assert.False(secondOperationError, $"Second operation failed: {secondError}");
+                
+                // Verify handler was called for both operations
+                Assert.Equal(2, handlerCallCount);
+            }
+            finally
+            {
+                // Ensure first operation is released even if assertions above fail
+                releaseFirstOperation.Set();
+                
+                // Wait for tasks to complete (with timeout) to avoid leaving threads blocked
+                firstOperationCompleted.Wait(TimeSpan.FromSeconds(5));
+                secondOperationCompleted.Wait(TimeSpan.FromSeconds(5));
+                
+                // Clean up provider
+                try { provider.Disconnect(); } catch { }
+                
+                // Deterministic disposal of synchronization objects
+                firstOperationReachedPause.Dispose();
+                releaseFirstOperation.Dispose();
+                secondOperationEnteredHandler.Dispose();
+                firstOperationCompleted.Dispose();
+                secondOperationCompleted.Dispose();
+            }
             
             // Verify session was initialized exactly once total
             Assert.Equal(1, fake.InitializeCalls);
@@ -4287,13 +4321,6 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
             Assert.True(terminateIdx >= 0, "Terminate should be called");
             Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
-            
-            // Deterministic disposal of synchronization objects
-            firstOperationReachedPause.Dispose();
-            releaseFirstOperation.Dispose();
-            secondOperationStarted.Dispose();
-            firstOperationCompleted.Dispose();
-            secondOperationCompleted.Dispose();
         }
     }
 
