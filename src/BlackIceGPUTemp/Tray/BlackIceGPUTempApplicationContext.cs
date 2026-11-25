@@ -348,9 +348,9 @@ namespace BlackIceGPUTemp.Tray
                         }
                     }
 
-                    var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
                     InvokeOnUiThread(() =>
                     {
+                        var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
                         UpdateTooltip(displayState.TooltipText);
                         UpdateIcon(displayState.IconText);
                     });
@@ -368,8 +368,9 @@ namespace BlackIceGPUTemp.Tray
                     Logger.LogError("Error reading temperature", ex);
                     InvokeOnUiThread(() =>
                     {
-                        UpdateTooltip($"{session.DeviceName}: Temp unavailable");
-                        UpdateIcon("--");
+                        var displayState = TemperatureDisplayState.Create(session.DeviceName, false, null);
+                        UpdateTooltip(displayState.TooltipText);
+                        UpdateIcon(displayState.IconText);
                     });
                 }
                 finally
