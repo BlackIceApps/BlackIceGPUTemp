@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
@@ -273,6 +274,145 @@ namespace BlackIceGPUTemp.Tests
             finally
             {
                 Thread.CurrentThread.CurrentCulture = originalCulture;
+            }
+        }
+
+        [Fact]
+        public void Update_ExecutesOnDispatcherThreadOnlyWhenInvokedFromAnotherThread()
+        {
+            int? callingThreadId = null;
+            int? dispatcherCallbackThreadId = null;
+            int? tooltipThreadId = null;
+            int? iconThreadId = null;
+
+            Exception? backgroundException = null;
+
+            BlockingCollection<Action>? actionQueue = null;
+            ManualResetEventSlim? dispatcherReadyEvent = null;
+            ManualResetEventSlim? actionExecutedEvent = null;
+            Thread? dispatcherThread = null;
+            Thread? updateThread = null;
+
+            try
+            {
+                actionQueue = new BlockingCollection<Action>();
+                dispatcherReadyEvent = new ManualResetEventSlim(false);
+                actionExecutedEvent = new ManualResetEventSlim(false);
+
+                var localActionQueue = actionQueue;
+                var localDispatcherReadyEvent = dispatcherReadyEvent;
+                var localActionExecutedEvent = actionExecutedEvent;
+
+                dispatcherThread = new Thread(() =>
+                {
+                    try
+                    {
+                        localDispatcherReadyEvent.Set();
+                        foreach (var action in localActionQueue.GetConsumingEnumerable())
+                        {
+                            dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
+                            try
+                            {
+                                action();
+                            }
+                            finally
+                            {
+                                localActionExecutedEvent.Set();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(ref backgroundException, ex, null);
+                    }
+                })
+                {
+                    IsBackground = true
+                };
+
+                dispatcherThread.Start();
+                Assert.True(dispatcherReadyEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to start within timeout.");
+
+                Action<Action> dedicatedDispatcher = action =>
+                {
+                    if (!localActionQueue.IsAddingCompleted)
+                    {
+                        localActionQueue.Add(action);
+                    }
+                };
+
+                var updater = new MonitoringDisplayUpdater(
+                    dedicatedDispatcher,
+                    text =>
+                    {
+                        tooltipThreadId = Environment.CurrentManagedThreadId;
+                    },
+                    text =>
+                    {
+                        iconThreadId = Environment.CurrentManagedThreadId;
+                    },
+                    _reportError);
+
+                var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
+
+                updateThread = new Thread(() =>
+                {
+                    try
+                    {
+                        callingThreadId = Environment.CurrentManagedThreadId;
+                        updater.Update("Test GPU", true, reading);
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(ref backgroundException, ex, null);
+                    }
+                })
+                {
+                    IsBackground = true
+                };
+
+                updateThread.Start();
+                Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
+                Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
+
+                Assert.NotNull(callingThreadId);
+                Assert.NotNull(dispatcherCallbackThreadId);
+                Assert.NotNull(tooltipThreadId);
+                Assert.NotNull(iconThreadId);
+
+                Assert.Equal(dispatcherCallbackThreadId, tooltipThreadId);
+                Assert.Equal(dispatcherCallbackThreadId, iconThreadId);
+                Assert.NotEqual(callingThreadId, tooltipThreadId);
+                Assert.NotEqual(callingThreadId, iconThreadId);
+            }
+            finally
+            {
+                bool updateJoined = updateThread == null || !updateThread.IsAlive || updateThread.Join(TimeSpan.FromSeconds(5));
+
+                if (actionQueue != null)
+                {
+                    try
+                    {
+                        actionQueue.CompleteAdding();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                bool dispatcherJoined = dispatcherThread == null || !dispatcherThread.IsAlive || dispatcherThread.Join(TimeSpan.FromSeconds(5));
+
+                if (updateJoined && dispatcherJoined)
+                {
+                    try { actionQueue?.Dispose(); } catch { }
+                    try { dispatcherReadyEvent?.Dispose(); } catch { }
+                    try { actionExecutedEvent?.Dispose(); } catch { }
+                }
+            }
+
+            if (backgroundException != null)
+            {
+                throw new System.Reflection.TargetInvocationException("Exception thrown on background thread", backgroundException);
             }
         }
     }
