@@ -127,6 +127,7 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
+                        bool hadException = false;
                         try
                         {
                             registerResults[i] = owners[i].TryRegister(lifecycles[i]);
@@ -134,6 +135,7 @@ namespace BlackIceGPUTemp.Tests
                         catch (Exception ex)
                         {
                             registerExceptions[i] = ex;
+                            hadException = true;
                         }
 
                         try
@@ -145,7 +147,7 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
-                        if (stopRequested)
+                        if (stopRequested || hadException)
                         {
                             break;
                         }
@@ -171,6 +173,7 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
+                        bool hadException = false;
                         try
                         {
                             stopResults[i] = owners[i].StopAndTake();
@@ -178,6 +181,7 @@ namespace BlackIceGPUTemp.Tests
                         catch (Exception ex)
                         {
                             stopExceptions[i] = ex;
+                            hadException = true;
                         }
 
                         try
@@ -189,7 +193,7 @@ namespace BlackIceGPUTemp.Tests
                             break;
                         }
 
-                        if (stopRequested)
+                        if (stopRequested || hadException)
                         {
                             break;
                         }
