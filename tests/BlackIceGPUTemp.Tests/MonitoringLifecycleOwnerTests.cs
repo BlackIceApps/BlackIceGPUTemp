@@ -197,19 +197,36 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void TryRegister_MultipleBeforeStop_OnlyLastStored()
+        public void TryRegister_SecondRegistration_ReturnsFalseAndPreservesFirstProvider()
         {
             var owner = new MonitoringLifecycleOwner();
             var first = new FakeLifecycle();
             var second = new FakeLifecycle();
-            var third = new FakeLifecycle();
 
-            owner.TryRegister(first);
-            owner.TryRegister(second);
-            owner.TryRegister(third);
+            bool firstResult = owner.TryRegister(first);
+            bool secondResult = owner.TryRegister(second);
+
+            Assert.True(firstResult);
+            Assert.False(secondResult);
 
             var taken = owner.StopAndTake();
-            Assert.Same(third, taken);
+            Assert.Same(first, taken);
+        }
+
+        [Fact]
+        public void TryRegister_FirstNull_SecondProvider_SecondRejected()
+        {
+            var owner = new MonitoringLifecycleOwner();
+            var provider = new FakeLifecycle();
+
+            bool firstResult = owner.TryRegister(null);
+            bool secondResult = owner.TryRegister(provider);
+
+            Assert.True(firstResult);
+            Assert.False(secondResult);
+
+            var taken = owner.StopAndTake();
+            Assert.Null(taken);
         }
 
         [Fact]

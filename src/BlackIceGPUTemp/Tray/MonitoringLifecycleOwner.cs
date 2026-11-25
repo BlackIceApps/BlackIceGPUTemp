@@ -9,17 +9,19 @@ namespace BlackIceGPUTemp.Tray
         private readonly object _lock = new();
         private IGpuProviderLifecycle? _lifecycle;
         private bool _stopped;
+        private bool _registered;
 
         public bool TryRegister(IGpuProviderLifecycle? lifecycle)
         {
             lock (_lock)
             {
-                if (_stopped)
+                if (_stopped || _registered)
                 {
                     return false;
                 }
 
                 _lifecycle = lifecycle;
+                _registered = true;
                 return true;
             }
         }
