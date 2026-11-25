@@ -285,75 +285,110 @@ namespace BlackIceGPUTemp.Tests
             int? tooltipThreadId = null;
             int? iconThreadId = null;
 
-            var actionQueue = new BlockingCollection<Action>();
-            var dispatcherReadyEvent = new ManualResetEventSlim(false);
-            var actionExecutedEvent = new ManualResetEventSlim(false);
+            BlockingCollection<Action>? actionQueue = null;
+            ManualResetEventSlim? dispatcherReadyEvent = null;
+            ManualResetEventSlim? actionExecutedEvent = null;
+            Thread? dispatcherThread = null;
+            Thread? updateThread = null;
 
-            Thread dispatcherThread = new Thread(() =>
+            try
             {
-                dispatcherReadyEvent.Set();
-                foreach (var action in actionQueue.GetConsumingEnumerable())
+                actionQueue = new BlockingCollection<Action>();
+                dispatcherReadyEvent = new ManualResetEventSlim(false);
+                actionExecutedEvent = new ManualResetEventSlim(false);
+
+                dispatcherThread = new Thread(() =>
                 {
-                    dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
+                    dispatcherReadyEvent.Set();
+                    foreach (var action in actionQueue.GetConsumingEnumerable())
+                    {
+                        dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
+                        try
+                        {
+                            action();
+                        }
+                        finally
+                        {
+                            actionExecutedEvent.Set();
+                        }
+                    }
+                })
+                {
+                    IsBackground = true
+                };
+
+                dispatcherThread.Start();
+                Assert.True(dispatcherReadyEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to start within timeout.");
+
+                Action<Action> dedicatedDispatcher = action =>
+                {
+                    actionQueue.Add(action);
+                };
+
+                var updater = new MonitoringDisplayUpdater(
+                    dedicatedDispatcher,
+                    text =>
+                    {
+                        tooltipThreadId = Environment.CurrentManagedThreadId;
+                    },
+                    text =>
+                    {
+                        iconThreadId = Environment.CurrentManagedThreadId;
+                    },
+                    _reportError);
+
+                var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
+
+                updateThread = new Thread(() =>
+                {
+                    callingThreadId = Environment.CurrentManagedThreadId;
+                    updater.Update("Test GPU", true, reading);
+                })
+                {
+                    IsBackground = true
+                };
+
+                updateThread.Start();
+                Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
+                Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
+
+                Assert.NotNull(callingThreadId);
+                Assert.NotNull(dispatcherCallbackThreadId);
+                Assert.NotNull(tooltipThreadId);
+                Assert.NotNull(iconThreadId);
+
+                Assert.Equal(dispatcherCallbackThreadId, tooltipThreadId);
+                Assert.Equal(dispatcherCallbackThreadId, iconThreadId);
+                Assert.NotEqual(callingThreadId, tooltipThreadId);
+                Assert.NotEqual(callingThreadId, iconThreadId);
+            }
+            finally
+            {
+                if (actionQueue != null)
+                {
                     try
                     {
-                        action();
+                        actionQueue.CompleteAdding();
                     }
-                    finally
+                    catch
                     {
-                        actionExecutedEvent.Set();
                     }
                 }
-            });
 
-            dispatcherThread.Start();
-            Assert.True(dispatcherReadyEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to start within timeout.");
-
-            Action<Action> dedicatedDispatcher = action =>
-            {
-                actionQueue.Add(action);
-            };
-
-            var updater = new MonitoringDisplayUpdater(
-                dedicatedDispatcher,
-                text =>
+                if (dispatcherThread != null && dispatcherThread.IsAlive)
                 {
-                    tooltipThreadId = Environment.CurrentManagedThreadId;
-                },
-                text =>
+                    dispatcherThread.Join(TimeSpan.FromSeconds(5));
+                }
+
+                if (updateThread != null && updateThread.IsAlive)
                 {
-                    iconThreadId = Environment.CurrentManagedThreadId;
-                },
-                _reportError);
+                    updateThread.Join(TimeSpan.FromSeconds(5));
+                }
 
-            var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
-
-            Thread updateThread = new Thread(() =>
-            {
-                callingThreadId = Environment.CurrentManagedThreadId;
-                updater.Update("Test GPU", true, reading);
-            });
-
-            updateThread.Start();
-            Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
-            Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
-
-            actionQueue.CompleteAdding();
-            Assert.True(dispatcherThread.Join(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to terminate within timeout.");
-
-            actionQueue.Dispose();
-            dispatcherReadyEvent.Dispose();
-            actionExecutedEvent.Dispose();
-
-            Assert.NotNull(callingThreadId);
-            Assert.NotNull(dispatcherCallbackThreadId);
-            Assert.NotNull(tooltipThreadId);
-            Assert.NotNull(iconThreadId);
-
-            Assert.Equal(dispatcherCallbackThreadId, tooltipThreadId);
-            Assert.Equal(dispatcherCallbackThreadId, iconThreadId);
-            Assert.NotEqual(callingThreadId, tooltipThreadId);
-            Assert.NotEqual(callingThreadId, iconThreadId);
+                actionQueue?.Dispose();
+                dispatcherReadyEvent?.Dispose();
+                actionExecutedEvent?.Dispose();
+            }
         }
     }
 }
