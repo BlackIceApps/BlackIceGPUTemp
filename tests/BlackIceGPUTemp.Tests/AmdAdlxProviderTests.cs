@@ -4111,9 +4111,11 @@ namespace BlackIceGPUTemp.Tests
         {
             // This test verifies that two concurrent TryProbe() calls on the same provider
             // are properly serialized by the internal lock, and the ADLX session is initialized only once.
+            // It directly measures concurrent entries to the native handler using Interlocked.
             
             var firstOperationReachedPause = new ManualResetEventSlim(false);
             var releaseFirstOperation = new ManualResetEventSlim(false);
+            var secondOperationStarted = new ManualResetEventSlim(false);
             var firstOperationCompleted = new ManualResetEventSlim(false);
             var secondOperationCompleted = new ManualResetEventSlim(false);
             
@@ -4124,6 +4126,11 @@ namespace BlackIceGPUTemp.Tests
             int initializeCallCountAtFirstPause = 0;
             int terminateCallCountAtEnd = 0;
             bool isDisposedAtEnd = false;
+            
+            // Concurrency tracking in handler
+            int currentHandlerEntries = 0;
+            int maxConcurrentHandlerEntries = 0;
+            int handlerCallCount = 0;
             
             var fake = new FakeAdlxNative
             {
@@ -4137,18 +4144,31 @@ namespace BlackIceGPUTemp.Tests
             fake.GetGpuListSizeHandler = (IntPtr gpuList, out int count) =>
             {
                 count = fake.GpuNames.Count;
-                initializeCallCountAtFirstPause = fake.InitializeCalls;
                 
-                // Signal that first operation has reached the pause point
-                firstOperationReachedPause.Set();
-                
-                // Wait for release signal
-                if (!releaseFirstOperation.Wait(TimeSpan.FromSeconds(30)))
+                // Track concurrent entries using Interlocked
+                int entries = Interlocked.Increment(ref currentHandlerEntries);
+                int maxEntries = maxConcurrentHandlerEntries;
+                while (entries > maxEntries)
                 {
-                    firstOperationError = true;
-                    firstError = "Timeout waiting for release signal";
-                    firstOperationCompleted.Set();
-                    return -1;
+                    maxEntries = Interlocked.CompareExchange(ref maxConcurrentHandlerEntries, entries, maxEntries);
+                }
+                Interlocked.Increment(ref handlerCallCount);
+                
+                // If this is the first entry, capture initialize count and signal pause
+                if (entries == 1)
+                {
+                    initializeCallCountAtFirstPause = fake.InitializeCalls;
+                    firstOperationReachedPause.Set();
+                    
+                    // Wait for release signal
+                    if (!releaseFirstOperation.Wait(TimeSpan.FromSeconds(30)))
+                    {
+                        firstOperationError = true;
+                        firstError = "Timeout waiting for release signal";
+                        firstOperationCompleted.Set();
+                        Interlocked.Decrement(ref currentHandlerEntries);
+                        return -1;
+                    }
                 }
                 
                 return 0;
@@ -4175,6 +4195,7 @@ namespace BlackIceGPUTemp.Tests
                 }
                 finally
                 {
+                    Interlocked.Decrement(ref currentHandlerEntries);
                     firstOperationCompleted.Set();
                 }
             });
@@ -4191,6 +4212,9 @@ namespace BlackIceGPUTemp.Tests
             {
                 try
                 {
+                    // Signal that second operation has started (will block on provider's lock)
+                    secondOperationStarted.Set();
+                    
                     bool result = ((IGpuProviderProbe)provider).TryProbe(out var error);
                     if (!result)
                     {
@@ -4205,16 +4229,23 @@ namespace BlackIceGPUTemp.Tests
                 }
                 finally
                 {
+                    Interlocked.Decrement(ref currentHandlerEntries);
                     secondOperationCompleted.Set();
                 }
             });
             
-            // Give second operation a moment to start and attempt to acquire the lock
-            Thread.Sleep(100);
+            // Wait for second operation to start and attempt to acquire the lock
+            Assert.True(secondOperationStarted.Wait(TimeSpan.FromSeconds(5)), 
+                "Second operation did not start in time");
             
-            // At this point, second operation should be blocked on the lock
-            // First operation should still be paused in GetGpuListSize
+            // At this point, second operation has started TryProbe but is blocked on the provider's _lock
+            // because first operation holds the lock while paused in GetGpuListSize.
+            // Verify: first operation still paused, no new initialization occurred.
+            Assert.False(firstOperationCompleted.IsSet, "First operation should still be paused");
             Assert.Equal(1, fake.InitializeCalls); // Still only one initialization
+            
+            // Verify max concurrent handler entries is 1 (serialized - they never run concurrently in handler)
+            Assert.Equal(1, maxConcurrentHandlerEntries);
             
             // Release first operation
             releaseFirstOperation.Set();
@@ -4228,6 +4259,9 @@ namespace BlackIceGPUTemp.Tests
             // Verify both operations succeeded
             Assert.False(firstOperationError, $"First operation failed: {firstError}");
             Assert.False(secondOperationError, $"Second operation failed: {secondError}");
+            
+            // Verify handler was called for both operations
+            Assert.Equal(2, handlerCallCount);
             
             // Clean up
             provider.Disconnect();
@@ -4253,6 +4287,13 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(gpuListReleaseIdx >= 0, "gpuList should be released");
             Assert.True(terminateIdx >= 0, "Terminate should be called");
             Assert.True(gpuListReleaseIdx < terminateIdx, "gpuList released before Terminate");
+            
+            // Deterministic disposal of synchronization objects
+            firstOperationReachedPause.Dispose();
+            releaseFirstOperation.Dispose();
+            secondOperationStarted.Dispose();
+            firstOperationCompleted.Dispose();
+            secondOperationCompleted.Dispose();
         }
     }
 
