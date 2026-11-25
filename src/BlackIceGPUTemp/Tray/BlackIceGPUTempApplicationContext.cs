@@ -32,7 +32,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
         private volatile bool _disposing;
-        private readonly MonitoringReadGate _readGate = new();
+        private readonly MonitoringReadExecutor _readExecutor;
         private MonitoringSession? _session;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
         private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
@@ -99,6 +99,8 @@ namespace BlackIceGPUTemp.Tray
             _timer.Tick += OnTimerTick;
 
             _ = _uiDispatcher.Handle;
+
+            _readExecutor = new MonitoringReadExecutor(action => Task.Run(action));
 
             Task.Run(() => Initialize(_cancellationTokenSource.Token));
         }
@@ -309,23 +311,18 @@ namespace BlackIceGPUTemp.Tray
                 }
             }
 
-            if (!_readGate.TryBeginRead())
-            {
-                return;
-            }
-
             var token = _cancellationTokenSource.Token;
 
-            Task.Run(() =>
+            _readExecutor.TryExecute(ct =>
             {
                 try
                 {
-                    if (token.IsCancellationRequested)
+                    if (ct.IsCancellationRequested)
                     {
                         return;
                     }
 
-                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, token);
+                    bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, ct);
 
                     lock (_disposeLock)
                     {
@@ -359,10 +356,6 @@ namespace BlackIceGPUTemp.Tray
                         UpdateTooltip(displayState.TooltipText);
                         UpdateIcon(displayState.IconText);
                     });
-                }
-                finally
-                {
-                    _readGate.EndRead();
                 }
             }, token);
         }
@@ -494,7 +487,7 @@ namespace BlackIceGPUTemp.Tray
                 IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
 
                 // Permanently block new reads before cleaning up resources used by reads
-                _readGate.Stop();
+                _readExecutor.Stop();
 
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
