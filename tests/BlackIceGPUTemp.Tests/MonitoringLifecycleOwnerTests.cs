@@ -363,25 +363,41 @@ namespace BlackIceGPUTemp.Tests
             finally
             {
                 // Ensure all started threads are joined with timeout
-                // Account for barrier timeout (5s) + small buffer
-                var joinTimeout = TimeSpan.FromSeconds(7);
+                // Use a shared deadline for the entire cleanup group
+                var cleanupDeadline = DateTime.UtcNow.AddSeconds(7);
+                var failedThreads = new List<int>();
+
                 for (int i = 0; i < threadCount; i++)
                 {
                     var t = threads[i];
                     if (started[i] && t != null && t.IsAlive)
                     {
-                        bool joined = t.Join(joinTimeout);
+                        var remaining = cleanupDeadline - DateTime.UtcNow;
+                        if (remaining <= TimeSpan.Zero)
+                        {
+                            remaining = TimeSpan.FromMilliseconds(1);
+                        }
+                        bool joined = t.Join(remaining);
                         if (!joined)
                         {
-                            // Thread did not finish in time - cannot force it, but mark as background
-                            // so it doesn't block process exit, and record the failure
-                            if (!t.IsBackground)
-                            {
-                                t.IsBackground = true;
-                            }
-                            Assert.Fail($"Thread {i} did not finish within cleanup timeout");
+                            failedThreads.Add(i);
                         }
                     }
+                }
+
+                // After attempting to join all threads, handle any that didn't finish
+                foreach (var i in failedThreads)
+                {
+                    var t = threads[i];
+                    if (!t.IsBackground)
+                    {
+                        t.IsBackground = true;
+                    }
+                }
+
+                if (failedThreads.Count > 0)
+                {
+                    Assert.Fail($"Threads {string.Join(", ", failedThreads)} did not finish within cleanup timeout");
                 }
             }
         }
