@@ -140,6 +140,10 @@ namespace BlackIceGPUTemp.Tests
                     bool lateRegister = owner.TryRegister(lifecycle);
                     Assert.False(lateRegister);
                 }
+
+                // After race completes, any further registration must fail regardless of winner
+                bool lateRegisterResult = owner.TryRegister(new FakeLifecycle());
+                Assert.False(lateRegisterResult, "Late register should always fail after stop");
             }
         }
 
@@ -246,64 +250,6 @@ namespace BlackIceGPUTemp.Tests
             var result = owner.StopAndTake();
 
             Assert.Null(result);
-        }
-
-        [Fact]
-        public void ConcurrentRegisterAndStop_WithMultipleRegisters_ExactlyOneGetsProvider()
-        {
-            const int iterations = 500;
-
-            for (int i = 0; i < iterations; i++)
-            {
-                var owner = new MonitoringLifecycleOwner();
-                var lifecycle = new FakeLifecycle();
-                var startBarrier = new Barrier(2);
-                var registerDone = new ManualResetEventSlim(false);
-                var stopDone = new ManualResetEventSlim(false);
-                bool? earlyRegisterResult = null;
-                IGpuProviderLifecycle? stopResult = null;
-
-                var earlyRegisterTask = Task.Run(() =>
-                {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    earlyRegisterResult = owner.TryRegister(lifecycle);
-                    registerDone.Set();
-                });
-
-                var stopTask = Task.Run(() =>
-                {
-                    startBarrier.SignalAndWait(TimeSpan.FromSeconds(5));
-                    stopResult = owner.StopAndTake();
-                    stopDone.Set();
-                });
-
-                bool registerCompleted = registerDone.Wait(TimeSpan.FromSeconds(5));
-                bool stopCompleted = stopDone.Wait(TimeSpan.FromSeconds(5));
-                Assert.True(registerCompleted, "Early register task timed out");
-                Assert.True(stopCompleted, "Stop task timed out");
-
-                earlyRegisterTask.Wait(TimeSpan.FromSeconds(5));
-                stopTask.Wait(TimeSpan.FromSeconds(5));
-
-                bool earlyRegisterSuccess = earlyRegisterResult == true;
-
-                if (earlyRegisterSuccess)
-                {
-                    // Registration won - StopAndTake must return the same provider
-                    Assert.Same(lifecycle, stopResult);
-                    var cleanup = owner.StopAndTake();
-                    Assert.Null(cleanup);
-                }
-                else
-                {
-                    // Stop won - registration failed, StopAndTake returned null
-                    Assert.Null(stopResult);
-                }
-
-                // Late registration after both tasks completed - must fail
-                bool lateRegisterResult = owner.TryRegister(new FakeLifecycle());
-                Assert.False(lateRegisterResult, "Late register should always fail after stop");
-            }
         }
     }
 }
