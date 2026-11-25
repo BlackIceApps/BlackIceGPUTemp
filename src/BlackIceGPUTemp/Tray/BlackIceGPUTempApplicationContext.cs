@@ -348,22 +348,12 @@ namespace BlackIceGPUTemp.Tray
                         }
                     }
 
-                    if (success && reading != null)
+                    var displayState = TemperatureDisplayState.Create(session.DeviceName, success, reading);
+                    InvokeOnUiThread(() =>
                     {
-                        InvokeOnUiThread(() =>
-                        {
-                            UpdateTooltip($"{session.DeviceName}: {reading.Celsius:F1}°C");
-                            UpdateIcon(((int)Math.Round(reading.Celsius)).ToString());
-                        });
-                    }
-                    else
-                    {
-                        InvokeOnUiThread(() =>
-                        {
-                            UpdateTooltip($"{session.DeviceName}: Temp unavailable");
-                            UpdateIcon("--");
-                        });
-                    }
+                        UpdateTooltip(displayState.TooltipText);
+                        UpdateIcon(displayState.IconText);
+                    });
                 }
                 catch (Exception ex)
                 {
