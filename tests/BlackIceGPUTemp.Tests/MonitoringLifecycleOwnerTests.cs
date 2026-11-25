@@ -91,8 +91,6 @@ namespace BlackIceGPUTemp.Tests
         public void Race_RegisterVsStopAndTake_ExactlyOneSucceeds()
         {
             const int iterations = 1000;
-            int registerWins = 0;
-            int stopWins = 0;
 
             for (int i = 0; i < iterations; i++)
             {
@@ -127,19 +125,18 @@ namespace BlackIceGPUTemp.Tests
                 stopTask.Wait(TimeSpan.FromSeconds(5));
 
                 bool registerSuccess = registerResult == true;
-                bool stopSuccess = stopResult != null;
-
-                Assert.True(registerSuccess ^ stopSuccess, "Exactly one should succeed");
 
                 if (registerSuccess)
                 {
-                    registerWins++;
+                    // Registration won - StopAndTake must return the same provider
+                    Assert.Same(lifecycle, stopResult);
                     var cleanup = owner.StopAndTake();
-                    Assert.Same(lifecycle, cleanup);
+                    Assert.Null(cleanup);
                 }
                 else
                 {
-                    stopWins++;
+                    // Stop won - registration failed, StopAndTake returned null
+                    Assert.Null(stopResult);
                     bool lateRegister = owner.TryRegister(lifecycle);
                     Assert.False(lateRegister);
                 }
@@ -255,8 +252,6 @@ namespace BlackIceGPUTemp.Tests
         public void ConcurrentRegisterAndStop_WithMultipleRegisters_ExactlyOneGetsProvider()
         {
             const int iterations = 500;
-            int registerWins = 0;
-            int stopWins = 0;
 
             for (int i = 0; i < iterations; i++)
             {
@@ -291,24 +286,23 @@ namespace BlackIceGPUTemp.Tests
                 stopTask.Wait(TimeSpan.FromSeconds(5));
 
                 bool earlyRegisterSuccess = earlyRegisterResult == true;
-                bool stopSuccess = stopResult != null;
 
-                Assert.True(earlyRegisterSuccess ^ stopSuccess, "Exactly one of early register or stop should succeed");
+                if (earlyRegisterSuccess)
+                {
+                    // Registration won - StopAndTake must return the same provider
+                    Assert.Same(lifecycle, stopResult);
+                    var cleanup = owner.StopAndTake();
+                    Assert.Null(cleanup);
+                }
+                else
+                {
+                    // Stop won - registration failed, StopAndTake returned null
+                    Assert.Null(stopResult);
+                }
 
                 // Late registration after both tasks completed - must fail
                 bool lateRegisterResult = owner.TryRegister(new FakeLifecycle());
                 Assert.False(lateRegisterResult, "Late register should always fail after stop");
-
-                if (earlyRegisterSuccess)
-                {
-                    registerWins++;
-                    var cleanup = owner.StopAndTake();
-                    Assert.Same(lifecycle, cleanup);
-                }
-                else
-                {
-                    stopWins++;
-                }
             }
         }
     }
