@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
@@ -274,6 +275,85 @@ namespace BlackIceGPUTemp.Tests
             {
                 Thread.CurrentThread.CurrentCulture = originalCulture;
             }
+        }
+
+        [Fact]
+        public void Update_ExecutesOnDispatcherThreadOnlyWhenInvokedFromAnotherThread()
+        {
+            int? callingThreadId = null;
+            int? dispatcherCallbackThreadId = null;
+            int? tooltipThreadId = null;
+            int? iconThreadId = null;
+
+            var actionQueue = new BlockingCollection<Action>();
+            var dispatcherReadyEvent = new ManualResetEventSlim(false);
+            var actionExecutedEvent = new ManualResetEventSlim(false);
+
+            Thread dispatcherThread = new Thread(() =>
+            {
+                dispatcherReadyEvent.Set();
+                foreach (var action in actionQueue.GetConsumingEnumerable())
+                {
+                    dispatcherCallbackThreadId = Environment.CurrentManagedThreadId;
+                    try
+                    {
+                        action();
+                    }
+                    finally
+                    {
+                        actionExecutedEvent.Set();
+                    }
+                }
+            });
+
+            dispatcherThread.Start();
+            Assert.True(dispatcherReadyEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to start within timeout.");
+
+            Action<Action> dedicatedDispatcher = action =>
+            {
+                actionQueue.Add(action);
+            };
+
+            var updater = new MonitoringDisplayUpdater(
+                dedicatedDispatcher,
+                text =>
+                {
+                    tooltipThreadId = Environment.CurrentManagedThreadId;
+                },
+                text =>
+                {
+                    iconThreadId = Environment.CurrentManagedThreadId;
+                },
+                _reportError);
+
+            var reading = new TemperatureReading(65.5, "GPU Core", DateTimeOffset.UtcNow);
+
+            Thread updateThread = new Thread(() =>
+            {
+                callingThreadId = Environment.CurrentManagedThreadId;
+                updater.Update("Test GPU", true, reading);
+            });
+
+            updateThread.Start();
+            Assert.True(updateThread.Join(TimeSpan.FromSeconds(5)), "Update thread failed to complete within timeout.");
+            Assert.True(actionExecutedEvent.Wait(TimeSpan.FromSeconds(5)), "Dispatcher action execution timed out.");
+
+            actionQueue.CompleteAdding();
+            Assert.True(dispatcherThread.Join(TimeSpan.FromSeconds(5)), "Dispatcher thread failed to terminate within timeout.");
+
+            actionQueue.Dispose();
+            dispatcherReadyEvent.Dispose();
+            actionExecutedEvent.Dispose();
+
+            Assert.NotNull(callingThreadId);
+            Assert.NotNull(dispatcherCallbackThreadId);
+            Assert.NotNull(tooltipThreadId);
+            Assert.NotNull(iconThreadId);
+
+            Assert.Equal(dispatcherCallbackThreadId, tooltipThreadId);
+            Assert.Equal(dispatcherCallbackThreadId, iconThreadId);
+            Assert.NotEqual(callingThreadId, tooltipThreadId);
+            Assert.NotEqual(callingThreadId, iconThreadId);
         }
     }
 }
