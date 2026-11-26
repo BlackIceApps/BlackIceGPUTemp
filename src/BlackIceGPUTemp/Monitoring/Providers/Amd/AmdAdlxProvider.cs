@@ -379,23 +379,23 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             bool result;
             try
             {
-cancellationToken.ThrowIfCancellationRequested();
-            
-            IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken, out bool gpuIsCached);
-            if (targetGpu == IntPtr.Zero)
-            {
-                error = $"GPU with unique ID {targetUniqueId} not found.";
-                Logger.LogWarn($"ADLX TryReadTemperature: {error}");
-                result = false;
-            }
-            else
-            {
-                IntPtr services = IntPtr.Zero;
-                IntPtr metricsSupport = IntPtr.Zero;
-                IntPtr metrics = IntPtr.Zero;
-
-                try
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken, out bool gpuIsCached);
+                if (targetGpu == IntPtr.Zero)
                 {
+                    error = $"GPU with unique ID {targetUniqueId} not found.";
+                    Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                    result = false;
+                }
+                else
+                {
+                    IntPtr services = IntPtr.Zero;
+                    IntPtr metricsSupport = IntPtr.Zero;
+                    IntPtr metrics = IntPtr.Zero;
+
+                    try
+                    {
                         cancellationToken.ThrowIfCancellationRequested();
                         
                         if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)

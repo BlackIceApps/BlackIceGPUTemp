@@ -5539,7 +5539,7 @@ namespace BlackIceGPUTemp.Tests
 
             // Read second GPU again - should use cache, no re-enumeration
             bool success4 = provider.TryReadTemperatureInternal(22222, out var reading4, out var error4);
-Assert.True(success4);
+            Assert.True(success4);
             Assert.Null(error4);
             Assert.NotNull(reading4);
             Assert.Equal(72.5, reading4.Celsius);
