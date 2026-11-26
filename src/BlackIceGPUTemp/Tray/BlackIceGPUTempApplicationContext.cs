@@ -112,7 +112,8 @@ namespace BlackIceGPUTemp.Tray
                 UpdateIcon,
                 ex => Logger.LogError("Monitoring display update failed", ex));
 
-            Task.Run(() => Initialize(_cancellationTokenSource.Token));
+            var initToken = _cancellationTokenSource.Token;
+            Task.Run(() => Initialize(initToken));
         }
 
         private void OnNotifyIconMouseClick(object? sender, MouseEventArgs e)
