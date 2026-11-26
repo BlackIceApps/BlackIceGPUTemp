@@ -26,6 +26,12 @@ namespace BlackIceGPUTemp.Tests
             public int LastReleaseResult { get; private set; }
             private int _getGpuTemperatureCallCount;
             public int GetGpuTemperatureCallCount => _getGpuTemperatureCallCount;
+            private int _getGpuListSizeCallCount;
+            public int GetGpuListSizeCallCount => _getGpuListSizeCallCount;
+            private int _getGpuAtCallCount;
+            public int GetGpuAtCallCount => _getGpuAtCallCount;
+            private int _getGpuUniqueIdCallCount;
+            public int GetGpuUniqueIdCallCount => _getGpuUniqueIdCallCount;
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
             public bool ThrowOnRelease { get; set; } = false;
@@ -103,6 +109,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetGpuListSize(IntPtr gpuList, out int count)
             {
+                Interlocked.Increment(ref _getGpuListSizeCallCount);
                 count = GpuNames.Count;
                 if (GetGpuListSizeHandler != null)
                 {
@@ -113,6 +120,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetGpuAt(IntPtr gpuList, int index, out IntPtr gpu)
             {
+                Interlocked.Increment(ref _getGpuAtCallCount);
                 gpu = new IntPtr(0x3000 + index);
                 if (GetGpuAtHandler != null)
                 {
@@ -134,6 +142,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetGpuUniqueId(IntPtr gpu, out int uniqueId)
             {
+                Interlocked.Increment(ref _getGpuUniqueIdCallCount);
                 int index = (int)(gpu.ToInt64() - 0x3000);
                 uniqueId = index >= 0 && index < GpuUniqueIds.Count ? GpuUniqueIds[index] : 12345;
                 if (GetGpuUniqueIdHandler != null)
@@ -5365,7 +5374,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(terminateIdx2 >= 0, "Second session Terminate should be called");
             Assert.True(gpuListReleaseIdx2 < terminateIdx2, "Second session gpuList released before Terminate");
 
-            // Verify no double-release of any interface for either session
+// Verify no double-release of any interface for either session
             foreach (var fake in new[] { fake1, fake2 })
             {
                 var releaseCounts = new Dictionary<int, int>();
@@ -5375,11 +5384,176 @@ namespace BlackIceGPUTemp.Tests
                         releaseCounts[ptr] = 0;
                     releaseCounts[ptr]++;
                 }
-foreach (var kvp in releaseCounts)
+                foreach (var kvp in releaseCounts)
+                {
+                    Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
+                }
+            }
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_RepeatedReads_SameGpu_EnumeratesTwice()
+        {
+            var fake = new FakeAdlxNative
             {
-                Assert.True(kvp.Value == 1, $"Interface 0x{kvp.Key:X} was released {kvp.Value} times (expected exactly once)");
-            }
-            }
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First read
+            bool success1 = provider.TryReadTemperatureInternal(12345, out var reading1, out var error1);
+            Assert.True(success1);
+            Assert.Null(error1);
+            Assert.NotNull(reading1);
+            Assert.Equal(65.5, reading1.Celsius);
+
+            // Second read
+            bool success2 = provider.TryReadTemperatureInternal(12345, out var reading2, out var error2);
+            Assert.True(success2);
+            Assert.Null(error2);
+            Assert.NotNull(reading2);
+            Assert.Equal(65.5, reading2.Celsius);
+
+            // Current implementation enumerates GPU on each read
+            Assert.Equal(2, fake.GetGpuListSizeCallCount);
+            Assert.Equal(2, fake.GetGpuAtCallCount);
+            Assert.Equal(2, fake.GetGpuUniqueIdCallCount);
+
+            // Temporary GPU handle (0x3000) released exactly once per read = 2 times total
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x3000));
+
+            // Persistent session resources not released yet
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // system
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_MultipleGpus_ReadsCorrectGpuByUniqueId()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU First", "GPU Second" },
+                GpuUniqueIds = new List<int> { 11111, 22222 },
+                GpuTypes = new List<int> { 2, 2 },
+                GpuTemperatureSupported = new List<bool> { true, true },
+                GpuTemperatures = new List<double> { 55.0, 72.5 }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // Read temperature of second GPU (UniqueId = 22222)
+            bool success = provider.TryReadTemperatureInternal(22222, out var reading, out var error);
+
+            Assert.True(success);
+            Assert.Null(error);
+            Assert.NotNull(reading);
+            Assert.Equal(72.5, reading.Celsius); // Temperature from second GPU
+
+            // Non-target GPU handle (0x3000 for index 0) released
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+
+            // Target GPU handle (0x3001 for index 1) also released after read
+            Assert.Contains(0x3001, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3001);
+
+            // Persistent session resources not released yet
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_AfterReconnect_UsesNewFakeInstance()
+        {
+            var fake1 = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 60.0 }
+            };
+            var fake2 = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 70.0 } // Different temperature to verify new instance
+            };
+
+            var factoryCallCount = 0;
+            var provider = new AmdAdlxProvider(() =>
+            {
+                factoryCallCount++;
+                return factoryCallCount == 1 ? fake1 : fake2;
+            });
+
+            // First read using first session
+            bool success1 = provider.TryReadTemperatureInternal(12345, out var reading1, out var error1);
+            Assert.True(success1);
+            Assert.Null(error1);
+            Assert.NotNull(reading1);
+            Assert.Equal(60.0, reading1.Celsius);
+            Assert.Equal(1, fake1.InitializeCalls);
+            Assert.Equal(0, fake2.InitializeCalls);
+
+            // Disconnect first session
+            provider.Disconnect();
+            Assert.Equal(1, fake1.TerminateCalls);
+            Assert.True(fake1.IsDisposed);
+
+            // Connect creates new session with new FakeAdlxNative
+            bool connectResult = provider.Connect(out var connectError);
+            Assert.True(connectResult);
+            Assert.Null(connectError);
+            Assert.Equal(2, factoryCallCount);
+            Assert.Equal(1, fake2.InitializeCalls); // New instance initialized
+
+            // Second read using new session
+            bool success2 = provider.TryReadTemperatureInternal(12345, out var reading2, out var error2);
+            Assert.True(success2);
+            Assert.Null(error2);
+            Assert.NotNull(reading2);
+            Assert.Equal(70.0, reading2.Celsius); // Temperature from new fake instance
+
+            // Second read uses fake2's enumeration
+            Assert.Equal(1, fake2.GetGpuListSizeCallCount);
+            Assert.Equal(1, fake2.GetGpuAtCallCount);
+            Assert.Equal(1, fake2.GetGpuUniqueIdCallCount);
+
+            // fake1's resources not touched after disconnect
+            Assert.Equal(1, fake1.GetGpuListSizeCallCount);
+            Assert.Equal(1, fake1.GetGpuAtCallCount);
+            Assert.Equal(1, fake1.GetGpuUniqueIdCallCount);
+
+            provider.Disconnect();
+
+            Assert.Equal(1, fake2.TerminateCalls);
+            Assert.True(fake2.IsDisposed);
         }
     }
 
