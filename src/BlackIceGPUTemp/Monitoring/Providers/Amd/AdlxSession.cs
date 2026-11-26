@@ -19,6 +19,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private bool _disposed;
         private readonly Dictionary<int, IntPtr> _gpuCache = new Dictionary<int, IntPtr>();
 
+        // Cached performance monitoring services (session-wide)
+        private IntPtr _perfServices = IntPtr.Zero;
+
+        // Cached metrics support per GPU (indexed by UniqueId)
+        private readonly Dictionary<int, (IntPtr MetricsSupport, bool TempSupported)> _metricsSupportCache = new Dictionary<int, (IntPtr, bool)>();
+
         public IAdlxNative? PendingNative { get; private set; }
         public IDisposable? PendingDisposable { get; private set; }
         public IAdlxNative? PendingDisposeNative { get; private set; }
@@ -189,6 +195,28 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 return -1;
             }
 
+            // Get GPU unique ID first to check cache
+            int uidResult = _native.GetGpuUniqueId(gpu, out int uniqueId);
+            if (uidResult != 0 || uniqueId <= 0)
+            {
+                // If we can't get the unique ID, fall back to non-cached path
+                return IsTemperatureSupportedUncached(gpu, out supported, cancellationToken);
+            }
+
+            // Check cache for existing metrics support
+            if (_metricsSupportCache.TryGetValue(uniqueId, out var cached))
+            {
+                supported = cached.TempSupported;
+                return 0;
+            }
+
+            // Not in cache - fetch and cache
+            return IsTemperatureSupportedAndCache(gpu, uniqueId, out supported, cancellationToken);
+        }
+
+        private int IsTemperatureSupportedUncached(IntPtr gpu, out bool supported, CancellationToken cancellationToken)
+        {
+            supported = false;
             IntPtr services = IntPtr.Zero;
             IntPtr metricsSupport = IntPtr.Zero;
 
@@ -226,14 +254,76 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
-        public int GetPerformanceMonitoringServices(out IntPtr services)
+        private int IsTemperatureSupportedAndCache(IntPtr gpu, int uniqueId, out bool supported, CancellationToken cancellationToken)
+        {
+            supported = false;
+            IntPtr services = IntPtr.Zero;
+            IntPtr metricsSupport = IntPtr.Zero;
+
+            try
+            {
+                // Get or create performance monitoring services
+                int perfResult = GetOrCreatePerfServices(out services);
+                if (perfResult != 0 || services == IntPtr.Zero)
+                {
+                    return perfResult != 0 ? perfResult : -1;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
+                if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
+                {
+                    return metricsResult != 0 ? metricsResult : -1;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int tempResult = _native.IsSupportedGpuTemperature(metricsSupport, out supported);
+                if (tempResult != 0)
+                {
+                    supported = false;
+                    // Release the metricsSupport we just got since we won't cache it
+                    AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                    return tempResult;
+                }
+
+                // Success - cache the metricsSupport and temperature support result
+                _metricsSupportCache[uniqueId] = (metricsSupport, supported);
+                return 0;
+            }
+            finally
+            {
+                // Note: services is cached, so we don't release it here
+                // metricsSupport is either cached (success) or released (failure) above
+            }
+        }
+
+        private int GetOrCreatePerfServices(out IntPtr services)
         {
             services = IntPtr.Zero;
             if (_disposed)
             {
                 return -1;
             }
-            return _native.GetPerformanceMonitoringServices(_system, out services);
+
+            if (_perfServices != IntPtr.Zero)
+            {
+                services = _perfServices;
+                return 0;
+            }
+
+            int result = _native.GetPerformanceMonitoringServices(_system, out services);
+            if (result == 0 && services != IntPtr.Zero)
+            {
+                _perfServices = services;
+            }
+            return result;
+        }
+
+        public int GetPerformanceMonitoringServices(out IntPtr services)
+        {
+            return GetOrCreatePerfServices(out services);
         }
 
         public int GetSupportedGpuMetrics(IntPtr services, IntPtr gpu, out IntPtr metricsSupport)
@@ -341,6 +431,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private void Cleanup()
         {
+            // Release cached GPU handles first
             foreach (var kvp in _gpuCache)
             {
                 IntPtr gpuHandle = kvp.Value;
@@ -351,6 +442,24 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             _gpuCache.Clear();
 
+            // Release cached metricsSupport (child before parent - before services)
+            foreach (var kvp in _metricsSupportCache)
+            {
+                IntPtr metricsSupport = kvp.Value.MetricsSupport;
+                if (metricsSupport != IntPtr.Zero)
+                {
+                    AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                }
+            }
+            _metricsSupportCache.Clear();
+
+            // Release cached performance monitoring services
+            if (_perfServices != IntPtr.Zero)
+            {
+                AdlxInterop.ReleaseInterface(_native, ref _perfServices);
+            }
+
+            // Release GPU list
             AdlxInterop.ReleaseInterface(_native, ref _gpuList);
 
             var result = PerformCleanup(_native, _disposableNative, _initialized);
