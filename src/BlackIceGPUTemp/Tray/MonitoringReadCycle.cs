@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 
@@ -31,9 +30,9 @@ namespace BlackIceGPUTemp.Tray
             _deviceName = deviceName ?? throw new ArgumentNullException(nameof(deviceName));
         }
 
-        public void Execute(CancellationToken cancellationToken, bool isDisposing)
+        public void Execute(CancellationToken cancellationToken, Func<bool> isDisposing)
         {
-            if (cancellationToken.IsCancellationRequested || isDisposing)
+            if (cancellationToken.IsCancellationRequested || isDisposing())
             {
                 return;
             }
@@ -49,7 +48,7 @@ namespace BlackIceGPUTemp.Tray
                     out var error,
                     cancellationToken);
 
-                if (cancellationToken.IsCancellationRequested || isDisposing)
+                if (cancellationToken.IsCancellationRequested || isDisposing())
                 {
                     return;
                 }
@@ -58,14 +57,30 @@ namespace BlackIceGPUTemp.Tray
             }
             catch (OperationCanceledException)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    ReportAndUpdateUnavailable(new OperationCanceledException("Operation canceled without token cancellation"));
+                }
             }
             catch (Exception ex)
             {
-                if (!cancellationToken.IsCancellationRequested && !isDisposing)
-                {
-                    Logger.LogError("Error reading temperature", ex);
-                    _displayUpdater.Update(_deviceName, false, null);
-                }
+                ReportAndUpdateUnavailable(ex);
+            }
+        }
+
+        private void ReportAndUpdateUnavailable(Exception ex)
+        {
+            try
+            {
+                _reportError(ex);
+            }
+            catch
+            {
+            }
+
+            if (!isDisposing())
+            {
+                _displayUpdater.Update(_deviceName, false, null);
             }
         }
     }

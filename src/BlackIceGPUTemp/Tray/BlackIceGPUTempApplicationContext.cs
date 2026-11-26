@@ -252,7 +252,7 @@ namespace BlackIceGPUTemp.Tray
                 var readCycle = new MonitoringReadCycle(
                     monitorService,
                     _displayUpdater,
-                    ex => Logger.LogError("Monitoring display update failed", ex),
+                    ex => Logger.LogError("Error reading temperature", ex),
                     providerId,
                     deviceId,
                     deviceName);
@@ -313,19 +313,19 @@ namespace BlackIceGPUTemp.Tray
             var session = _session;
             var readCycle = _readCycle;
 
-            bool isDisposing;
-            lock (_disposeLock)
-            {
-                isDisposing = _disposing;
-            }
-
             var token = _cancellationTokenSource.Token;
 
             _readTrigger.TryStart(
                 hasSession: session != null,
                 providerId: session?.ProviderId,
                 deviceId: session?.DeviceId,
-                isDisposing: isDisposing,
+                isDisposing: () =>
+                {
+                    lock (_disposeLock)
+                    {
+                        return _disposing;
+                    }
+                },
                 operation: ct =>
                 {
                     if (readCycle == null)
@@ -333,7 +333,13 @@ namespace BlackIceGPUTemp.Tray
                         return;
                     }
 
-                    readCycle.Execute(ct, isDisposing);
+                    readCycle.Execute(ct, () =>
+                    {
+                        lock (_disposeLock)
+                        {
+                            return _disposing;
+                        }
+                    });
                 },
                 cancellationToken: token);
         }

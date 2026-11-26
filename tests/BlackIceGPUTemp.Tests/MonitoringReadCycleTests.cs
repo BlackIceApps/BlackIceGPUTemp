@@ -73,7 +73,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => (true, reading, null));
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -88,7 +88,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => (false, null, "Device not found"));
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -103,7 +103,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => (false, null, ""));
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -118,7 +118,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => (false, null, null));
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -133,7 +133,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => (false, null, "   "));
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -149,7 +149,7 @@ namespace BlackIceGPUTemp.Tests
             var monitorService = CreateMonitorService(_ => throw exception);
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, false);
+            cycle.Execute(CancellationToken.None, () => false);
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
@@ -173,7 +173,7 @@ namespace BlackIceGPUTemp.Tests
             var cts = new CancellationTokenSource();
             cts.Cancel();
 
-            cycle.Execute(cts.Token, false);
+            cycle.Execute(cts.Token, () => false);
 
             Assert.False(readCalled);
             Assert.Empty(_tooltipResults);
@@ -184,16 +184,15 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Execute_CancellationDuringRead_NoUpdate()
         {
+            var cts = new CancellationTokenSource();
             var monitorService = CreateMonitorService(ct =>
             {
-                ct.ThrowIfCancellationRequested();
+                cts.Cancel();
                 return (true, CreateReading(), null);
             });
             var cycle = CreateCycle(monitorService);
-            var cts = new CancellationTokenSource();
-            cts.Cancel();
 
-            cycle.Execute(cts.Token, false);
+            cycle.Execute(cts.Token, () => false);
 
             Assert.Empty(_tooltipResults);
             Assert.Empty(_iconResults);
@@ -201,7 +200,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Execute_IsDisposingTrue_NoReadNoUpdate()
+        public void Execute_DisposingTrueBeforeRead_NoReadNoUpdate()
         {
             var readCalled = false;
             var monitorService = CreateMonitorService(_ =>
@@ -211,7 +210,7 @@ namespace BlackIceGPUTemp.Tests
             });
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, true);
+            cycle.Execute(CancellationToken.None, () => true);
 
             Assert.False(readCalled);
             Assert.Empty(_tooltipResults);
@@ -220,51 +219,79 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Execute_IsDisposingBecomesTrueAfterRead_NoUpdate()
+        public void Execute_DisposingBecomesTrueDuringRead_NoUpdate()
         {
+            var disposing = false;
             var readCompleted = false;
             var monitorService = CreateMonitorService(_ =>
             {
+                disposing = true;
                 readCompleted = true;
                 return (true, CreateReading(), null);
             });
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, true);
+            cycle.Execute(CancellationToken.None, () => disposing);
 
-            Assert.False(readCompleted);
+            Assert.True(readCompleted);
             Assert.Empty(_tooltipResults);
             Assert.Empty(_iconResults);
             Assert.Empty(_reportedErrors);
         }
 
         [Fact]
-        public void Execute_ExceptionWhenDisposing_DoesNotReportErrorOrUpdate()
+        public void Execute_ExceptionWhenDisposingBecomesTrueDuringRead_NoReportNoUpdate()
         {
+            var disposing = false;
             var exception = new InvalidOperationException("Hardware failure");
+            var monitorService = CreateMonitorService(_ =>
+            {
+                disposing = true;
+                throw exception;
+            });
+            var cycle = CreateCycle(monitorService);
+
+            cycle.Execute(CancellationToken.None, () => disposing);
+
+            Assert.Empty(_tooltipResults);
+            Assert.Empty(_iconResults);
+            Assert.Empty(_reportedErrors);
+        }
+
+        [Fact]
+        public void Execute_OperationCanceledExceptionWithNonCancelledToken_ReportsErrorAndUpdatesUnavailable()
+        {
+            var exception = new OperationCanceledException("Canceled without token");
             var monitorService = CreateMonitorService(_ => throw exception);
             var cycle = CreateCycle(monitorService);
 
-            cycle.Execute(CancellationToken.None, true);
+            cycle.Execute(CancellationToken.None, () => false);
 
-            Assert.Empty(_tooltipResults);
-            Assert.Empty(_iconResults);
-            Assert.Empty(_reportedErrors);
+            Assert.Single(_tooltipResults);
+            Assert.Single(_iconResults);
+            Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
+            Assert.Equal("--", _iconResults[0]);
+            Assert.Single(_reportedErrors);
+            Assert.Same(exception, _reportedErrors[0]);
         }
 
         [Fact]
-        public void Execute_CancellationWhenDisposing_DoesNotReportErrorOrUpdate()
+        public void Execute_ReportErrorThrows_StillUpdatesDisplayToUnavailable()
         {
-            var monitorService = CreateMonitorService(ct => { ct.ThrowIfCancellationRequested(); return (true, CreateReading(), null); });
+            var exception = new InvalidOperationException("Hardware failure");
+            var reportErrorException = new InvalidOperationException("Reporting failed");
+            var monitorService = CreateMonitorService(_ => throw exception);
             var cycle = CreateCycle(monitorService);
-            var cts = new CancellationTokenSource();
-            cts.Cancel();
+            _reportError = ex => throw reportErrorException;
 
-            cycle.Execute(cts.Token, true);
+            cycle.Execute(CancellationToken.None, () => false);
 
-            Assert.Empty(_tooltipResults);
-            Assert.Empty(_iconResults);
-            Assert.Empty(_reportedErrors);
+            Assert.Single(_tooltipResults);
+            Assert.Single(_iconResults);
+            Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
+            Assert.Equal("--", _iconResults[0]);
+            Assert.Single(_reportedErrors);
+            Assert.Same(exception, _reportedErrors[0]);
         }
 
         [Fact]
