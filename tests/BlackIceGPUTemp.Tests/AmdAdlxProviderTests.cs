@@ -5539,26 +5539,24 @@ namespace BlackIceGPUTemp.Tests
 
             // Read second GPU again - should use cache, no re-enumeration
             bool success4 = provider.TryReadTemperatureInternal(22222, out var reading4, out var error4);
-            Assert.True(success4);
+Assert.True(success4);
             Assert.Null(error4);
             Assert.NotNull(reading4);
             Assert.Equal(72.5, reading4.Celsius);
 
-            // Enumeration happened only once (during first read of each GPU)
-            Assert.Equal(2, fake.GetGpuListSizeCallCount); // Called for each unique GPU on first access
-            Assert.Equal(2, fake.GetGpuAtCallCount); // Called for each GPU during first enumeration (2 GPUs)
-            Assert.Equal(2, fake.GetGpuUniqueIdCallCount); // Called for each GPU during first enumeration
+            // Enumeration happened only once per unique GPU on first access
+            // First read (11111): GetGpuAt called once (index 0 = target), returns immediately
+            // Second read (22222): GetGpuAt called twice (index 0 = non-target released, index 1 = target)
+            Assert.Equal(2, fake.GetGpuListSizeCallCount);
+            Assert.Equal(3, fake.GetGpuAtCallCount);
+            Assert.Equal(3, fake.GetGpuUniqueIdCallCount);
 
-            // First read (11111): GPU 0 (0x3000) cached, GPU 1 (0x3001) non-target released
-            // Second read (22222): GPU 0 (0x3000) non-target released, GPU 1 (0x3001) cached
-            // So both non-target handles were released once each during enumeration
+            // First read (11111): target found at index 0, loop exits early - no non-target GPU enumerated
+            // Second read (22222): index 0 (0x3000) non-target released, index 1 (0x3001) target cached
             Assert.Contains(0x3000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
-            Assert.Contains(0x3001, fake.ReleasedPointers);
-            Assert.Single(fake.ReleasedPointers, p => p == 0x3001);
-
-            // But target handles are cached and NOT released after reads
-            // (they were released as non-target during the OTHER GPU's first read)
+            // 0x3001 was never non-target, so not released during enumeration
+            Assert.DoesNotContain(0x3001, fake.ReleasedPointers);
 
             // Persistent session resources not released yet
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
@@ -5572,9 +5570,10 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
             // Both cached GPU handles released exactly once during Disconnect
-            // (they were already released once as non-target, so now total count is 2 each)
+            // 0x3000 was released once during enumeration + once on Disconnect = 2 total
+            // 0x3001 was only released on Disconnect = 1 total
             Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x3000));
-            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x3001));
+            Assert.Equal(1, fake.ReleasedPointers.Count(p => p == 0x3001));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }

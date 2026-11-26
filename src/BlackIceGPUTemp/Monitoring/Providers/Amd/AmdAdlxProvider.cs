@@ -379,23 +379,23 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             bool result;
             try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                
-                IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken);
-                if (targetGpu == IntPtr.Zero)
-                {
-                    error = $"GPU with unique ID {targetUniqueId} not found.";
-                    Logger.LogWarn($"ADLX TryReadTemperature: {error}");
-                    result = false;
-                }
-                else
-                {
-                    IntPtr services = IntPtr.Zero;
-                    IntPtr metricsSupport = IntPtr.Zero;
-                    IntPtr metrics = IntPtr.Zero;
+cancellationToken.ThrowIfCancellationRequested();
+            
+            IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken, out bool gpuIsCached);
+            if (targetGpu == IntPtr.Zero)
+            {
+                error = $"GPU with unique ID {targetUniqueId} not found.";
+                Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                result = false;
+            }
+            else
+            {
+                IntPtr services = IntPtr.Zero;
+                IntPtr metricsSupport = IntPtr.Zero;
+                IntPtr metrics = IntPtr.Zero;
 
-                    try
-                    {
+                try
+                {
                         cancellationToken.ThrowIfCancellationRequested();
                         
                         if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)
@@ -465,8 +465,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         session.ReleaseInterface(ref metrics);
                         session.ReleaseInterface(ref metricsSupport);
                         session.ReleaseInterface(ref services);
-                        // Do not release targetGpu if it's cached (session owns it)
-                        if (!session.TryGetCachedGpu(targetUniqueId, out _))
+                        // Release targetGpu only if it's not owned by the session cache
+                        if (!gpuIsCached)
                         {
                             session.ReleaseInterface(ref targetGpu);
                         }
@@ -609,11 +609,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _pendingDisposeDisposable = session.PendingDisposeDisposable;
         }
 
-        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken)
+        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken, out bool gpuIsCached)
         {
+            gpuIsCached = false;
+            
             // Check cache first
             if (session.TryGetCachedGpu(targetUniqueId, out IntPtr cachedGpu))
             {
+                gpuIsCached = true;
                 return cachedGpu;
             }
 
@@ -642,10 +645,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             // Cache the GPU handle for future reads
                             if (session.TryCacheGpu(targetUniqueId, gpu))
                             {
-                                // Session took ownership - do not release here
+                                // Session took ownership
+                                gpuIsCached = true;
                                 return gpu;
                             }
                             // Cache rejected the handle (duplicate or invalid) - caller must release
+                            gpuIsCached = false;
                             return gpu;
                         }
                     }
