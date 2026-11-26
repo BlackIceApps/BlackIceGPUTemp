@@ -1691,8 +1691,8 @@ namespace BlackIceGPUTemp.Tests
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
 
             Assert.False(success);
-            // Temporary interfaces released immediately
-            Assert.Contains(0x3000, fake.ReleasedPointers);
+            // Target GPU (0x3000) is cached and NOT released after failed read
+            Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
 
@@ -1700,6 +1700,8 @@ namespace BlackIceGPUTemp.Tests
 
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
+            // Cached target GPU (0x3000) released during Disconnect
+            Assert.Contains(0x3000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2095,7 +2097,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x5000, fake.ReleasedPointers);
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
-            Assert.Contains(0x3000, fake.ReleasedPointers);
+            // Target GPU (0x3000) is cached and NOT released after successful read
+            Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
@@ -2104,6 +2107,8 @@ namespace BlackIceGPUTemp.Tests
 
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
+            // Cached target GPU (0x3000) released during Disconnect
+            Assert.Contains(0x3000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2266,7 +2271,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x5000, fake.ReleasedPointers);
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Contains(0x4000, fake.ReleasedPointers);
-            Assert.Contains(0x3000, fake.ReleasedPointers);
+            // Target GPU (0x3000) is cached and NOT released after successful read
+            Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
@@ -2275,6 +2281,8 @@ namespace BlackIceGPUTemp.Tests
 
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
+            // Cached target GPU (0x3000) released during Disconnect
+            Assert.Contains(0x3000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -3755,9 +3763,10 @@ namespace BlackIceGPUTemp.Tests
             // Shared session should still be active after cancellation
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
-            // All acquired interfaces released: targetGpu, services (acquired before cancel)
-            Assert.Contains(0x3000, fake.ReleasedPointers); // targetGpu
+            // Acquired interfaces released: services (acquired before cancel)
             Assert.Contains(0x4000, fake.ReleasedPointers); // services
+            // Target GPU (0x3000) is cached and NOT released during cancellation
+            Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
             // GPU list should NOT be released (owned by persistent session)
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
