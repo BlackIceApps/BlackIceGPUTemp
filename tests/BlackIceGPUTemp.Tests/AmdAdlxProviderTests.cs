@@ -6502,7 +6502,7 @@ provider.Disconnect();
             // First read - exception after GetSupportedGpuMetrics acquires pointer
             Assert.Throws<InvalidOperationException>(() => provider.TryReadTemperatureInternal(12345, out _, out _));
 
-            // MetricsSupport pointer (0x6000) released exactly once
+            // MetricsSupport pointer (0x6000) released exactly once after failed acquisition
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x6000);
 
@@ -6512,12 +6512,16 @@ provider.Disconnect();
             Assert.True(success);
             Assert.Equal(65.5, reading.Celsius);
 
-            // Cache populated successfully
+            // GetSupportedGpuMetrics called twice (once failed, once succeeded)
+            Assert.Equal(2, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
-            Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
 
             provider.Disconnect();
+
+            // MetricsSupport pointer (0x6000) released twice total:
+            // once after failed first acquisition, once during Disconnect for cached pointer
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
@@ -6549,7 +6553,7 @@ provider.Disconnect();
             // First read - exception after GetPerformanceMonitoringServices acquires pointer
             Assert.Throws<InvalidOperationException>(() => provider.TryReadTemperatureInternal(12345, out _, out _));
 
-            // Services pointer (0x4000) released exactly once
+            // Services pointer (0x4000) released exactly once after failed acquisition
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
 
@@ -6559,16 +6563,18 @@ provider.Disconnect();
             Assert.True(success);
             Assert.Equal(65.5, reading.Celsius);
 
-            // Cache populated successfully
-            Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
+            // GetPerformanceMonitoringServices called twice (once failed, once succeeded)
+            Assert.Equal(2, fake.GetPerformanceMonitoringServicesCallCount);
             Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
 
             provider.Disconnect();
+
+            // Services pointer (0x4000) released twice total:
+            // once after failed first acquisition, once during Disconnect for cached pointer
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x4000));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
-            // Services pointer released exactly once (not again on Disconnect)
-            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
         }
 
         [Fact]
