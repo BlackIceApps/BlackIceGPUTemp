@@ -49,14 +49,22 @@ jobs:
         New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
         $releaseDir = "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\Release"
-        $allExes = Get-ChildItem -Path $releaseDir -Filter "BlackIceGPUTemp.exe" -Recurse -File
 
-        if ($allExes.Count -eq 0) {
-          Write-Error "BlackIceGPUTemp.exe not found under $releaseDir"
+        if (-not (Test-Path -Path $releaseDir -PathType Container)) {
+          Write-Error "Release directory not found: $releaseDir"
           if (Test-Path "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin") {
             Write-Host "Contents of bin directory:"
             Get-ChildItem "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
           }
+          exit 1
+        }
+
+        $allExes = @(Get-ChildItem -Path $releaseDir -Filter "BlackIceGPUTemp.exe" -Recurse -File)
+
+        if ($allExes.Count -eq 0) {
+          Write-Error "BlackIceGPUTemp.exe not found under $releaseDir"
+          Write-Host "Contents of Release directory:"
+          Get-ChildItem "$releaseDir" -Recurse | ForEach-Object { Write-Host $_.FullName }
           exit 1
         }
 
