@@ -266,6 +266,9 @@ namespace BlackIceGPUTemp.Tests
                         Assert.Same(lifecycles[i], stopResults[i]);
                         var cleanup = owners[i].StopAndTake();
                         Assert.Null(cleanup);
+                        // Simulate cleanup from Dispose() side
+                        lifecycles[i].Disconnect();
+                        Assert.Equal(1, lifecycles[i].DisconnectCallCount);
                     }
                     else
                     {
@@ -273,6 +276,9 @@ namespace BlackIceGPUTemp.Tests
                         Assert.Null(stopResults[i]);
                         bool lateRegister = owners[i].TryRegister(lifecycles[i]);
                         Assert.False(lateRegister);
+                        // Simulate handling of rejected registration
+                        lifecycles[i].Disconnect();
+                        Assert.Equal(1, lifecycles[i].DisconnectCallCount);
                     }
 
                     // After race completes, any further registration must fail regardless of winner
