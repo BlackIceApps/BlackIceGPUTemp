@@ -5374,7 +5374,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.True(terminateIdx2 >= 0, "Second session Terminate should be called");
             Assert.True(gpuListReleaseIdx2 < terminateIdx2, "Second session gpuList released before Terminate");
 
-// Verify no double-release of any interface for either session
+            // Verify no double-release of any interface for either session
             foreach (var fake in new[] { fake1, fake2 })
             {
                 var releaseCounts = new Dictionary<int, int>();
