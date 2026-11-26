@@ -27,6 +27,7 @@ namespace BlackIceGPUTemp.Tray
             lock (_gate)
             {
                 _readInProgress = false;
+                Monitor.PulseAll(_gate);
             }
         }
 
@@ -35,6 +36,18 @@ namespace BlackIceGPUTemp.Tray
             lock (_gate)
             {
                 _stopped = true;
+                Monitor.PulseAll(_gate);
+            }
+        }
+
+        public void WaitForIdle()
+        {
+            lock (_gate)
+            {
+                while (_readInProgress)
+                {
+                    Monitor.Wait(_gate);
+                }
             }
         }
     }

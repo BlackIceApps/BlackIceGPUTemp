@@ -281,5 +281,119 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(gate.TryBeginRead());
         }
+
+        [Fact]
+        public void WaitForIdle_NoActiveRead_ReturnsImmediately()
+        {
+            var gate = new MonitoringReadGate();
+
+            gate.WaitForIdle();
+
+            Assert.True(true); // If we reach here, WaitForIdle returned without blocking
+        }
+
+        [Fact]
+        public void WaitForIdle_ActiveRead_WaitsUntilEndRead()
+        {
+            var gate = new MonitoringReadGate();
+            var waitCompleted = new ManualResetEventSlim(false);
+            var readStarted = new ManualResetEventSlim(false);
+
+            var waitThread = new Thread(() =>
+            {
+                readStarted.Set();
+                gate.WaitForIdle();
+                waitCompleted.Set();
+            });
+
+            waitThread.Start();
+            readStarted.Wait(TimeSpan.FromSeconds(5));
+
+            // Start a read
+            Assert.True(gate.TryBeginRead());
+
+            // WaitForIdle should not complete yet
+            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+
+            // End the read
+            gate.EndRead();
+
+            // WaitForIdle should now complete
+            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            waitThread.Join(TimeSpan.FromSeconds(5));
+        }
+
+        [Fact]
+        public void EndRead_PulsesWaitingThreads()
+        {
+            var gate = new MonitoringReadGate();
+            var waitCompleted = new ManualResetEventSlim(false);
+            var readStarted = new ManualResetEventSlim(false);
+
+            var waitThread = new Thread(() =>
+            {
+                readStarted.Set();
+                gate.WaitForIdle();
+                waitCompleted.Set();
+            });
+
+            waitThread.Start();
+            readStarted.Wait(TimeSpan.FromSeconds(5));
+
+            Assert.True(gate.TryBeginRead());
+            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+
+            gate.EndRead();
+
+            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            waitThread.Join(TimeSpan.FromSeconds(5));
+        }
+
+        [Fact]
+        public void Stop_BlocksNewReads_EvenDuringWaitForIdle()
+        {
+            var gate = new MonitoringReadGate();
+            var waitCompleted = new ManualResetEventSlim(false);
+            var readStarted = new ManualResetEventSlim(false);
+
+            var waitThread = new Thread(() =>
+            {
+                readStarted.Set();
+                gate.WaitForIdle();
+                waitCompleted.Set();
+            });
+
+            waitThread.Start();
+            readStarted.Wait(TimeSpan.FromSeconds(5));
+
+            // Stop the gate while WaitForIdle is waiting
+            gate.Stop();
+
+            // WaitForIdle should return because no read is in progress
+            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            waitThread.Join(TimeSpan.FromSeconds(5));
+
+            // New reads should be blocked after Stop
+            Assert.False(gate.TryBeginRead());
+        }
+
+        [Fact]
+        public void WaitForIdle_AfterReadCompletes_SubsequentReadsBlockedAfterStop()
+        {
+            var gate = new MonitoringReadGate();
+
+            // Start and complete a read
+            Assert.True(gate.TryBeginRead());
+            gate.EndRead();
+
+            // Stop the gate
+            gate.Stop();
+
+            // WaitForIdle should return immediately (no active read)
+            gate.WaitForIdle();
+
+            // New reads should still be blocked
+            Assert.False(gate.TryBeginRead());
+        }
     }
 }
