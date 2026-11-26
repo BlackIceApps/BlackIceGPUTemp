@@ -10,7 +10,7 @@
 
 - **ADL (Display Library):**
   - Document/Source: AMD Display Library (ADL) SDK License Agreement (included in official GPUOpen ADL SDK).
-  - Terms Summary: Permission to use SDK headers and documentation for developing tools for AMD graphics hardware; requires preserving copyright notices in documentation/notices where applicable. Application loads system `atiadlxx.dll` dynamically (`LoadLibraryEx` with `LOAD_LIBRARY_SEARCH_SYSTEM32`) and does not redistribute ADL SDK binaries or headers.
+  - Terms Summary: Permission to use SDK headers and documentation for developing tools for AMD graphics hardware; requires preserving copyright notices in documentation/notices where applicable. Used by `BlackIceGPUTemp.Diagnostics` console utility for diagnostic and comparative purposes only; dynamically loads system `atiadlxx.dll` (`LoadLibraryEx` with `LOAD_LIBRARY_SEARCH_SYSTEM32`). Not used by the production `BlackIceGPUTemp.exe` application. Does not redistribute ADL SDK binaries or headers.
 - **ADLX (AMD Device Library):**
   - Document/Source: ADLX SDK License Agreement.pdf (official GPUOpen ADLX SDK).
   - Terms Summary: Similar terms regarding SDK header/documentation usage. Application loads system `amdadlx64.dll` dynamically from `System32`.
