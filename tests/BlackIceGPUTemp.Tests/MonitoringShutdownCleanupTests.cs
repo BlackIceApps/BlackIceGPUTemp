@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Tray;
@@ -363,7 +364,7 @@ namespace BlackIceGPUTemp.Tests
 
             cleanup.Execute();
 
-            Assert.Equal(expectedOrder, executionOrder, $"Failed step: {stepName}");
+            Assert.True(expectedOrder.SequenceEqual(executionOrder), $"Failed step: {stepName}");
 
             if (failingStep == 2 || failingStep == 5)
             {
