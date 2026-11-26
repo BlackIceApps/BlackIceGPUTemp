@@ -261,9 +261,11 @@ namespace BlackIceGPUTemp.Tests
         public void Execute_StepThrows_AllSafeStepsExecute(int failingStep, string stepName, int[] expectedOrder)
         {
             var executionOrder = new List<int>();
-            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11));
+            var lifecycle = failingStep == 11
+                ? new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11), disconnectException: new InvalidOperationException("Disconnect provider failed"))
+                : new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11));
 
-            Action createThrowingAction = (int step, string name) => () =>
+            Func<int, string, Action> createThrowingAction = (int step, string name) => () =>
             {
                 executionOrder.Add(step);
                 throw new InvalidOperationException($"{name} failed");
