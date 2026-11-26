@@ -16,6 +16,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private IntPtr _gpuList;
         private readonly bool _initialized;
         private bool _disposed;
+        private readonly Dictionary<int, IntPtr> _gpuCache = new Dictionary<int, IntPtr>();
 
         public IAdlxNative? PendingNative { get; private set; }
         public IDisposable? PendingDisposable { get; private set; }
@@ -302,6 +303,30 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
+        public bool TryGetCachedGpu(int uniqueId, out IntPtr gpu)
+        {
+            gpu = IntPtr.Zero;
+            if (_disposed)
+            {
+                return false;
+            }
+            return _gpuCache.TryGetValue(uniqueId, out gpu);
+        }
+
+        public bool TryCacheGpu(int uniqueId, IntPtr gpu)
+        {
+            if (_disposed || uniqueId <= 0 || gpu == IntPtr.Zero)
+            {
+                return false;
+            }
+            if (_gpuCache.ContainsKey(uniqueId))
+            {
+                return false;
+            }
+            _gpuCache[uniqueId] = gpu;
+            return true;
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -315,6 +340,16 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private void Cleanup()
         {
+            foreach (var kvp in _gpuCache)
+            {
+                IntPtr gpuHandle = kvp.Value;
+                if (gpuHandle != IntPtr.Zero)
+                {
+                    AdlxInterop.ReleaseInterface(_native, ref gpuHandle);
+                }
+            }
+            _gpuCache.Clear();
+
             AdlxInterop.ReleaseInterface(_native, ref _gpuList);
 
             var result = PerformCleanup(_native, _disposableNative, _initialized);
