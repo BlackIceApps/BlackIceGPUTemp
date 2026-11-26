@@ -5555,6 +5555,188 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake2.TerminateCalls);
             Assert.True(fake2.IsDisposed);
         }
+
+        [Fact]
+        public void AdlxSession_Cache_StoresAndRetrievesGpuHandle()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr gpuHandle = new IntPtr(0x3000);
+            bool cached = session.TryCacheGpu(12345, gpuHandle);
+            Assert.True(cached);
+
+            bool retrieved = session.TryGetCachedGpu(12345, out IntPtr retrievedHandle);
+            Assert.True(retrieved);
+            Assert.Equal(gpuHandle, retrievedHandle);
+
+            session.Dispose();
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_RejectsDuplicateUniqueId()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr firstHandle = new IntPtr(0x3000);
+            IntPtr secondHandle = new IntPtr(0x3001);
+
+            bool firstCached = session.TryCacheGpu(12345, firstHandle);
+            Assert.True(firstCached);
+
+            bool secondCached = session.TryCacheGpu(12345, secondHandle);
+            Assert.False(secondCached);
+
+            bool retrieved = session.TryGetCachedGpu(12345, out IntPtr retrievedHandle);
+            Assert.True(retrieved);
+            Assert.Equal(firstHandle, retrievedHandle);
+
+            session.Dispose();
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_ReleasesCachedHandlesOnDispose_BeforeGpuList()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr gpuHandle1 = new IntPtr(0x3000);
+            IntPtr gpuHandle2 = new IntPtr(0x3001);
+
+            session.TryCacheGpu(11111, gpuHandle1);
+            session.TryCacheGpu(22222, gpuHandle2);
+
+            session.Dispose();
+
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x3001, fake.ReleasedPointers);
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+
+            int gpu1Idx = fake.ReleaseOrder.IndexOf(0x3000);
+            int gpu2Idx = fake.ReleaseOrder.IndexOf(0x3001);
+            int gpuListIdx = fake.ReleaseOrder.IndexOf(0x2000);
+
+            Assert.True(gpu1Idx >= 0 && gpu2Idx >= 0 && gpuListIdx >= 0);
+            Assert.True(gpu1Idx < gpuListIdx, "Cached GPU handles should be released before gpuList");
+            Assert.True(gpu2Idx < gpuListIdx, "Cached GPU handles should be released before gpuList");
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_ReleasesEachHandleExactlyOnce()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr gpuHandle = new IntPtr(0x3000);
+            session.TryCacheGpu(12345, gpuHandle);
+
+            session.Dispose();
+
+            int count = fake.ReleasedPointers.Count(p => p == 0x3000);
+            Assert.Equal(1, count);
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_AfterDispose_CannotGetOrCache()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr gpuHandle = new IntPtr(0x3000);
+            session.TryCacheGpu(12345, gpuHandle);
+
+            session.Dispose();
+
+            bool retrieved = session.TryGetCachedGpu(12345, out IntPtr retrievedHandle);
+            Assert.False(retrieved);
+            Assert.Equal(IntPtr.Zero, retrievedHandle);
+
+            bool cached = session.TryCacheGpu(12345, gpuHandle);
+            Assert.False(cached);
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_RejectsInvalidUniqueIdAndZeroHandle()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            bool resultZeroId = session.TryCacheGpu(0, new IntPtr(0x3000));
+            Assert.False(resultZeroId);
+
+            bool resultNegativeId = session.TryCacheGpu(-1, new IntPtr(0x3000));
+            Assert.False(resultNegativeId);
+
+            bool resultZeroHandle = session.TryCacheGpu(12345, IntPtr.Zero);
+            Assert.False(resultZeroHandle);
+
+            session.Dispose();
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_RejectedHandleNotReleasedBySession()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            IntPtr firstHandle = new IntPtr(0x3000);
+            IntPtr secondHandle = new IntPtr(0x3001);
+
+            session.TryCacheGpu(12345, firstHandle);
+            bool secondCached = session.TryCacheGpu(12345, secondHandle);
+            Assert.False(secondCached);
+
+            session.Dispose();
+
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x3001, fake.ReleasedPointers);
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_RejectsCacheOnDisposedSession()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            session.Dispose();
+
+            bool cached = session.TryCacheGpu(12345, new IntPtr(0x3000));
+            Assert.False(cached);
+        }
+
+        [Fact]
+        public void AdlxSession_Cache_RejectsGetOnDisposedSession()
+        {
+            var fake = new FakeAdlxNative();
+            var session = AdlxSession.Create(() => fake, out var error, out _, out _, out _, out _);
+            Assert.NotNull(session);
+            Assert.Null(error);
+
+            session.TryCacheGpu(12345, new IntPtr(0x3000));
+            session.Dispose();
+
+            bool retrieved = session.TryGetCachedGpu(12345, out IntPtr handle);
+            Assert.False(retrieved);
+            Assert.Equal(IntPtr.Zero, handle);
+        }
+
     }
 
     public class AmdAdlxDeviceTests
