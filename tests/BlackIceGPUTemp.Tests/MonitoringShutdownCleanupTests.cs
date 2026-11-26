@@ -49,7 +49,7 @@ namespace BlackIceGPUTemp.Tests
         public void Execute_AllStepsCalledInCorrectOrder()
         {
             var executionOrder = new List<int>();
-            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11));
+            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(12));
 
             var cleanup = new MonitoringShutdownCleanup(
                 stopTimer: () => executionOrder.Add(1),
@@ -63,13 +63,39 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, executionOrder);
+            Assert.Equal(1, lifecycle.DisconnectCallCount);
+        }
+
+        [Fact]
+        public void Execute_HideNotifyIconThrows_DisposeAndRemainingStepsExecute()
+        {
+            var executionOrder = new List<int>();
+            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(12));
+
+            var cleanup = new MonitoringShutdownCleanup(
+                stopTimer: () => executionOrder.Add(1),
+                stopAndTakeLifecycle: () => { executionOrder.Add(2); return lifecycle; },
+                stopExecutor: () => executionOrder.Add(3),
+                cancelTokenSource: () => executionOrder.Add(4),
+                waitForIdle: () => executionOrder.Add(5),
+                disposeTokenSource: () => executionOrder.Add(6),
+                disposeTimer: () => executionOrder.Add(7),
+                hideNotifyIcon: () => { executionOrder.Add(8); throw new InvalidOperationException("hide failed"); },
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
+
+            cleanup.Execute();
+
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, executionOrder);
             Assert.Equal(1, lifecycle.DisconnectCallCount);
         }
 
@@ -87,13 +113,14 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => { executionOrder.Add(5); throw new InvalidOperationException("step 5 failed"); },
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
         }
 
         [Fact]
@@ -110,14 +137,15 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10),
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11),
                 logger: (_, _) => throw new InvalidOperationException("logger failed"));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
         }
 
         [Fact]
@@ -134,13 +162,14 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
             Assert.Equal(0, lifecycle.DisconnectCallCount);
         }
 
@@ -158,13 +187,14 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => { executionOrder.Add(5); throw new InvalidOperationException("wait for idle failed"); },
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
             Assert.Equal(0, lifecycle.DisconnectCallCount);
         }
 
@@ -172,7 +202,7 @@ namespace BlackIceGPUTemp.Tests
         public void Execute_WaitForIdleSucceeds_DisconnectsProviderOnceAtEnd()
         {
             var executionOrder = new List<int>();
-            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11));
+            var lifecycle = new FakeLifecycle(disconnectCallback: () => executionOrder.Add(12));
 
             var cleanup = new MonitoringShutdownCleanup(
                 stopTimer: () => executionOrder.Add(1),
@@ -182,15 +212,16 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, executionOrder);
             Assert.Equal(1, lifecycle.DisconnectCallCount);
-            Assert.Equal(11, executionOrder[^1]);
+            Assert.Equal(12, executionOrder[^1]);
         }
 
         [Fact]
@@ -206,13 +237,14 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
         }
 
         [Fact]
@@ -220,7 +252,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var executionOrder = new List<int>();
             var lifecycle = new FakeLifecycle(
-                disconnectCallback: () => executionOrder.Add(11),
+                disconnectCallback: () => executionOrder.Add(12),
                 disconnectException: new InvalidOperationException("disconnect failed"));
 
             var cleanup = new MonitoringShutdownCleanup(
@@ -231,29 +263,31 @@ namespace BlackIceGPUTemp.Tests
                 waitForIdle: () => executionOrder.Add(5),
                 disposeTokenSource: () => executionOrder.Add(6),
                 disposeTimer: () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: () => executionOrder.Add(8),
-                disposeCurrentIcon: () => executionOrder.Add(9),
-                disposeUiDispatcher: () => executionOrder.Add(10));
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => executionOrder.Add(11));
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, executionOrder);
             Assert.Equal(1, lifecycle.DisconnectCallCount);
         }
 
         public static TheoryData<int, string, int[]> StepExceptionTestCases => new()
         {
-            { 1, "Stop timer", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 2, "Stop and take lifecycle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 } },
-            { 3, "Stop executor", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 4, "Cancel token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 5, "WaitForIdle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 } },
-            { 6, "Dispose token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 7, "Dispose timer", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 8, "Hide and dispose NotifyIcon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 9, "Dispose current icon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 10, "Dispose UI dispatcher", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
-            { 11, "Disconnect provider", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+            { 1, "Stop timer", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 2, "Stop and take lifecycle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+            { 3, "Stop executor", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 4, "Cancel token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 5, "WaitForIdle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+            { 6, "Dispose token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 7, "Dispose timer", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 8, "Hide NotifyIcon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 9, "Dispose NotifyIcon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 10, "Dispose current icon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 11, "Dispose UI dispatcher", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
+            { 12, "Disconnect provider", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
         };
 
         [Theory]
@@ -261,9 +295,9 @@ namespace BlackIceGPUTemp.Tests
         public void Execute_StepThrows_AllSafeStepsExecute(int failingStep, string stepName, int[] expectedOrder)
         {
             var executionOrder = new List<int>();
-            var lifecycle = failingStep == 11
-                ? new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11), disconnectException: new InvalidOperationException("Disconnect provider failed"))
-                : new FakeLifecycle(disconnectCallback: () => executionOrder.Add(11));
+            var lifecycle = failingStep == 12
+                ? new FakeLifecycle(disconnectCallback: () => executionOrder.Add(12), disconnectException: new InvalidOperationException("Disconnect provider failed"))
+                : new FakeLifecycle(disconnectCallback: () => executionOrder.Add(12));
 
             Func<int, string, Action> createThrowingAction = (int step, string name) => () =>
             {
@@ -283,9 +317,10 @@ namespace BlackIceGPUTemp.Tests
                     : () => executionOrder.Add(5),
                 disposeTokenSource: failingStep == 6 ? createThrowingAction(6, "Dispose token source") : () => executionOrder.Add(6),
                 disposeTimer: failingStep == 7 ? createThrowingAction(7, "Dispose timer") : () => executionOrder.Add(7),
-                hideAndDisposeNotifyIcon: failingStep == 8 ? createThrowingAction(8, "Hide and dispose NotifyIcon") : () => executionOrder.Add(8),
-                disposeCurrentIcon: failingStep == 9 ? createThrowingAction(9, "Dispose current icon") : () => executionOrder.Add(9),
-                disposeUiDispatcher: failingStep == 10 ? createThrowingAction(10, "Dispose UI dispatcher") : () => executionOrder.Add(10));
+                hideNotifyIcon: failingStep == 8 ? createThrowingAction(8, "Hide NotifyIcon") : () => executionOrder.Add(8),
+                disposeNotifyIcon: failingStep == 9 ? createThrowingAction(9, "Dispose NotifyIcon") : () => executionOrder.Add(9),
+                disposeCurrentIcon: failingStep == 10 ? createThrowingAction(10, "Dispose current icon") : () => executionOrder.Add(10),
+                disposeUiDispatcher: failingStep == 11 ? createThrowingAction(11, "Dispose UI dispatcher") : () => executionOrder.Add(11));
 
             cleanup.Execute();
 

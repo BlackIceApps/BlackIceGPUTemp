@@ -13,7 +13,8 @@ namespace BlackIceGPUTemp.Tray
         private readonly Action _waitForIdle;
         private readonly Action _disposeTokenSource;
         private readonly Action _disposeTimer;
-        private readonly Action _hideAndDisposeNotifyIcon;
+        private readonly Action _hideNotifyIcon;
+        private readonly Action _disposeNotifyIcon;
         private readonly Action _disposeCurrentIcon;
         private readonly Action _disposeUiDispatcher;
         private readonly Action<string, Exception> _logger;
@@ -26,7 +27,8 @@ namespace BlackIceGPUTemp.Tray
             Action waitForIdle,
             Action disposeTokenSource,
             Action disposeTimer,
-            Action hideAndDisposeNotifyIcon,
+            Action hideNotifyIcon,
+            Action disposeNotifyIcon,
             Action disposeCurrentIcon,
             Action disposeUiDispatcher,
             Action<string, Exception>? logger = null)
@@ -38,7 +40,8 @@ namespace BlackIceGPUTemp.Tray
             _waitForIdle = waitForIdle ?? throw new ArgumentNullException(nameof(waitForIdle));
             _disposeTokenSource = disposeTokenSource ?? throw new ArgumentNullException(nameof(disposeTokenSource));
             _disposeTimer = disposeTimer ?? throw new ArgumentNullException(nameof(disposeTimer));
-            _hideAndDisposeNotifyIcon = hideAndDisposeNotifyIcon ?? throw new ArgumentNullException(nameof(hideAndDisposeNotifyIcon));
+            _hideNotifyIcon = hideNotifyIcon ?? throw new ArgumentNullException(nameof(hideNotifyIcon));
+            _disposeNotifyIcon = disposeNotifyIcon ?? throw new ArgumentNullException(nameof(disposeNotifyIcon));
             _disposeCurrentIcon = disposeCurrentIcon ?? throw new ArgumentNullException(nameof(disposeCurrentIcon));
             _disposeUiDispatcher = disposeUiDispatcher ?? throw new ArgumentNullException(nameof(disposeUiDispatcher));
             _logger = logger ?? DefaultLogger;
@@ -74,13 +77,14 @@ namespace BlackIceGPUTemp.Tray
 
             SafeExecute(6, "Dispose token source", _disposeTokenSource);
             SafeExecute(7, "Dispose timer", _disposeTimer);
-            SafeExecute(8, "Hide and dispose NotifyIcon", _hideAndDisposeNotifyIcon);
-            SafeExecute(9, "Dispose current icon", _disposeCurrentIcon);
-            SafeExecute(10, "Dispose UI dispatcher", _disposeUiDispatcher);
+            SafeExecute(8, "Hide NotifyIcon", _hideNotifyIcon);
+            SafeExecute(9, "Dispose NotifyIcon", _disposeNotifyIcon);
+            SafeExecute(10, "Dispose current icon", _disposeCurrentIcon);
+            SafeExecute(11, "Dispose UI dispatcher", _disposeUiDispatcher);
 
             if (lifecycleToDisconnect != null && waitForIdleSucceeded)
             {
-                SafeExecute(11, "Disconnect provider", () => lifecycleToDisconnect.Disconnect());
+                SafeExecute(12, "Disconnect provider", () => lifecycleToDisconnect.Disconnect());
             }
         }
 

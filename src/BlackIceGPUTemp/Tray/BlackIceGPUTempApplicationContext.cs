@@ -468,11 +468,17 @@ namespace BlackIceGPUTemp.Tray
                     waitForIdle: () => _readExecutor.WaitForIdle(),
                     disposeTokenSource: () => _cancellationTokenSource.Dispose(),
                     disposeTimer: () => _timer?.Dispose(),
-                    hideAndDisposeNotifyIcon: () =>
+                    hideNotifyIcon: () =>
                     {
                         if (_notifyIcon != null)
                         {
                             _notifyIcon.Visible = false;
+                        }
+                    },
+                    disposeNotifyIcon: () =>
+                    {
+                        if (_notifyIcon != null)
+                        {
                             _notifyIcon.Dispose();
                         }
                     },
