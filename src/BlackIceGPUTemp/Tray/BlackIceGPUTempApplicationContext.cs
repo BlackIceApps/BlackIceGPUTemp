@@ -463,21 +463,21 @@ namespace BlackIceGPUTemp.Tray
                 // 1. Stop timer to prevent new read cycles
                 _timer?.Stop();
 
-                // 2. Stop executor to block new reads
+                // 2. Take ownership of the lifecycle provider (before waiting for active read)
+                IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
+
+                // 3. Stop executor to block new reads
                 _readExecutor.Stop();
 
-                // 3. Signal cancellation to request active read to finish
+                // 4. Signal cancellation to request active read to finish
                 _cancellationTokenSource.Cancel();
 
-                // 4. Wait for active read to complete (outside any lock)
+                // 5. Wait for active read to complete (outside any lock)
                 _readExecutor.WaitForIdle();
 
-                // 5. Dispose resources used by reads
+                // 6. Dispose resources used by reads
                 _cancellationTokenSource.Dispose();
                 _timer?.Dispose();
-
-                // 6. Take ownership of the lifecycle provider
-                IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
 
                 if (_notifyIcon != null)
                 {

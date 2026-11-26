@@ -209,20 +209,24 @@ namespace BlackIceGPUTemp.Tests
             var capturedActions = new List<Action>();
             var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
             var waitCompleted = new ManualResetEventSlim(false);
+            var waitThreadStarted = new ManualResetEventSlim(false);
 
+            // First, start an active read
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+
+            // Then start the wait thread
             var waitThread = new Thread(() =>
             {
+                waitThreadStarted.Set();
                 executor.WaitForIdle();
                 waitCompleted.Set();
             });
 
             waitThread.Start();
+            waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // Start a read
-            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
-            Assert.True(first);
-
-            // WaitForIdle should not complete yet
+            // WaitForIdle should not complete while read is active
             Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
             // Complete the read
@@ -230,7 +234,10 @@ namespace BlackIceGPUTemp.Tests
 
             // WaitForIdle should now complete
             Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            waitThread.Join(TimeSpan.FromSeconds(5));
+            
+            // Clean up thread
+            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+            Assert.True(joined, "Wait thread did not finish in time");
         }
 
         [Fact]
@@ -260,18 +267,22 @@ namespace BlackIceGPUTemp.Tests
             var capturedActions = new List<Action>();
             var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
             var waitCompleted = new ManualResetEventSlim(false);
+            var waitThreadStarted = new ManualResetEventSlim(false);
 
+            // First, start an active read
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+
+            // Then start the wait thread
             var waitThread = new Thread(() =>
             {
+                waitThreadStarted.Set();
                 executor.WaitForIdle();
                 waitCompleted.Set();
             });
 
             waitThread.Start();
-
-            // Start a read
-            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
-            Assert.True(first);
+            waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
             // WaitForIdle should not complete yet
             Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
@@ -287,7 +298,10 @@ namespace BlackIceGPUTemp.Tests
 
             // WaitForIdle should now complete
             Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            waitThread.Join(TimeSpan.FromSeconds(5));
+            
+            // Clean up thread
+            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+            Assert.True(joined, "Wait thread did not finish in time");
         }
     }
 }
