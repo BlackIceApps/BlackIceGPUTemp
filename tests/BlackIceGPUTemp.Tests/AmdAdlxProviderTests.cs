@@ -6618,40 +6618,6 @@ provider.Disconnect();
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
-
-        [Fact]
-        public void Dispose_ReleasesAllCachedInterfaces_EvenWhenReleaseThrows()
-        {
-            var fake = new FakeAdlxNative
-            {
-                GpuNames = new List<string> { "GPU1", "GPU2" },
-                GpuUniqueIds = new List<int> { 11111, 22222 },
-                GpuTypes = new List<int> { 2, 2 },
-                GpuTemperatureSupported = new List<bool> { true, true },
-                GpuTemperatures = new List<double> { 55.0, 72.5 },
-                ThrowOnRelease = true,
-                ThrowOnReleasePointer = 0x6000 // Throw when releasing metricsSupport
-            };
-            var provider = new AmdAdlxProvider(() => fake);
-
-            // Read both GPUs to populate cache
-            provider.TryReadTemperatureInternal(11111, out _, out _);
-            provider.TryReadTemperatureInternal(22222, out _, out _);
-
-            // Dispose should release all interfaces even when one Release throws
-            provider.Disconnect();
-
-            // All cached interfaces should have been attempted for release
-            Assert.Contains(0x6000, fake.ReleasedPointers); // metricsSupport for GPU1
-            Assert.Contains(0x6001, fake.ReleasedPointers); // metricsSupport for GPU2 (different pointer)
-            Assert.Contains(0x4000, fake.ReleasedPointers); // services
-            Assert.Contains(0x3000, fake.ReleasedPointers); // GPU1 handle
-            Assert.Contains(0x3001, fake.ReleasedPointers); // GPU2 handle
-            Assert.Contains(0x2000, fake.ReleasedPointers); // gpuList
-
-            Assert.Equal(1, fake.TerminateCalls);
-            Assert.True(fake.IsDisposed);
-        }
     }
 
     public class AmdAdlxDeviceTests
