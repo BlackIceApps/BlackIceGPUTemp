@@ -272,19 +272,31 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
-                if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
+                try
                 {
-                    // On error with non-zero pointer, release it
-                    if (metricsSupport != IntPtr.Zero)
+                    int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
+                    if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
+                    {
+                        // On error with non-zero pointer, release it
+                        if (metricsSupport != IntPtr.Zero)
+                        {
+                            AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                        }
+                        return metricsResult != 0 ? metricsResult : -1;
+                    }
+
+                    // We now own metricsSupport
+                    metricsSupportOwned = true;
+                }
+                finally
+                {
+                    // If exception occurred after GetSupportedGpuMetrics set the pointer,
+                    // and we didn't take ownership, release it
+                    if (metricsSupport != IntPtr.Zero && !metricsSupportOwned)
                     {
                         AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
                     }
-                    return metricsResult != 0 ? metricsResult : -1;
                 }
-
-                // We now own metricsSupport
-                metricsSupportOwned = true;
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -328,26 +340,40 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 return 0;
             }
 
-            int result = _native.GetPerformanceMonitoringServices(_system, out services);
-            if (result != 0)
+            bool servicesOwned = false;
+            try
             {
-                // Error from ADLX - if non-zero pointer returned, release it
-                if (services != IntPtr.Zero)
+                int result = _native.GetPerformanceMonitoringServices(_system, out services);
+                if (result != 0)
+                {
+                    // Error from ADLX - if non-zero pointer returned, release it
+                    if (services != IntPtr.Zero)
+                    {
+                        AdlxInterop.ReleaseInterface(_native, ref services);
+                    }
+                    return result;
+                }
+
+                // Success from ADLX - but zero pointer is invalid
+                if (services == IntPtr.Zero)
+                {
+                    return -1;
+                }
+
+                // Take ownership of the pointer
+                servicesOwned = true;
+                _perfServices = services;
+                return 0;
+            }
+            finally
+            {
+                // If exception occurred after GetPerformanceMonitoringServices set the pointer,
+                // and we didn't take ownership, release it
+                if (services != IntPtr.Zero && !servicesOwned)
                 {
                     AdlxInterop.ReleaseInterface(_native, ref services);
                 }
-                return result;
             }
-
-            // Success from ADLX - but zero pointer is invalid
-            if (services == IntPtr.Zero)
-            {
-                return -1;
-            }
-
-            // Take ownership of the pointer
-            _perfServices = services;
-            return 0;
         }
 
         public int GetPerformanceMonitoringServices(out IntPtr services)

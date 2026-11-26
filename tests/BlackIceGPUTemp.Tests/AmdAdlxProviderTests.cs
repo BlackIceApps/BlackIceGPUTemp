@@ -6523,6 +6523,55 @@ provider.Disconnect();
         }
 
         [Fact]
+        public void GetPerformanceMonitoringServices_ExceptionAfterPointerAcquired_ReleasesPointerOnce()
+        {
+            var threw = false;
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "GPU" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 },
+                GetPerfServicesHandler = (IntPtr sys, out IntPtr svc) =>
+                {
+                    svc = new IntPtr(0x4000); // Acquire pointer
+                    if (!threw)
+                    {
+                        threw = true;
+                        throw new InvalidOperationException("Simulated exception"); // Then throw
+                    }
+                    return 0;
+                }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First read - exception after GetPerformanceMonitoringServices acquires pointer
+            Assert.Throws<InvalidOperationException>(() => provider.TryReadTemperatureInternal(12345, out _, out _));
+
+            // Services pointer (0x4000) released exactly once
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
+
+            // Second read without exception should succeed and populate cache
+            threw = false;
+            bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
+            Assert.True(success);
+            Assert.Equal(65.5, reading.Celsius);
+
+            // Cache populated successfully
+            Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
+            Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
+            Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
+
+            provider.Disconnect();
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+            // Services pointer released exactly once (not again on Disconnect)
+            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
+        }
+
+        [Fact]
         public void Dispose_ReleasesCachedServicesAndMetricsSupport_ExactlyOnce()
         {
             var fake = new FakeAdlxNative
