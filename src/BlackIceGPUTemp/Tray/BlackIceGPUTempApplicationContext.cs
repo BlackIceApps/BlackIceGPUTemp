@@ -31,7 +31,6 @@ namespace BlackIceGPUTemp.Tray
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly MonitoringShutdownState _shutdownState;
         private readonly Control _uiDispatcher = new();
-        private readonly object _disposeLock = new();
         private readonly MonitoringReadExecutor _readExecutor;
         private readonly MonitoringReadTrigger _readTrigger;
         private MonitoringSession? _session;
@@ -461,21 +460,23 @@ namespace BlackIceGPUTemp.Tray
                     return;
                 }
 
-                // Mark as disposing and stop timer under lock to prevent new reads
-                lock (_disposeLock)
-                {
-                    _timer?.Stop();
-                }
+                // 1. Stop timer to prevent new read cycles
+                _timer?.Stop();
 
-                // Take ownership of the lifecycle provider
+                // 2. Take ownership of the lifecycle provider (before waiting for active read)
                 IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
 
-                // Permanently block new reads before cleaning up resources used by reads
+                // 3. Stop executor to block new reads
                 _readExecutor.Stop();
 
+                // 4. Signal cancellation to request active read to finish
                 _cancellationTokenSource.Cancel();
-                _cancellationTokenSource.Dispose();
 
+                // 5. Wait for active read to complete (outside any lock)
+                _readExecutor.WaitForIdle();
+
+                // 6. Dispose resources used by reads
+                _cancellationTokenSource.Dispose();
                 _timer?.Dispose();
 
                 if (_notifyIcon != null)
@@ -487,8 +488,7 @@ namespace BlackIceGPUTemp.Tray
                 _currentIcon?.Dispose();
                 _uiDispatcher.Dispose();
 
-                // Disconnect provider after other resources are cleaned up
-                // This avoids holding the lock during Disconnect() which could deadlock with UI
+                // 7. Disconnect provider after other resources are cleaned up
                 if (lifecycleToDisconnect != null)
                 {
                     try

@@ -61,5 +61,10 @@ namespace BlackIceGPUTemp.Tray
         {
             _readGate.Stop();
         }
+
+        public void WaitForIdle()
+        {
+            _readGate.WaitForIdle();
+        }
     }
 }

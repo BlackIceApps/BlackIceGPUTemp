@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using BlackIceGPUTemp.Tray;
 using Xunit;
 
@@ -190,6 +191,145 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(third);
             Assert.Equal(3, capturedActions.Count);
+        }
+
+        [Fact]
+        public void WaitForIdle_NoActiveRead_ReturnsImmediately()
+        {
+            var executor = new MonitoringReadExecutor(action => Task.Run(action));
+
+            executor.WaitForIdle();
+        }
+
+        [Fact]
+        public void WaitForIdle_ActiveRead_WaitsUntilEndRead()
+        {
+            var capturedActions = new List<Action>();
+            var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
+            var waitCompleted = new ManualResetEventSlim(false);
+            var waitThreadStarted = new ManualResetEventSlim(false);
+
+            // First, start an active read
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+
+            // Then start the wait thread
+            var waitThread = new Thread(() =>
+            {
+                waitThreadStarted.Set();
+                executor.WaitForIdle();
+                waitCompleted.Set();
+            });
+
+            waitThread.Start();
+            waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                // WaitForIdle should not complete while read is active
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+
+                // Complete the read
+                capturedActions[0]();
+
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is completed even if assertions fail
+                if (capturedActions.Count > 0)
+                {
+                    capturedActions[0]();
+                }
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
+        }
+
+        [Fact]
+        public void WaitForIdle_AfterStop_BlocksNewReads()
+        {
+            var capturedActions = new List<Action>();
+            var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
+
+            // Start and complete a read
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+            capturedActions[0]();
+
+            // Stop the executor
+            executor.Stop();
+
+            // WaitForIdle should return immediately (no active read)
+            executor.WaitForIdle();
+
+            // New reads should be blocked after Stop
+            Assert.False(executor.TryExecute(_ => { }, CancellationToken.None));
+        }
+
+        [Fact]
+        public void WaitForIdle_DuringActiveRead_CompletesAfterReadFinishes()
+        {
+            var capturedActions = new List<Action>();
+            var executor = new MonitoringReadExecutor(action => capturedActions.Add(action));
+            var waitCompleted = new ManualResetEventSlim(false);
+            var waitThreadStarted = new ManualResetEventSlim(false);
+
+            // First, start an active read
+            bool first = executor.TryExecute(_ => { }, CancellationToken.None);
+            Assert.True(first);
+
+            // Then start the wait thread
+            var waitThread = new Thread(() =>
+            {
+                waitThreadStarted.Set();
+                executor.WaitForIdle();
+                waitCompleted.Set();
+            });
+
+            waitThread.Start();
+            waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                // WaitForIdle should not complete yet
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+
+                // Stop the executor (blocks new reads but doesn't affect active read)
+                executor.Stop();
+
+                // WaitForIdle should still wait for active read
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+
+                // Complete the active read
+                capturedActions[0]();
+
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is completed even if assertions fail
+                if (capturedActions.Count > 0)
+                {
+                    capturedActions[0]();
+                }
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
         }
     }
 }
