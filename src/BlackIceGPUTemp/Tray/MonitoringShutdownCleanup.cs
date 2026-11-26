@@ -75,12 +75,20 @@ namespace BlackIceGPUTemp.Tray
                 SafeLogError("WaitForIdle failed", ex);
             }
 
-            SafeExecute(6, "Dispose token source", _disposeTokenSource);
+            if (waitForIdleSucceeded)
+            {
+                SafeExecute(6, "Dispose token source", _disposeTokenSource);
+            }
+
             SafeExecute(7, "Dispose timer", _disposeTimer);
             SafeExecute(8, "Hide NotifyIcon", _hideNotifyIcon);
             SafeExecute(9, "Dispose NotifyIcon", _disposeNotifyIcon);
             SafeExecute(10, "Dispose current icon", _disposeCurrentIcon);
-            SafeExecute(11, "Dispose UI dispatcher", _disposeUiDispatcher);
+
+            if (waitForIdleSucceeded)
+            {
+                SafeExecute(11, "Dispose UI dispatcher", _disposeUiDispatcher);
+            }
 
             if (lifecycleToDisconnect != null && waitForIdleSucceeded)
             {

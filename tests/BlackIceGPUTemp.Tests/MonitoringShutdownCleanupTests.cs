@@ -120,7 +120,7 @@ namespace BlackIceGPUTemp.Tests
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 7, 8, 9, 10 }, executionOrder);
         }
 
         [Fact]
@@ -178,6 +178,8 @@ namespace BlackIceGPUTemp.Tests
         {
             var executionOrder = new List<int>();
             var lifecycle = new FakeLifecycle();
+            bool tokenSourceDisposed = false;
+            bool uiDispatcherDisposed = false;
 
             var cleanup = new MonitoringShutdownCleanup(
                 stopTimer: () => executionOrder.Add(1),
@@ -185,16 +187,53 @@ namespace BlackIceGPUTemp.Tests
                 stopExecutor: () => executionOrder.Add(3),
                 cancelTokenSource: () => executionOrder.Add(4),
                 waitForIdle: () => { executionOrder.Add(5); throw new InvalidOperationException("wait for idle failed"); },
-                disposeTokenSource: () => executionOrder.Add(6),
+                disposeTokenSource: () => { tokenSourceDisposed = true; executionOrder.Add(6); },
                 disposeTimer: () => executionOrder.Add(7),
                 hideNotifyIcon: () => executionOrder.Add(8),
                 disposeNotifyIcon: () => executionOrder.Add(9),
                 disposeCurrentIcon: () => executionOrder.Add(10),
-                disposeUiDispatcher: () => executionOrder.Add(11));
+                disposeUiDispatcher: () => { uiDispatcherDisposed = true; executionOrder.Add(11); });
 
             cleanup.Execute();
 
-            Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, executionOrder);
+            Assert.Equal(new[] { 1, 2, 3, 4, 5, 7, 8, 9, 10 }, executionOrder);
+            Assert.False(tokenSourceDisposed);
+            Assert.False(uiDispatcherDisposed);
+            Assert.Equal(0, lifecycle.DisconnectCallCount);
+        }
+
+        [Fact]
+        public void Execute_WaitForIdleThrows_TokenSourceAndUiDispatcherNotDisposed()
+        {
+            var executionOrder = new List<int>();
+            var lifecycle = new FakeLifecycle();
+            bool tokenSourceDisposed = false;
+            bool uiDispatcherDisposed = false;
+
+            var cleanup = new MonitoringShutdownCleanup(
+                stopTimer: () => executionOrder.Add(1),
+                stopAndTakeLifecycle: () => { executionOrder.Add(2); return lifecycle; },
+                stopExecutor: () => executionOrder.Add(3),
+                cancelTokenSource: () => executionOrder.Add(4),
+                waitForIdle: () => { executionOrder.Add(5); throw new InvalidOperationException("wait for idle failed"); },
+                disposeTokenSource: () => { tokenSourceDisposed = true; executionOrder.Add(6); },
+                disposeTimer: () => executionOrder.Add(7),
+                hideNotifyIcon: () => executionOrder.Add(8),
+                disposeNotifyIcon: () => executionOrder.Add(9),
+                disposeCurrentIcon: () => executionOrder.Add(10),
+                disposeUiDispatcher: () => { uiDispatcherDisposed = true; executionOrder.Add(11); });
+
+            cleanup.Execute();
+
+            Assert.False(tokenSourceDisposed, "CancellationTokenSource should not be disposed when WaitForIdle fails");
+            Assert.False(uiDispatcherDisposed, "UI dispatcher should not be disposed when WaitForIdle fails");
+            Assert.Contains(7, executionOrder);
+            Assert.Contains(8, executionOrder);
+            Assert.Contains(9, executionOrder);
+            Assert.Contains(10, executionOrder);
+            Assert.DoesNotContain(6, executionOrder);
+            Assert.DoesNotContain(11, executionOrder);
+            Assert.DoesNotContain(12, executionOrder);
             Assert.Equal(0, lifecycle.DisconnectCallCount);
         }
 
@@ -280,7 +319,7 @@ namespace BlackIceGPUTemp.Tests
             { 2, "Stop and take lifecycle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
             { 3, "Stop executor", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
             { 4, "Cancel token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
-            { 5, "WaitForIdle", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+            { 5, "WaitForIdle", new[] { 1, 2, 3, 4, 5, 7, 8, 9, 10 } },
             { 6, "Dispose token source", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
             { 7, "Dispose timer", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
             { 8, "Hide NotifyIcon", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 } },
