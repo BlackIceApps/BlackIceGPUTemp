@@ -259,6 +259,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             supported = false;
             IntPtr services = IntPtr.Zero;
             IntPtr metricsSupport = IntPtr.Zero;
+            bool metricsSupportOwned = false;
 
             try
             {
@@ -274,8 +275,16 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
                 if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
                 {
+                    // On error with non-zero pointer, release it
+                    if (metricsSupport != IntPtr.Zero)
+                    {
+                        AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                    }
                     return metricsResult != 0 ? metricsResult : -1;
                 }
+
+                // We now own metricsSupport
+                metricsSupportOwned = true;
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -285,17 +294,23 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     supported = false;
                     // Release the metricsSupport we just got since we won't cache it
                     AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                    metricsSupportOwned = false;
                     return tempResult;
                 }
 
                 // Success - cache the metricsSupport and temperature support result
                 _metricsSupportCache[uniqueId] = (metricsSupport, supported);
+                metricsSupportOwned = false; // Ownership transferred to cache
                 return 0;
             }
             finally
             {
+                // Release metricsSupport if we still own it (exception, cancellation, or failed cache write)
+                if (metricsSupportOwned && metricsSupport != IntPtr.Zero)
+                {
+                    AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                }
                 // Note: services is cached, so we don't release it here
-                // metricsSupport is either cached (success) or released (failure) above
             }
         }
 
@@ -314,11 +329,25 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             int result = _native.GetPerformanceMonitoringServices(_system, out services);
-            if (result == 0 && services != IntPtr.Zero)
+            if (result != 0)
             {
-                _perfServices = services;
+                // Error from ADLX - if non-zero pointer returned, release it
+                if (services != IntPtr.Zero)
+                {
+                    AdlxInterop.ReleaseInterface(_native, ref services);
+                }
+                return result;
             }
-            return result;
+
+            // Success from ADLX - but zero pointer is invalid
+            if (services == IntPtr.Zero)
+            {
+                return -1;
+            }
+
+            // Take ownership of the pointer
+            _perfServices = services;
+            return 0;
         }
 
         public int GetPerformanceMonitoringServices(out IntPtr services)
