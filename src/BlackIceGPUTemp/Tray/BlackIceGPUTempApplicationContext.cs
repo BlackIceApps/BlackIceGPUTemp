@@ -315,17 +315,17 @@ namespace BlackIceGPUTemp.Tray
 
             var token = _cancellationTokenSource.Token;
 
+            bool isDisposing;
+            lock (_disposeLock)
+            {
+                isDisposing = _disposing;
+            }
+
             _readTrigger.TryStart(
                 hasSession: session != null,
                 providerId: session?.ProviderId,
                 deviceId: session?.DeviceId,
-                isDisposing: () =>
-                {
-                    lock (_disposeLock)
-                    {
-                        return _disposing;
-                    }
-                },
+                isDisposing: isDisposing,
                 operation: ct =>
                 {
                     if (readCycle == null)
