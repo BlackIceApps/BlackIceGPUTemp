@@ -15,9 +15,16 @@ namespace BlackIceGPUTemp.Tests
         private readonly List<Exception> _reportedErrors = new();
 
         private Action<Action> _dispatcher = action => action();
-        private Action<string> _updateTooltip = text => _tooltipResults.Add(text);
-        private Action<string> _updateIcon = text => _iconResults.Add(text);
-        private Action<Exception> _reportError = ex => _reportedErrors.Add(ex);
+        private Action<string> _updateTooltip;
+        private Action<string> _updateIcon;
+        private Action<Exception> _reportError;
+
+        public MonitoringReadCycleTests()
+        {
+            _updateTooltip = text => _tooltipResults.Add(text);
+            _updateIcon = text => _iconResults.Add(text);
+            _reportError = ex => _reportedErrors.Add(ex);
+        }
 
         private class FakeGpuDevice : IGpuDevice
         {
