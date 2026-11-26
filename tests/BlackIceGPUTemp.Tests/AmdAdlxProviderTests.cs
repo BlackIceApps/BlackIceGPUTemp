@@ -32,6 +32,14 @@ namespace BlackIceGPUTemp.Tests
             public int GetGpuAtCallCount => _getGpuAtCallCount;
             private int _getGpuUniqueIdCallCount;
             public int GetGpuUniqueIdCallCount => _getGpuUniqueIdCallCount;
+            private int _getPerformanceMonitoringServicesCallCount;
+            public int GetPerformanceMonitoringServicesCallCount => _getPerformanceMonitoringServicesCallCount;
+            private int _getSupportedGpuMetricsCallCount;
+            public int GetSupportedGpuMetricsCallCount => _getSupportedGpuMetricsCallCount;
+            private int _isSupportedGpuTemperatureCallCount;
+            public int IsSupportedGpuTemperatureCallCount => _isSupportedGpuTemperatureCallCount;
+            private int _getCurrentGpuMetricsCallCount;
+            public int GetCurrentGpuMetricsCallCount => _getCurrentGpuMetricsCallCount;
             public int ReleaseFailAtPointer { get; set; } = -1;
             public int ReleaseFailCount { get; set; }
             public bool ThrowOnRelease { get; set; } = false;
@@ -165,6 +173,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetPerformanceMonitoringServices(IntPtr system, out IntPtr services)
             {
+                Interlocked.Increment(ref _getPerformanceMonitoringServicesCallCount);
                 services = new IntPtr(0x4000);
                 if (GetPerfServicesHandler != null)
                 {
@@ -175,6 +184,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetCurrentGpuMetrics(IntPtr services, IntPtr gpu, out IntPtr metrics)
             {
+                Interlocked.Increment(ref _getCurrentGpuMetricsCallCount);
                 int index = (int)(gpu.ToInt64() - 0x3000);
                 metrics = new IntPtr(0x5000 + index);
                 if (GetCurrentMetricsHandler != null)
@@ -186,6 +196,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int GetSupportedGpuMetrics(IntPtr services, IntPtr gpu, out IntPtr metricsSupport)
             {
+                Interlocked.Increment(ref _getSupportedGpuMetricsCallCount);
                 int index = (int)(gpu.ToInt64() - 0x3000);
                 metricsSupport = new IntPtr(0x6000 + index);
                 if (GetSupportedMetricsHandler != null)
@@ -197,6 +208,7 @@ namespace BlackIceGPUTemp.Tests
 
             public int IsSupportedGpuTemperature(IntPtr metricsSupport, out bool supported)
             {
+                Interlocked.Increment(ref _isSupportedGpuTemperatureCallCount);
                 int gpuIndex = (int)(metricsSupport.ToInt64() - 0x6000);
                 supported = gpuIndex >= 0 && gpuIndex < GpuTemperatureSupported.Count ? GpuTemperatureSupported[gpuIndex] : true;
                 if (IsSupportedTempHandler != null)
@@ -5451,6 +5463,71 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, fake.GetGpuListSizeCallCount);
             Assert.Equal(1, fake.GetGpuAtCallCount);
             Assert.Equal(1, fake.GetGpuUniqueIdCallCount);
+
+            // GPU handle (0x3000) is cached and NOT released after reads
+            Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
+
+            // Persistent session resources not released yet
+            Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList
+            Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // system
+            Assert.Equal(0, fake.TerminateCalls);
+            Assert.False(fake.IsDisposed);
+
+            provider.Disconnect();
+
+            // gpuList released on Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+            // Cached GPU handle released exactly once during Disconnect (session cleanup)
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
+        public void TryReadTemperatureInternal_RepeatedReads_SameGpu_DocumentsCurrentApiCallCounts()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First read
+            bool success1 = provider.TryReadTemperatureInternal(12345, out var reading1, out var error1);
+            Assert.True(success1);
+            Assert.Null(error1);
+            Assert.NotNull(reading1);
+            Assert.Equal(65.5, reading1.Celsius);
+
+            // Second read
+            bool success2 = provider.TryReadTemperatureInternal(12345, out var reading2, out var error2);
+            Assert.True(success2);
+            Assert.Null(error2);
+            Assert.NotNull(reading2);
+            Assert.Equal(65.5, reading2.Celsius);
+
+            // Verify API call counts after two reads (current behavior before optimization)
+            Assert.Equal(1, fake.GetGpuListSizeCallCount);
+            Assert.Equal(1, fake.GetGpuAtCallCount);
+            Assert.Equal(1, fake.GetGpuUniqueIdCallCount);
+            Assert.Equal(2, fake.GetPerformanceMonitoringServicesCallCount);
+            Assert.Equal(2, fake.GetSupportedGpuMetricsCallCount);
+            Assert.Equal(2, fake.IsSupportedGpuTemperatureCallCount);
+            Assert.Equal(2, fake.GetCurrentGpuMetricsCallCount);
+            Assert.Equal(2, fake.GetGpuTemperatureCallCount);
+
+            // Verify temporary interfaces were released after each read
+            // Per-read interfaces: metrics (0x5000), metricsSupport (0x6000), services (0x4000)
+            // Each read acquires and releases these, so they appear twice in ReleasedPointers
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x5000)); // metrics
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000)); // metricsSupport
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x4000)); // services
 
             // GPU handle (0x3000) is cached and NOT released after reads
             Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
