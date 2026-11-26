@@ -6455,7 +6455,7 @@ provider.Disconnect();
             // First read - cancelled after GetSupportedGpuMetrics acquires pointer
             Assert.Throws<OperationCanceledException>(() => provider.TryReadTemperatureInternal(12345, out _, out _, cts.Token));
 
-            // MetricsSupport pointer (0x6000) released exactly once
+            // MetricsSupport pointer (0x6000) released exactly once after failed acquisition
             Assert.Contains(0x6000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x6000);
 
@@ -6465,12 +6465,16 @@ provider.Disconnect();
             Assert.True(success);
             Assert.Equal(65.5, reading.Celsius);
 
-            // Cache populated successfully
+            // GetSupportedGpuMetrics called twice (once before cancellation, once on successful retry)
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
-            Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
+            Assert.Equal(2, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
 
             provider.Disconnect();
+
+            // MetricsSupport pointer (0x6000) released twice total:
+            // once after cancelled first acquisition, once during Disconnect for cached pointer
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
