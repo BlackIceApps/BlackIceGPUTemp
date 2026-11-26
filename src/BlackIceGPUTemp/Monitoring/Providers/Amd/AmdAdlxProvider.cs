@@ -381,7 +381,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 
-                IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken);
+                IntPtr targetGpu = FindGpuByUniqueId(session, targetUniqueId, cancellationToken, out bool gpuIsCached);
                 if (targetGpu == IntPtr.Zero)
                 {
                     error = $"GPU with unique ID {targetUniqueId} not found.";
@@ -465,7 +465,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         session.ReleaseInterface(ref metrics);
                         session.ReleaseInterface(ref metricsSupport);
                         session.ReleaseInterface(ref services);
-                        session.ReleaseInterface(ref targetGpu);
+                        // Release targetGpu only if it's not owned by the session cache
+                        if (!gpuIsCached)
+                        {
+                            session.ReleaseInterface(ref targetGpu);
+                        }
                     }
                 }
             }
@@ -605,8 +609,17 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             _pendingDisposeDisposable = session.PendingDisposeDisposable;
         }
 
-        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken)
+        private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken, out bool gpuIsCached)
         {
+            gpuIsCached = false;
+            
+            // Check cache first
+            if (session.TryGetCachedGpu(targetUniqueId, out IntPtr cachedGpu))
+            {
+                gpuIsCached = true;
+                return cachedGpu;
+            }
+
             int sizeResult = session.GetGpuListSize(out int count);
             cancellationToken.ThrowIfCancellationRequested();
             if (sizeResult != 0)
@@ -629,6 +642,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         if (session.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
                         {
                             isTarget = true;
+                            // Cache the GPU handle for future reads
+                            if (session.TryCacheGpu(targetUniqueId, gpu))
+                            {
+                                // Session took ownership
+                                gpuIsCached = true;
+                                return gpu;
+                            }
+                            // Cache rejected the handle (duplicate or invalid) - caller must release
+                            gpuIsCached = false;
                             return gpu;
                         }
                     }
