@@ -3770,6 +3770,13 @@ namespace BlackIceGPUTemp.Tests
             // GPU list should NOT be released (owned by persistent session)
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers); // System not released
+
+            // Disconnect to release all session resources
+            provider.Disconnect();
+
+            // After Disconnect: cached GPU handle and gpuList should be released
+            Assert.Contains(0x3000, fake.ReleasedPointers); // target GPU released during Disconnect
+            Assert.Contains(0x2000, fake.ReleasedPointers); // gpuList released during Disconnect
         }
 
         [Fact]
