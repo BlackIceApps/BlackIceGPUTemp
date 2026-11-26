@@ -48,7 +48,7 @@ jobs:
         $stagingDir = "$env:GITHUB_WORKSPACE\staging"
         New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
-        $releaseDir = "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\Release"
+        $releaseDir = "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\x64\Release"
 
         if (-not (Test-Path -Path $releaseDir -PathType Container)) {
           Write-Error "Release directory not found: $releaseDir"
