@@ -267,8 +267,8 @@ namespace BlackIceGPUTemp.Tests
                         var cleanup = owners[i].StopAndTake();
                         Assert.Null(cleanup);
                         // Simulate cleanup from Dispose() side
-                        stopResults[i].Disconnect();
-                        Assert.Equal(1, stopResults[i].DisconnectCallCount);
+                        lifecycles[i].Disconnect();
+                        Assert.Equal(1, lifecycles[i].DisconnectCallCount);
                     }
                     else
                     {
