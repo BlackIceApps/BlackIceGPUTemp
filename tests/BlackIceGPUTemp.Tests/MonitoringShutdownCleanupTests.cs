@@ -260,7 +260,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, executionOrder);
             Assert.Equal(1, lifecycle.DisconnectCallCount);
-            Assert.Equal(12, executionOrder[^1]);
+            Assert.Equal(12, executionOrder[executionOrder.Count - 1]);
         }
 
         [Fact]
@@ -363,7 +363,7 @@ namespace BlackIceGPUTemp.Tests
 
             cleanup.Execute();
 
-            Assert.Equal(expectedOrder, executionOrder);
+            Assert.Equal(expectedOrder, executionOrder, $"Failed step: {stepName}");
 
             if (failingStep == 2 || failingStep == 5)
             {
