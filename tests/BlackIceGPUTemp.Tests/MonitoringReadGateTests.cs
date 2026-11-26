@@ -288,8 +288,6 @@ namespace BlackIceGPUTemp.Tests
             var gate = new MonitoringReadGate();
 
             gate.WaitForIdle();
-
-            Assert.True(true); // If we reach here, WaitForIdle returned without blocking
         }
 
         [Fact]
@@ -313,18 +311,30 @@ namespace BlackIceGPUTemp.Tests
             waitThread.Start();
             waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // WaitForIdle should not complete while read is active
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+            try
+            {
+                // WaitForIdle should not complete while read is active
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // End the read
-            gate.EndRead();
+                // End the read
+                gate.EndRead();
 
-            // WaitForIdle should now complete
-            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            
-            // Clean up thread
-            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
-            Assert.True(joined, "Wait thread did not finish in time");
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is ended even if assertions fail
+                gate.EndRead();
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
         }
 
         [Fact]
@@ -348,18 +358,30 @@ namespace BlackIceGPUTemp.Tests
             waitThread.Start();
             waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // WaitForIdle should not complete yet
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+            try
+            {
+                // WaitForIdle should not complete yet
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // End the read - this should pulse waiting threads
-            gate.EndRead();
+                // End the read - this should pulse waiting threads
+                gate.EndRead();
 
-            // WaitForIdle should now complete
-            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            
-            // Clean up thread
-            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
-            Assert.True(joined, "Wait thread did not finish in time");
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is ended even if assertions fail
+                gate.EndRead();
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
         }
 
         [Fact]
@@ -383,24 +405,36 @@ namespace BlackIceGPUTemp.Tests
             waitThread.Start();
             waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // WaitForIdle should not complete while read is active
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+            try
+            {
+                // WaitForIdle should not complete while read is active
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // Stop the gate while WaitForIdle is waiting (read is still active)
-            gate.Stop();
+                // Stop the gate while WaitForIdle is waiting (read is still active)
+                gate.Stop();
 
-            // WaitForIdle should still wait for the active read to complete
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+                // WaitForIdle should still wait for the active read to complete
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // End the active read
-            gate.EndRead();
+                // End the active read
+                gate.EndRead();
 
-            // Now WaitForIdle should complete
-            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            
-            // Clean up thread
-            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
-            Assert.True(joined, "Wait thread did not finish in time");
+                // Now WaitForIdle should complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is ended even if assertions fail
+                gate.EndRead();
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
 
             // New reads should be blocked after Stop
             Assert.False(gate.TryBeginRead());

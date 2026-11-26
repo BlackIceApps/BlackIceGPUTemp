@@ -199,8 +199,6 @@ namespace BlackIceGPUTemp.Tests
             var executor = new MonitoringReadExecutor(action => Task.Run(action));
 
             executor.WaitForIdle();
-
-            Assert.True(true); // If we reach here, WaitForIdle returned without blocking
         }
 
         [Fact]
@@ -226,18 +224,33 @@ namespace BlackIceGPUTemp.Tests
             waitThread.Start();
             waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // WaitForIdle should not complete while read is active
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+            try
+            {
+                // WaitForIdle should not complete while read is active
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // Complete the read
-            capturedActions[0]();
+                // Complete the read
+                capturedActions[0]();
 
-            // WaitForIdle should now complete
-            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            
-            // Clean up thread
-            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
-            Assert.True(joined, "Wait thread did not finish in time");
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is completed even if assertions fail
+                if (capturedActions.Count > 0)
+                {
+                    capturedActions[0]();
+                }
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
         }
 
         [Fact]
@@ -284,24 +297,39 @@ namespace BlackIceGPUTemp.Tests
             waitThread.Start();
             waitThreadStarted.Wait(TimeSpan.FromSeconds(5));
 
-            // WaitForIdle should not complete yet
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+            try
+            {
+                // WaitForIdle should not complete yet
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // Stop the executor (blocks new reads but doesn't affect active read)
-            executor.Stop();
+                // Stop the executor (blocks new reads but doesn't affect active read)
+                executor.Stop();
 
-            // WaitForIdle should still wait for active read
-            Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
+                // WaitForIdle should still wait for active read
+                Assert.False(waitCompleted.Wait(TimeSpan.FromMilliseconds(100)));
 
-            // Complete the active read
-            capturedActions[0]();
+                // Complete the active read
+                capturedActions[0]();
 
-            // WaitForIdle should now complete
-            Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
-            
-            // Clean up thread
-            bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
-            Assert.True(joined, "Wait thread did not finish in time");
+                // WaitForIdle should now complete
+                Assert.True(waitCompleted.Wait(TimeSpan.FromSeconds(5)));
+            }
+            finally
+            {
+                // Ensure read is completed even if assertions fail
+                if (capturedActions.Count > 0)
+                {
+                    capturedActions[0]();
+                }
+
+                // Clean up thread with bounded timeout
+                bool joined = waitThread.Join(TimeSpan.FromSeconds(5));
+                if (!joined)
+                {
+                    try { waitThread.IsBackground = true; } catch { }
+                    Assert.Fail("Wait thread did not finish in time");
+                }
+            }
         }
     }
 }
