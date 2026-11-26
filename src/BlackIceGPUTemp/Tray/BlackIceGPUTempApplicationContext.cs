@@ -460,46 +460,26 @@ namespace BlackIceGPUTemp.Tray
                     return;
                 }
 
-                // 1. Stop timer to prevent new read cycles
-                _timer?.Stop();
-
-                // 2. Take ownership of the lifecycle provider (before waiting for active read)
-                IGpuProviderLifecycle? lifecycleToDisconnect = _lifecycleOwner.StopAndTake();
-
-                // 3. Stop executor to block new reads
-                _readExecutor.Stop();
-
-                // 4. Signal cancellation to request active read to finish
-                _cancellationTokenSource.Cancel();
-
-                // 5. Wait for active read to complete (outside any lock)
-                _readExecutor.WaitForIdle();
-
-                // 6. Dispose resources used by reads
-                _cancellationTokenSource.Dispose();
-                _timer?.Dispose();
-
-                if (_notifyIcon != null)
-                {
-                    _notifyIcon.Visible = false;
-                    _notifyIcon.Dispose();
-                }
-
-                _currentIcon?.Dispose();
-                _uiDispatcher.Dispose();
-
-                // 7. Disconnect provider after other resources are cleaned up
-                if (lifecycleToDisconnect != null)
-                {
-                    try
+                var cleanup = new MonitoringShutdownCleanup(
+                    stopTimer: () => _timer?.Stop(),
+                    stopAndTakeLifecycle: () => _lifecycleOwner.StopAndTake(),
+                    stopExecutor: () => _readExecutor.Stop(),
+                    cancelTokenSource: () => _cancellationTokenSource.Cancel(),
+                    waitForIdle: () => _readExecutor.WaitForIdle(),
+                    disposeTokenSource: () => _cancellationTokenSource.Dispose(),
+                    disposeTimer: () => _timer?.Dispose(),
+                    hideAndDisposeNotifyIcon: () =>
                     {
-                        lifecycleToDisconnect.Disconnect();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Error disconnecting GPU provider during shutdown", ex);
-                    }
-                }
+                        if (_notifyIcon != null)
+                        {
+                            _notifyIcon.Visible = false;
+                            _notifyIcon.Dispose();
+                        }
+                    },
+                    disposeCurrentIcon: () => _currentIcon?.Dispose(),
+                    disposeUiDispatcher: () => _uiDispatcher.Dispose());
+
+                cleanup.Execute();
             }
             base.Dispose(disposing);
         }
