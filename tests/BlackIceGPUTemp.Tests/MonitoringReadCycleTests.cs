@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 using BlackIceGPUTemp.Tray;
@@ -14,7 +13,6 @@ namespace BlackIceGPUTemp.Tests
         private readonly List<string> _tooltipResults = new();
         private readonly List<string> _iconResults = new();
         private readonly List<Exception> _reportedErrors = new();
-        private readonly List<Exception> _loggedErrors = new();
 
         private Action<Action> _dispatcher = action => action();
         private Action<string> _updateTooltip = text => _tooltipResults.Add(text);
@@ -292,6 +290,30 @@ namespace BlackIceGPUTemp.Tests
             Assert.Empty(_tooltipResults);
             Assert.Empty(_iconResults);
             Assert.Empty(_reportedErrors);
+        }
+
+        [Fact]
+        public void Execute_CancellationDuringErrorReporting_NoUpdate()
+        {
+            var cts = new CancellationTokenSource();
+            var exception = new InvalidOperationException("Hardware failure");
+            var monitorService = CreateMonitorService(_ => throw exception);
+
+            Exception? reportedEx = null;
+            _reportError = ex =>
+            {
+                reportedEx = ex;
+                cts.Cancel();
+            };
+
+            var cycle = CreateCycle(monitorService);
+
+            cycle.Execute(cts.Token, () => false);
+
+            Assert.NotNull(reportedEx);
+            Assert.Same(exception, reportedEx);
+            Assert.Empty(_tooltipResults);
+            Assert.Empty(_iconResults);
         }
 
         [Fact]

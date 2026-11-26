@@ -83,10 +83,12 @@ namespace BlackIceGPUTemp.Tray
             {
             }
 
-            if (!isDisposing())
+            if (cancellationToken.IsCancellationRequested || isDisposing())
             {
-                _displayUpdater.Update(_deviceName, false, null);
+                return;
             }
+
+            _displayUpdater.Update(_deviceName, false, null);
         }
     }
 }
