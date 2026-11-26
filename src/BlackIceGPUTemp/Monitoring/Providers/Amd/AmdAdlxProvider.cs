@@ -465,7 +465,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         session.ReleaseInterface(ref metrics);
                         session.ReleaseInterface(ref metricsSupport);
                         session.ReleaseInterface(ref services);
-                        session.ReleaseInterface(ref targetGpu);
+                        // Do not release targetGpu if it's cached (session owns it)
+                        if (!session.TryGetCachedGpu(targetUniqueId, out _))
+                        {
+                            session.ReleaseInterface(ref targetGpu);
+                        }
                     }
                 }
             }
@@ -607,6 +611,12 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken)
         {
+            // Check cache first
+            if (session.TryGetCachedGpu(targetUniqueId, out IntPtr cachedGpu))
+            {
+                return cachedGpu;
+            }
+
             int sizeResult = session.GetGpuListSize(out int count);
             cancellationToken.ThrowIfCancellationRequested();
             if (sizeResult != 0)
@@ -629,6 +639,13 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         if (session.GetGpuUniqueId(gpu, out int uid) == 0 && uid == targetUniqueId)
                         {
                             isTarget = true;
+                            // Cache the GPU handle for future reads
+                            if (session.TryCacheGpu(targetUniqueId, gpu))
+                            {
+                                // Session took ownership - do not release here
+                                return gpu;
+                            }
+                            // Cache rejected the handle (duplicate or invalid) - caller must release
                             return gpu;
                         }
                     }
