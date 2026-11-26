@@ -112,7 +112,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
-            Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
+            Assert.Equal("Test GPU: Failed to read temperature from device.", _tooltipResults[0]);
             Assert.Equal("--", _iconResults[0]);
             Assert.Empty(_reportedErrors);
         }
@@ -127,7 +127,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
-            Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
+            Assert.Equal("Test GPU: Failed to read temperature from device.", _tooltipResults[0]);
             Assert.Equal("--", _iconResults[0]);
             Assert.Empty(_reportedErrors);
         }
@@ -142,7 +142,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
-            Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
+            Assert.Equal("Test GPU: Failed to read temperature from device.", _tooltipResults[0]);
             Assert.Equal("--", _iconResults[0]);
             Assert.Empty(_reportedErrors);
         }
