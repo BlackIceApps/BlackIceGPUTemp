@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring.Abstractions;
 
@@ -17,6 +16,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly Action _hideAndDisposeNotifyIcon;
         private readonly Action _disposeCurrentIcon;
         private readonly Action _disposeUiDispatcher;
+        private readonly Action<string, Exception> _logger;
 
         public MonitoringShutdownCleanup(
             Action stopTimer,
@@ -28,7 +28,8 @@ namespace BlackIceGPUTemp.Tray
             Action disposeTimer,
             Action hideAndDisposeNotifyIcon,
             Action disposeCurrentIcon,
-            Action disposeUiDispatcher)
+            Action disposeUiDispatcher,
+            Action<string, Exception>? logger = null)
         {
             _stopTimer = stopTimer ?? throw new ArgumentNullException(nameof(stopTimer));
             _stopAndTakeLifecycle = stopAndTakeLifecycle ?? throw new ArgumentNullException(nameof(stopAndTakeLifecycle));
@@ -40,6 +41,12 @@ namespace BlackIceGPUTemp.Tray
             _hideAndDisposeNotifyIcon = hideAndDisposeNotifyIcon ?? throw new ArgumentNullException(nameof(hideAndDisposeNotifyIcon));
             _disposeCurrentIcon = disposeCurrentIcon ?? throw new ArgumentNullException(nameof(disposeCurrentIcon));
             _disposeUiDispatcher = disposeUiDispatcher ?? throw new ArgumentNullException(nameof(disposeUiDispatcher));
+            _logger = logger ?? DefaultLogger;
+        }
+
+        private static void DefaultLogger(string message, Exception exception)
+        {
+            Logger.LogError(message, exception);
         }
 
         public void Execute()
@@ -93,7 +100,7 @@ namespace BlackIceGPUTemp.Tray
         {
             try
             {
-                Logger.LogError(message, exception);
+                _logger(message, exception);
             }
             catch
             {
