@@ -5957,12 +5957,14 @@ namespace BlackIceGPUTemp.Tests
             // Read first GPU
             bool success1 = provider.TryReadTemperatureInternal(11111, out var reading1, out var error1);
             Assert.True(success1);
-            Assert.Equal(55.0, reading1.Celsius);
+            Assert.NotNull(reading1);
+            Assert.Equal(55.0, reading1!.Celsius);
 
             // Read second GPU
             bool success2 = provider.TryReadTemperatureInternal(22222, out var reading2, out var error2);
             Assert.True(success2);
-            Assert.Equal(72.5, reading2.Celsius);
+            Assert.NotNull(reading2);
+            Assert.Equal(72.5, reading2!.Celsius);
 
             // Each GPU has its own metricsSupport cached
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount); // shared
@@ -6052,7 +6054,8 @@ namespace BlackIceGPUTemp.Tests
             // Now read temperature - should reuse cache
             bool readSuccess = provider.TryReadTemperatureInternal(12345, out var reading, out var readError);
             Assert.True(readSuccess);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // No additional calls for services, metricsSupport, or IsSupportedGpuTemperature
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
@@ -6301,7 +6304,8 @@ namespace BlackIceGPUTemp.Tests
             cancelled = false;
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // Cache populated successfully
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
@@ -6343,7 +6347,8 @@ namespace BlackIceGPUTemp.Tests
             // Second read without cancellation should reuse cache
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // No additional calls for services/metricsSupport
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
@@ -6463,7 +6468,8 @@ provider.Disconnect();
             cancelled = false;
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // GetSupportedGpuMetrics called twice (once before cancellation, once on successful retry)
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
@@ -6514,7 +6520,8 @@ provider.Disconnect();
             threw = false;
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // GetSupportedGpuMetrics called twice (once failed, once succeeded)
             Assert.Equal(2, fake.GetSupportedGpuMetricsCallCount);
@@ -6565,7 +6572,8 @@ provider.Disconnect();
             threw = false;
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
-            Assert.Equal(65.5, reading.Celsius);
+            Assert.NotNull(reading);
+            Assert.Equal(65.5, reading!.Celsius);
 
             // GetPerformanceMonitoringServices called twice (once failed, once succeeded)
             Assert.Equal(2, fake.GetPerformanceMonitoringServicesCallCount);
