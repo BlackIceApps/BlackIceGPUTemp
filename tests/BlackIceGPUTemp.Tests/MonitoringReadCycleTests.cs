@@ -276,13 +276,39 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void Execute_ExceptionThrownAndTokenCancelledBeforeHandling_NoReportNoUpdate()
+        {
+            var cts = new CancellationTokenSource();
+            var exception = new InvalidOperationException("Hardware failure");
+            var monitorService = CreateMonitorService(_ =>
+            {
+                cts.Cancel();
+                throw exception;
+            });
+            var cycle = CreateCycle(monitorService);
+
+            cycle.Execute(cts.Token, () => false);
+
+            Assert.Empty(_tooltipResults);
+            Assert.Empty(_iconResults);
+            Assert.Empty(_reportedErrors);
+        }
+
+        [Fact]
         public void Execute_ReportErrorThrows_StillUpdatesDisplayToUnavailable()
         {
             var exception = new InvalidOperationException("Hardware failure");
             var reportErrorException = new InvalidOperationException("Reporting failed");
             var monitorService = CreateMonitorService(_ => throw exception);
+
+            Exception? reportedEx = null;
+            _reportError = ex =>
+            {
+                reportedEx = ex;
+                throw reportErrorException;
+            };
+
             var cycle = CreateCycle(monitorService);
-            _reportError = ex => throw reportErrorException;
 
             cycle.Execute(CancellationToken.None, () => false);
 
@@ -290,8 +316,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Single(_iconResults);
             Assert.Equal("Test GPU: Temp unavailable", _tooltipResults[0]);
             Assert.Equal("--", _iconResults[0]);
-            Assert.Single(_reportedErrors);
-            Assert.Same(exception, _reportedErrors[0]);
+            Assert.NotNull(reportedEx);
+            Assert.Same(exception, reportedEx);
         }
 
         [Fact]

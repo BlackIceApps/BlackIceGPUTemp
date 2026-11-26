@@ -55,21 +55,26 @@ namespace BlackIceGPUTemp.Tray
 
                 _displayUpdater.Update(_deviceName, success, reading, error);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
                 if (!cancellationToken.IsCancellationRequested)
                 {
-                    ReportAndUpdateUnavailable(new OperationCanceledException("Operation canceled without token cancellation"));
+                    ReportAndUpdateUnavailable(ex, cancellationToken, isDisposing);
                 }
             }
             catch (Exception ex)
             {
-                ReportAndUpdateUnavailable(ex);
+                ReportAndUpdateUnavailable(ex, cancellationToken, isDisposing);
             }
         }
 
-        private void ReportAndUpdateUnavailable(Exception ex)
+        private void ReportAndUpdateUnavailable(Exception ex, CancellationToken cancellationToken, Func<bool> isDisposing)
         {
+            if (cancellationToken.IsCancellationRequested || isDisposing())
+            {
+                return;
+            }
+
             try
             {
                 _reportError(ex);
