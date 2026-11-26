@@ -29,9 +29,9 @@ namespace BlackIceGPUTemp.Tray
         private readonly Timer _timer;
         private Icon? _currentIcon;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
+        private readonly MonitoringShutdownState _shutdownState;
         private readonly Control _uiDispatcher = new();
         private readonly object _disposeLock = new();
-        private volatile bool _disposing;
         private readonly MonitoringReadExecutor _readExecutor;
         private readonly MonitoringReadTrigger _readTrigger;
         private MonitoringSession? _session;
@@ -103,6 +103,7 @@ namespace BlackIceGPUTemp.Tray
 
             _ = _uiDispatcher.Handle;
 
+            _shutdownState = new MonitoringShutdownState(_cancellationTokenSource);
             _readExecutor = new MonitoringReadExecutor(action => Task.Run(action));
             _readTrigger = new MonitoringReadTrigger(_readExecutor);
             _displayUpdater = new MonitoringDisplayUpdater(
@@ -284,7 +285,7 @@ namespace BlackIceGPUTemp.Tray
 
         private void InvokeOnUiThread(Action action)
         {
-            if (_disposing)
+            if (_shutdownState.IsDisposing)
             {
                 return;
             }
@@ -293,7 +294,7 @@ namespace BlackIceGPUTemp.Tray
             {
                 _uiDispatcher.BeginInvoke(() =>
                 {
-                    if (_disposing)
+                    if (_shutdownState.IsDisposing)
                     {
                         return;
                     }
@@ -313,13 +314,12 @@ namespace BlackIceGPUTemp.Tray
             var session = _session;
             var readCycle = _readCycle;
 
-            var token = _cancellationTokenSource.Token;
-
-            bool isDisposing;
-            lock (_disposeLock)
+            if (!_shutdownState.TryGetCancellationToken(out var token))
             {
-                isDisposing = _disposing;
+                return;
             }
+
+            bool isDisposing = _shutdownState.IsDisposing;
 
             _readTrigger.TryStart(
                 hasSession: session != null,
@@ -333,13 +333,7 @@ namespace BlackIceGPUTemp.Tray
                         return;
                     }
 
-                    readCycle.Execute(ct, () =>
-                    {
-                        lock (_disposeLock)
-                        {
-                            return _disposing;
-                        }
-                    });
+                    readCycle.Execute(ct, () => _shutdownState.IsDisposing);
                 },
                 cancellationToken: token);
         }
@@ -460,10 +454,15 @@ namespace BlackIceGPUTemp.Tray
         {
             if (disposing)
             {
+                if (!_shutdownState.TryBeginDispose())
+                {
+                    base.Dispose(disposing);
+                    return;
+                }
+
                 // Mark as disposing and stop timer under lock to prevent new reads
                 lock (_disposeLock)
                 {
-                    _disposing = true;
                     _timer?.Stop();
                 }
 
