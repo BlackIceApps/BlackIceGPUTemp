@@ -35,6 +35,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly MonitoringReadExecutor _readExecutor;
         private readonly MonitoringReadTrigger _readTrigger;
         private MonitoringSession? _session;
+        private MonitoringReadCycle? _readCycle;
         private readonly IGpuMonitoringSessionFactory _monitoringSessionFactory;
         private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
         private readonly MonitoringDisplayUpdater _displayUpdater;
@@ -248,6 +249,14 @@ namespace BlackIceGPUTemp.Tray
                     return;
                 }
 
+                var readCycle = new MonitoringReadCycle(
+                    monitorService,
+                    _displayUpdater,
+                    ex => Logger.LogError("Error reading temperature", ex),
+                    providerId,
+                    deviceId,
+                    deviceName);
+
                 InvokeOnUiThread(() =>
                 {
                     if (cancellationToken.IsCancellationRequested)
@@ -255,6 +264,7 @@ namespace BlackIceGPUTemp.Tray
                         return;
                     }
                     _session = session;
+                    _readCycle = readCycle;
                     _timer.Start();
                     UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
                 });
@@ -301,14 +311,15 @@ namespace BlackIceGPUTemp.Tray
         private void OnTimerTick(object? sender, EventArgs e)
         {
             var session = _session;
+            var readCycle = _readCycle;
+
+            var token = _cancellationTokenSource.Token;
 
             bool isDisposing;
             lock (_disposeLock)
             {
                 isDisposing = _disposing;
             }
-
-            var token = _cancellationTokenSource.Token;
 
             _readTrigger.TryStart(
                 hasSession: session != null,
@@ -317,43 +328,18 @@ namespace BlackIceGPUTemp.Tray
                 isDisposing: isDisposing,
                 operation: ct =>
                 {
-                    if (session == null)
+                    if (readCycle == null)
                     {
                         return;
                     }
 
-                    try
-                    {
-                        if (ct.IsCancellationRequested)
-                        {
-                            return;
-                        }
-
-                        bool success = session.MonitorService.TryReadTemperature(session.ProviderId, session.DeviceId, out var reading, out var error, ct);
-
-                        lock (_disposeLock)
-                        {
-                            if (_disposing)
-                            {
-                                return;
-                            }
-                        }
-
-                        _displayUpdater.Update(session.DeviceName, success, reading, error);
-                    }
-                    catch (Exception ex)
+                    readCycle.Execute(ct, () =>
                     {
                         lock (_disposeLock)
                         {
-                            if (_disposing)
-                            {
-                                return;
-                            }
+                            return _disposing;
                         }
-
-                        Logger.LogError("Error reading temperature", ex);
-                        _displayUpdater.Update(session.DeviceName, false, null);
-                    }
+                    });
                 },
                 cancellationToken: token);
         }
