@@ -48,10 +48,11 @@ jobs:
         $stagingDir = "$env:GITHUB_WORKSPACE\staging"
         New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
-        $expectedPath = "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\Release\net48\win-x64\BlackIceGPUTemp.exe"
+        $releaseDir = "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\Release"
+        $allExes = Get-ChildItem -Path $releaseDir -Filter "BlackIceGPUTemp.exe" -Recurse -File
 
-        if (-not (Test-Path -Path $expectedPath -PathType Leaf)) {
-          Write-Error "Expected release artifact not found: $expectedPath"
+        if ($allExes.Count -eq 0) {
+          Write-Error "BlackIceGPUTemp.exe not found under $releaseDir"
           if (Test-Path "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin") {
             Write-Host "Contents of bin directory:"
             Get-ChildItem "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
@@ -59,15 +60,15 @@ jobs:
           exit 1
         }
 
-        $allExes = Get-ChildItem "$env:GITHUB_WORKSPACE\src\BlackIceGPUTemp\bin\Release\net48\win-x64" -Filter "BlackIceGPUTemp.exe" -File
-        if ($allExes.Count -ne 1) {
-          Write-Error "Expected exactly one BlackIceGPUTemp.exe in Release/net48/win-x64, found $($allExes.Count)."
+        if ($allExes.Count -gt 1) {
+          Write-Error "Expected exactly one BlackIceGPUTemp.exe under $releaseDir, found $($allExes.Count)."
           $allExes | ForEach-Object { Write-Host $_.FullName }
           exit 1
         }
 
-        Write-Host "Found EXE: $expectedPath"
-        Copy-Item $expectedPath $stagingDir
+        $exe = $allExes[0]
+        Write-Host "Found EXE: $($exe.FullName)"
+        Copy-Item $exe.FullName $stagingDir
 
         $files = Get-ChildItem -Path $stagingDir -Recurse -File
         Write-Host "Files in staging directory:"
