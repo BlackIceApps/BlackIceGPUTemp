@@ -92,7 +92,6 @@ namespace BlackIceGPUTemp.Tests
 
             const int threadCount = 20;
             const int getTokenThreads = 10;
-            const int disposeThreads = 10;
 
             var startBarrier = new Barrier(threadCount);
             var attemptCompleted = new CountdownEvent(threadCount);
