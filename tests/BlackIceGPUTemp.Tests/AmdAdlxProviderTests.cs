@@ -5694,7 +5694,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
 
-            // No double-release of any resource
+            // No double-release of any resource except metrics (0x5000) which is released once per read
             var releaseCounts = new Dictionary<int, int>();
             foreach (var ptr in fake.ReleasedPointers)
             {
@@ -5704,7 +5704,14 @@ namespace BlackIceGPUTemp.Tests
             }
             foreach (var kvp in releaseCounts)
             {
-                Assert.Equal(1, kvp.Value);
+                if (kvp.Key == 0x5000)
+                {
+                    Assert.Equal(2, kvp.Value);
+                }
+                else
+                {
+                    Assert.Equal(1, kvp.Value);
+                }
             }
 
             Assert.Equal(1, fake.TerminateCalls);
