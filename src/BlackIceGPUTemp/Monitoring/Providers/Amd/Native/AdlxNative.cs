@@ -12,6 +12,17 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
     const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800;
     const int ADLX_ORPHAN_OBJECTS = 0xB;
 
+    // These vtable indices are based on the AMD ADLX SDK 2.0.0 (build 125) headers.
+    //
+    // AMD documents that existing ADLX interfaces are locked and do not change.
+    // New functionality is introduced through new interfaces, preserving compatibility
+    // with applications using existing interfaces.
+    //
+    // Therefore, a different ADLX runtime or driver version alone is not considered
+    // an ABI incompatibility and does not require a runtime version check or startup block.
+    //
+    // Reference:
+    // https://gpuopen.com/manuals/adlx/programming-with-adlx/adlx-programming-guide/specifications/compatibility/
     private enum AdlxVtableIndex : int
     {
         // IADLXInterface (ADLXDefines.h) - base interface for all ADLX objects
