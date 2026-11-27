@@ -2821,7 +2821,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue()
+        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue_ThrowsOnDispose()
         {
             int freeCallCount = 0;
             var native = new AdlxNative(
@@ -2833,18 +2833,19 @@ namespace BlackIceGPUTemp.Tests
             int result = native.Terminate();
 
             Assert.Equal(-1, result);
-            native.Dispose();
+            Assert.Throws<InvalidOperationException>(() => native.Dispose());
             Assert.Equal(0, freeCallCount);
             Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
         }
 
         [Fact]
-        public void AdlxNative_Dispose_WhenInitialized_DoesNotCallFreeLibrary()
+        public void AdlxNative_Dispose_WhenInitialized_ThrowsInvalidOperationException_DoesNotCallFreeLibrary()
         {
             int freeCallCount = 0;
             var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, true);
 
-            native.Dispose();
+            Assert.Throws<InvalidOperationException>(() => native.Dispose());
 
             Assert.Equal(0, freeCallCount);
             Assert.False(native.IsDisposed);
@@ -2939,6 +2940,77 @@ namespace BlackIceGPUTemp.Tests
             GC.Collect();
 
             Assert.Equal(0, counter.Count);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenInitialized_ThrowsInvalidOperationException()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => native.Dispose());
+
+            Assert.Contains("ADLX is still initialized", ex.Message);
+            Assert.Contains("Terminate", ex.Message);
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_WhenInitialized_AfterException_TerminateThenDispose_FreesLibraryOnce()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true,
+                () => 0);
+
+            // First Dispose throws
+            Assert.Throws<InvalidOperationException>(() => native.Dispose());
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
+
+            // Terminate succeeds
+            int terminateResult = native.Terminate();
+            Assert.Equal(0, terminateResult);
+
+            // Second Dispose succeeds and frees library
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+            Assert.Equal(IntPtr.Zero, native.LibHandle);
+
+            // Third Dispose is no-op
+            native.Dispose();
+            Assert.Equal(1, freeCallCount);
+            Assert.True(native.IsDisposed);
+        }
+
+        [Fact]
+        public void AdlxNative_Dispose_FinalizerPath_WhenInitialized_DoesNotThrow()
+        {
+            int freeCallCount = 0;
+            var native = new AdlxNative(
+                new IntPtr(0x1234),
+                _ => { freeCallCount++; return true; },
+                true);
+
+            // Directly invoke the finalizer path - should not throw
+            var disposeMethod = typeof(AdlxNative).GetMethod("Dispose", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(disposeMethod);
+
+            disposeMethod!.Invoke(native, new object[] { false });
+
+            // Should not have thrown, should not have freed library, should not be disposed
+            Assert.Equal(0, freeCallCount);
+            Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
