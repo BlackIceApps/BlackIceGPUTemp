@@ -19,6 +19,7 @@
   - Usage scope: Strictly limited to `BlackIceGPUTemp.Diagnostics` console utility as a reference comparison during Stage 1 and future vendor analysis. Never included in the production `BlackIceGPUTemp.exe` release.
 
 ## 2. Vendor Selection & Roadmap
+
 - V1.0 candidate APIs: ADL (`atiadlxx.dll`) and ADLX (`amdadlx64.dll`). Stage 1 diagnostics concluded:
   - **AMD ADLX** is selected as the primary API for GPU temperature reading in BlackIceGPUTemp.
   - ADLX successfully detected the GPU and read `IADLXGPUMetrics::GPUTemperature` on all tested machines (Windows 10 with Radeon RX 580 at 74°C, and Windows 11 with Radeon RX 9070 GRE at 27°C, both with Edge Temperature semantics).
@@ -39,6 +40,15 @@
 - **Future consideration:** Manual GPU selection may be revisited if the product scope changes to explicitly support multi-GPU configurations. This is not a commitment to implement.
 
 ## 4. Runtime Behavior & Limitations
+
+### GPU Hot-Plug Is Not Supported
+
+The application does not support dynamically detecting GPU devices being connected or disconnected while it is running.
+
+GPU enumeration and initialization are performed as part of the provider lifecycle. Monitoring changes to the available GPU devices and reinitializing the provider at runtime are outside the scope of the current version.
+
+This is a deliberate scope limitation, not an accidental omission. Supporting GPU hot-plug would require a separate device-change detection and lifecycle management mechanism.
+
 ### Native ADLX Calls Are Not Cancellable
 **Decision:** Accept that synchronous native ADLX calls cannot be interrupted by `CancellationToken` or application-level timeouts.
 
