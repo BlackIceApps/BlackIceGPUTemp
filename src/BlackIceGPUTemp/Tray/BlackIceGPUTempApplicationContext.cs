@@ -117,48 +117,47 @@ namespace BlackIceGPUTemp.Tray
 
         private async Task RetryInitializationAsync(CancellationToken token)
         {
-            var initResult = await Task.Run(() =>
+            try
             {
-                try
-                {
-                    InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initializing..."));
+                InvokeOnUiThreadSync(() => UpdateTooltip("BlackIceGPUTemp: Initializing..."));
 
-                    return _monitoringSessionFactory.Create(token);
-                }
-                catch (OperationCanceledException)
-                {
-                    return new GpuMonitoringInitializationResult("Operation canceled");
-                }
-                catch (Exception ex)
-                {
-                    if (!token.IsCancellationRequested)
-                    {
-                        Logger.LogError("Initialization error", ex);
-                        return new GpuMonitoringInitializationResult("Initialization error");
-                    }
-                    return new GpuMonitoringInitializationResult("Operation canceled");
-                }
-            });
-
-            if (token.IsCancellationRequested)
-            {
-                if (initResult.ProviderLifecycle != null)
+                var initResult = await Task.Run(() =>
                 {
                     try
                     {
-                        initResult.ProviderLifecycle.Disconnect();
+                        return _monitoringSessionFactory.Create(token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return new GpuMonitoringInitializationResult("Operation canceled");
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError("Error disconnecting provider after cancellation", ex);
+                        if (!token.IsCancellationRequested)
+                        {
+                            Logger.LogError("Initialization error", ex);
+                            return new GpuMonitoringInitializationResult("Initialization error");
+                        }
+                        return new GpuMonitoringInitializationResult("Operation canceled");
                     }
-                }
-                ReleaseInitializationLock();
-                return;
-            }
+                });
 
-            try
-            {
+                if (token.IsCancellationRequested)
+                {
+                    if (initResult.ProviderLifecycle != null)
+                    {
+                        try
+                        {
+                            initResult.ProviderLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider after cancellation", ex);
+                        }
+                    }
+                    return;
+                }
+
                 if (!initResult.IsSuccess)
                 {
                     HandleInitFailure(initResult.Message ?? "Initialization failed", token);
