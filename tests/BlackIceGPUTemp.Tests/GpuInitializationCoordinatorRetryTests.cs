@@ -32,19 +32,37 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
-        private class SuccessResult : GpuMonitoringInitializationResult
+        private static GpuMonitoringInitializationResult CreateFailureResult(string message = "Initialization failed")
         {
-            public SuccessResult()
-                : base(new HardwareMonitorService(null), "provider-1", "device-1", "Test GPU")
-            {
-            }
+            return new GpuMonitoringInitializationResult(message);
         }
 
-        private class FailureResult : GpuMonitoringInitializationResult
+        private static GpuMonitoringInitializationResult CreateSuccessResult()
         {
-            public FailureResult(string message = "Initialization failed")
-                : base(message)
+            var fakeDevice = new FakeDevice("device-1", "Test GPU");
+            var monitorService = new HardwareMonitorService(fakeDevice);
+            return new GpuMonitoringInitializationResult(monitorService, "provider-1", "device-1", "Test GPU");
+        }
+
+        private class FakeDevice : IGpuDevice
+        {
+            public string Id { get; }
+            public string ProviderId => "provider-1";
+            public string Name { get; }
+            public GpuVendor Vendor => GpuVendor.Amd;
+            public GpuKind Kind => GpuKind.Discrete;
+
+            public FakeDevice(string id, string name)
             {
+                Id = id;
+                Name = name;
+            }
+
+            public bool TryReadTemperature(out TemperatureReading? reading, out string? error, CancellationToken cancellationToken = default)
+            {
+                reading = new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow);
+                error = null;
+                return true;
             }
         }
 
@@ -53,8 +71,8 @@ namespace BlackIceGPUTemp.Tests
         {
             var factory = new FakeSessionFactory(new[]
             {
-                new FailureResult("First attempt failed"),
-                new SuccessResult()
+                CreateFailureResult("First attempt failed"),
+                CreateSuccessResult()
             });
 
             var coordinator = new GpuInitializationCoordinator(factory);
@@ -91,8 +109,8 @@ namespace BlackIceGPUTemp.Tests
         {
             var factory = new FakeSessionFactory(new[]
             {
-                new FailureResult("First attempt failed"),
-                new FailureResult("Second attempt failed")
+                CreateFailureResult("First attempt failed"),
+                CreateFailureResult("Second attempt failed")
             });
 
             var coordinator = new GpuInitializationCoordinator(factory);
