@@ -590,10 +590,12 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(tooltipException, _reportedError);
             Assert.Equal("66", _iconResult);
             Assert.Equal(1, callCount);
-            Assert.Equal(1, _iconCallCount);
-            Assert.Equal(0, _tooltipCallCount); // Tooltip callback threw, count not incremented
+            Assert.Equal(1, _iconCallCount); // Fixture icon callback succeeded
+            Assert.Equal(0, _tooltipCallCount); // Custom tooltip callback threw
 
-            // Second update - should retry tooltip (callCount continues from 1, so second call succeeds)
+            // Second update - retry tooltip (callCount continues from 1, so second call succeeds)
+            // Icon is cached ("66"), so fixture icon callback NOT called
+            // Tooltip uses custom callback, not fixture callback
             _reportedError = null;
             _tooltipCallCount = 0;
             _iconCallCount = 0;
@@ -603,8 +605,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Null(_reportedError);
             Assert.Equal("66", _iconResult);
             Assert.Equal(2, callCount); // Custom callback called twice total
-            Assert.Equal(1, _tooltipCallCount); // Tooltip callback succeeded this time
-            Assert.Equal(1, _iconCallCount);
+            Assert.Equal(0, _tooltipCallCount); // Custom callback used, not fixture
+            Assert.Equal(0, _iconCallCount); // Icon cached, fixture callback not called
         }
 
         [Fact]
@@ -628,10 +630,12 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(iconException, _reportedError);
             Assert.Equal("Test GPU: 66°C", _tooltipResult);
             Assert.Equal(1, callCount);
-            Assert.Equal(1, _tooltipCallCount);
-            Assert.Equal(0, _iconCallCount); // Icon callback threw, count not incremented
+            Assert.Equal(1, _tooltipCallCount); // Fixture tooltip callback succeeded
+            Assert.Equal(0, _iconCallCount); // Custom icon callback threw
 
-            // Second update - should retry icon (callCount continues from 1, so second call succeeds)
+            // Second update - retry icon (callCount continues from 1, so second call succeeds)
+            // Tooltip is cached ("Test GPU: 66°C"), so fixture tooltip callback NOT called
+            // Icon uses custom callback, not fixture callback
             _reportedError = null;
             _tooltipCallCount = 0;
             _iconCallCount = 0;
@@ -642,8 +646,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("Test GPU: 66°C", _tooltipResult);
             Assert.Equal("66", _iconResult);
             Assert.Equal(2, callCount); // Custom callback called twice total
-            Assert.Equal(1, _tooltipCallCount);
-            Assert.Equal(1, _iconCallCount); // Icon callback succeeded this time
+            Assert.Equal(0, _tooltipCallCount); // Tooltip cached, fixture callback not called
+            Assert.Equal(0, _iconCallCount); // Custom callback used, not fixture
         }
 
         [Fact]
@@ -713,19 +717,17 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(2, reportedErrors.Count);
             Assert.Contains(tooltipException, reportedErrors);
             Assert.Contains(iconException, reportedErrors);
-            Assert.Equal(0, _tooltipCallCount);
-            Assert.Equal(0, _iconCallCount);
+            Assert.Equal(1, tooltipCallCount); // Custom tooltip callback called once (threw)
+            Assert.Equal(1, iconCallCount); // Custom icon callback called once (threw)
 
             // Second update - both succeed
             reportedErrors.Clear();
-            _tooltipCallCount = 0;
-            _iconCallCount = 0;
             updater.Update("Test GPU", true, reading);
             _capturedAction!();
 
             Assert.Equal(0, reportedErrors.Count);
-            Assert.Equal(1, _tooltipCallCount);
-            Assert.Equal(1, _iconCallCount);
+            Assert.Equal(2, tooltipCallCount); // Custom tooltip callback called twice total (second succeeded)
+            Assert.Equal(2, iconCallCount); // Custom icon callback called twice total (second succeeded)
         }
     }
 }
