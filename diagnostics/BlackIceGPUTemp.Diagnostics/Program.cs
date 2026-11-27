@@ -302,7 +302,7 @@ namespace BlackIceGPUTemp.Diagnostics
             IntPtr interfacePtr,
             int slot,
             out IntPtr functionPtr,
-            out string error)
+            out string? error)
         {
             functionPtr = IntPtr.Zero;
             error = null;
