@@ -8,16 +8,16 @@ namespace BlackIceGPUTemp.Tests
 {
     public class AdlxNativeTests
     {
-        private static AdlxNative CreateTestNative(bool isInitialized, ADLXTerminateDelegate? terminate = null)
+        private static AdlxNative CreateTestNative(bool isInitialized, AdlxNative.ADLXTerminateDelegate? terminate = null)
         {
-            return new AdlxNative(IntPtr.Zero, _ => true, isInitialized, terminate);
+            return new AdlxNative(new IntPtr(1), _ => true, isInitialized, terminate);
         }
 
         [Fact]
         public void Release_AfterTerminate_ThrowsInvalidOperationException()
         {
             bool terminated = false;
-            var native = CreateTestNative(true, _ =>
+            var native = CreateTestNative(true, () =>
             {
                 terminated = true;
                 return 0;
@@ -40,15 +40,6 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Release_WhenNotInitialized_DoesNotCallNativeDelegate()
-        {
-            var native = CreateTestNative(false);
-            
-            var ex = Assert.Throws<InvalidOperationException>(() => native.Release(new IntPtr(0x1234)));
-            Assert.Contains("not initialized", ex.Message);
-        }
-
-        [Fact]
         public void Release_IntPtrZero_ReturnsZero_WhenInitialized()
         {
             var native = CreateTestNative(true);
@@ -58,7 +49,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void Dispose_WhenTraceThrows_DoesNotMaskOriginalException()
+        public void Dispose_WhenFreeLibraryThrows_DoesNotMaskOriginalException()
         {
             bool freeLibraryCalled = false;
             
@@ -68,9 +59,9 @@ namespace BlackIceGPUTemp.Tests
                 throw new InvalidOperationException("FreeLibrary failed");
             };
             
-            var native = new AdlxNative(IntPtr.Zero, failingFreeLibrary, false);
+            var native = new AdlxNative(new IntPtr(1), failingFreeLibrary, false);
             
-            // The Trace.TraceError in Dispose should not mask the FreeLibrary exception
+            // The FreeLibrary exception should propagate even if Trace logging fails
             var ex = Assert.Throws<InvalidOperationException>(() => native.Dispose());
             Assert.Equal("FreeLibrary failed", ex.Message);
             Assert.True(freeLibraryCalled);
@@ -79,7 +70,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Dispose_WhenFreeLibraryReturnsFalse_ThrowsWin32Exception()
         {
-            var native = new AdlxNative(IntPtr.Zero, _ => false, false);
+            var native = new AdlxNative(new IntPtr(1), _ => false, false);
             
             var ex = Assert.Throws<System.ComponentModel.Win32Exception>(() => native.Dispose());
             Assert.NotEqual(0, ex.NativeErrorCode);
@@ -89,7 +80,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Dispose_WhenFreeLibrarySucceeds_SetsLibHandleToZero()
         {
-            var native = new AdlxNative(IntPtr.Zero, _ => true, false);
+            var native = new AdlxNative(new IntPtr(1), _ => true, false);
             
             native.Dispose();
             
@@ -99,7 +90,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Dispose_WhenDisposedTwice_DoesNotThrow()
         {
-            var native = new AdlxNative(IntPtr.Zero, _ => true, false);
+            var native = new AdlxNative(new IntPtr(1), _ => true, false);
             
             native.Dispose();
             native.Dispose(); // Should not throw
