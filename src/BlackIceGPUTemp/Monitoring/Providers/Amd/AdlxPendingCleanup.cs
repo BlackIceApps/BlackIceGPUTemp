@@ -34,8 +34,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         {
             if (pendingDisposeNative != null && pendingDisposeDisposable != null)
             {
-                _pendingNative = pendingDisposeNative;
-                _pendingDisposable = pendingDisposeDisposable;
+                _pendingDisposeNative = pendingDisposeNative;
+                _pendingDisposeDisposable = pendingDisposeDisposable;
+                _pendingNative = null;
+                _pendingDisposable = null;
                 _stage = CleanupStage.DisposePending;
             }
             else if (pendingNative != null)
