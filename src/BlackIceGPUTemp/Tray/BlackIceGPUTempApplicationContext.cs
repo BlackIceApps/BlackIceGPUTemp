@@ -28,7 +28,7 @@ namespace BlackIceGPUTemp.Tray
         private readonly MonitoringLifecycleOwner _lifecycleOwner = new();
         private readonly MonitoringDisplayUpdater _displayUpdater;
         private readonly TrayMenu _trayMenu;
-        private int _initializationInProgress = 0;
+        private readonly GpuInitializationCoordinator _initializationCoordinator;
         private bool _initializationFailed = false;
 
         private sealed class MonitoringSession
@@ -50,6 +50,7 @@ namespace BlackIceGPUTemp.Tray
         public BlackIceGPUTempApplicationContext(IGpuMonitoringSessionFactory monitoringSessionFactory)
         {
             _monitoringSessionFactory = monitoringSessionFactory ?? throw new ArgumentNullException(nameof(monitoringSessionFactory));
+            _initializationCoordinator = new GpuInitializationCoordinator(_monitoringSessionFactory);
 
             _notifyIcon = new NotifyIcon
             {
@@ -107,69 +108,37 @@ namespace BlackIceGPUTemp.Tray
                 return;
             }
 
-            if (Interlocked.CompareExchange(ref _initializationInProgress, 1, 0) != 0)
-            {
-                return;
-            }
-
-            Task.Run(() => RetryInitializationAsync(token));
+            _ = _initializationCoordinator.TryInitializeAsync(
+                token,
+                onAttemptStart: () => InvokeOnUiThreadSync(() => UpdateTooltip("BlackIceGPUTemp: Initializing...")),
+                onResult: HandleInitResultAsync);
         }
 
-        private async Task RetryInitializationAsync(CancellationToken token)
+        private async Task HandleInitResultAsync(GpuMonitoringInitializationResult initResult, CancellationToken token)
         {
-            try
+            if (token.IsCancellationRequested)
             {
-                InvokeOnUiThreadSync(() => UpdateTooltip("BlackIceGPUTemp: Initializing..."));
-
-                var initResult = await Task.Run(() =>
+                if (initResult.ProviderLifecycle != null)
                 {
                     try
                     {
-                        return _monitoringSessionFactory.Create(token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return new GpuMonitoringInitializationResult("Operation canceled");
+                        initResult.ProviderLifecycle.Disconnect();
                     }
                     catch (Exception ex)
                     {
-                        if (!token.IsCancellationRequested)
-                        {
-                            Logger.LogError("Initialization error", ex);
-                            return new GpuMonitoringInitializationResult("Initialization error");
-                        }
-                        return new GpuMonitoringInitializationResult("Operation canceled");
+                        Logger.LogError("Error disconnecting provider after cancellation", ex);
                     }
-                });
-
-                if (token.IsCancellationRequested)
-                {
-                    if (initResult.ProviderLifecycle != null)
-                    {
-                        try
-                        {
-                            initResult.ProviderLifecycle.Disconnect();
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError("Error disconnecting provider after cancellation", ex);
-                        }
-                    }
-                    return;
                 }
-
-                if (!initResult.IsSuccess)
-                {
-                    HandleInitFailure(initResult.Message ?? "Initialization failed", token);
-                }
-                else
-                {
-                    HandleInitSuccess(initResult, token);
-                }
+                return;
             }
-            finally
+
+            if (!initResult.IsSuccess)
             {
-                ReleaseInitializationLock();
+                HandleInitFailure(initResult.Message ?? "Initialization failed", token);
+            }
+            else
+            {
+                HandleInitSuccess(initResult, token);
             }
         }
 
@@ -280,11 +249,6 @@ namespace BlackIceGPUTemp.Tray
                 _timer.Start();
                 UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
             });
-        }
-
-        private void ReleaseInitializationLock()
-        {
-            Interlocked.Exchange(ref _initializationInProgress, 0);
         }
 
         private void Initialize(CancellationToken cancellationToken)
