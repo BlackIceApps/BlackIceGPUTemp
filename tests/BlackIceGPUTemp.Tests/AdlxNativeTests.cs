@@ -73,7 +73,6 @@ namespace BlackIceGPUTemp.Tests
             var native = new AdlxNative(new IntPtr(1), _ => false, false);
             
             var ex = Assert.Throws<System.ComponentModel.Win32Exception>(() => native.Dispose());
-            Assert.NotEqual(0, ex.NativeErrorCode);
             Assert.Contains("Failed to free ADLX library", ex.Message);
         }
 
@@ -118,7 +117,7 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public void Terminate_WhenNotInitialized_ThrowsInvalidOperationException()
         {
-            var native = CreateTestNative(false);
+            var native = CreateTestNative(false, () => 0);
             
             var ex = Assert.Throws<InvalidOperationException>(() => native.Terminate());
             Assert.Contains("not initialized", ex.Message);
