@@ -38,4 +38,20 @@
 - **Multi-GPU behavior:** When multiple GPUs are present, the selected device depends on the enumeration order returned by the underlying provider (ADLX). This order is not guaranteed to be stable across driver updates or hardware changes.
 - **Future consideration:** Manual GPU selection may be revisited if the product scope changes to explicitly support multi-GPU configurations. This is not a commitment to implement.
 
-(End of file - total 44 lines)
+## 4. Runtime Behavior & Limitations
+### Native ADLX Calls Are Not Cancellable
+**Decision:** Accept that synchronous native ADLX calls cannot be interrupted by `CancellationToken` or application-level timeouts.
+
+**Context:**
+The application checks `CancellationToken` between native ADLX calls. However, cancellation cannot interrupt a native call that is already executing. If ADLX hangs, the background monitoring operation may remain blocked. Since provider operations use synchronization, subsequent operations may also wait for the blocked call.
+
+**Rationale:**
+- A timeout applied to the managed task would only stop waiting for the result; it would not terminate the native call.
+- Attempting to release ADLX interfaces while a native call is still executing could introduce resource-lifetime and memory-safety issues.
+- Proper isolation would require moving ADLX operations into a separate process, which is not justified by the current application requirements.
+
+**Consequences:**
+- Keep cancellation checks between native calls.
+- Do not introduce misleading task-level timeouts as a substitute for native cancellation.
+- Accept that an unresponsive ADLX call may block GPU monitoring until the call returns or the application exits.
+- Reconsider this decision if monitoring reliability requirements change.
