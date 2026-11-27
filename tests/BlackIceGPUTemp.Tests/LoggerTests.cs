@@ -98,7 +98,7 @@ namespace BlackIceGPUTemp.Tests
             var set = writtenSet?.GetValue(null) as System.Collections.Generic.HashSet<string>;
 
             Assert.NotNull(set);
-            Assert.Equal(0, set.Count);
+            Assert.Empty(set);
         }
 
         [Fact]
