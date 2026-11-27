@@ -5,9 +5,17 @@ using System.Windows.Forms;
 
 namespace BlackIceGPUTemp.Tray
 {
+    internal enum TrayMenuResult
+    {
+        None = 0,
+        Exit = 1,
+        Retry = 2
+    }
+
     internal sealed class TrayMenu
     {
         private const int MenuExitId = 1001;
+        private const int MenuRetryId = 1002;
         private const uint TPM_RIGHTALIGN = 0x0008;
         private const uint TPM_BOTTOMALIGN = 0x0020;
         private const uint TPM_RIGHTBUTTON = 0x0002;
@@ -39,19 +47,27 @@ namespace BlackIceGPUTemp.Tray
             _dispatcherHandle = dispatcherHandle;
         }
 
-        public bool ShowContextMenu(Point cursorPos)
+        public TrayMenuResult ShowContextMenu(Point cursorPos, bool showRetry)
         {
             IntPtr hMenu = CreatePopupMenu();
             if (hMenu == IntPtr.Zero)
             {
-                return false;
+                return TrayMenuResult.None;
             }
 
             try
             {
+                if (showRetry)
+                {
+                    if (!AppendMenu(hMenu, 0x00000000, (uint)MenuRetryId, "Retry"))
+                    {
+                        return TrayMenuResult.None;
+                    }
+                }
+
                 if (!AppendMenu(hMenu, 0x00000000, (uint)MenuExitId, "Exit"))
                 {
-                    return false;
+                    return TrayMenuResult.None;
                 }
 
                 uint flags = TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD;
@@ -62,7 +78,15 @@ namespace BlackIceGPUTemp.Tray
                 int result = TrackPopupMenuEx(hMenu, flags, x, y, _dispatcherHandle, IntPtr.Zero);
                 PostMessage(_dispatcherHandle, WM_NULL, IntPtr.Zero, IntPtr.Zero);
 
-                return result == MenuExitId;
+                if (result == MenuExitId)
+                {
+                    return TrayMenuResult.Exit;
+                }
+                if (result == MenuRetryId)
+                {
+                    return TrayMenuResult.Retry;
+                }
+                return TrayMenuResult.None;
             }
             finally
             {
