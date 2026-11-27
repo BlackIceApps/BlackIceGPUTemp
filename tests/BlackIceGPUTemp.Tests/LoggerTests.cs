@@ -6,6 +6,16 @@ using Xunit;
 
 namespace BlackIceGPUTemp.Tests
 {
+    [CollectionDefinition("LoggerTests", DisableParallelization = true)]
+    public class LoggerTestsCollection : ICollectionFixture<LoggerTestsFixture>
+    {
+    }
+
+    public class LoggerTestsFixture
+    {
+    }
+
+    [Collection("LoggerTests")]
     public class LoggerTests
     {
         private static string? GetLogFilePath()
