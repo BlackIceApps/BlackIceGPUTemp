@@ -251,8 +251,9 @@ namespace BlackIceGPUTemp.Diagnostics
             if (ntStatus == 0)
             {
                 Log($"OS Version: Microsoft Windows NT {osvi.dwMajorVersion}.{osvi.dwMinorVersion}.{osvi.dwBuildNumber} ({osvi.szCSDVersion})");
-            }
-            else
+}
+                                            }
+                                    else
             {
                 Log("OS Version: Niedostępny odczyt wersji systemu (RtlGetVersion nie powiódł się).");
             }
@@ -616,11 +617,9 @@ namespace BlackIceGPUTemp.Diagnostics
                                                 }
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
-                        finally
+}
+                                                        }
+finally
                         {
                             Marshal.FreeHGlobal(ptr);
                         }
@@ -788,8 +787,6 @@ if (adlxGPU != IntPtr.Zero)
                                            {
                                                try
                                                {
-                                                   try
-                                                   {
                                                    if (retAt == 0)
                                                    {
                                                        string gpuName = "Unknown GPU";
@@ -1019,10 +1016,11 @@ finally
                                                    }
                                                }
                                           }
-                                      }
-                                }
-                            }
-                        }
+                    else
+                    {
+                        Log("ADLXInitialize export not found.");
+                    }
+                }
                         catch (Exception exEnum)
                         {
                             Log(String.Format("ADLX GPU Enumeration / Metrics Exception: {0}", exEnum.Message));
