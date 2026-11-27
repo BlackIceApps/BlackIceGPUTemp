@@ -432,9 +432,13 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
     public int Release(IntPtr adlxInterface)
     {
-            if (_disposed)
+        if (_disposed)
         {
             throw new ObjectDisposedException(nameof(AdlxNative));
+        }
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("ADLX is not initialized. Cannot release interface.");
         }
         if (adlxInterface == IntPtr.Zero)
         {
@@ -575,19 +579,12 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
             {
                 if (disposing)
                 {
-                    Trace.TraceError("FreeLibrary threw exception: {0}", ex.Message);
+                    SafeTraceError($"FreeLibrary threw exception: {ex.Message}");
                     throw;
                 }
                 else
                 {
-                    try
-                    {
-                        Trace.TraceError("FreeLibrary threw exception in finalizer: {0}", ex.Message);
-                    }
-                    catch
-                    {
-                        // Swallow any logging exceptions in finalizer
-                    }
+                    SafeTraceError($"FreeLibrary threw exception in finalizer: {ex.Message}");
                 }
             }
 
@@ -596,19 +593,12 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
                 int error = Marshal.GetLastWin32Error();
                 if (disposing)
                 {
-                    Trace.TraceError("FreeLibrary failed: Win32 error {0}", error);
+                    SafeTraceError($"FreeLibrary failed: Win32 error {error}");
                     throw new System.ComponentModel.Win32Exception(error, $"Failed to free ADLX library. Win32 error: {error}");
                 }
                 else
                 {
-                    try
-                    {
-                        Trace.TraceError("FreeLibrary failed in finalizer: Win32 error {0}", error);
-                    }
-                    catch
-                    {
-                        // Swallow any logging exceptions in finalizer
-                    }
+                    SafeTraceError($"FreeLibrary failed in finalizer: Win32 error {error}");
                 }
             }
             else
@@ -621,5 +611,16 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
         _initialize = null;
         _terminate = null;
         _isLoaded = false;
+    }
+
+    private static void SafeTraceError(string message)
+    {
+        try
+        {
+            Trace.TraceError(message);
+        }
+        catch
+        {
+        }
     }
 }
