@@ -191,9 +191,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             else if (disposableNative != null)
             {
+                bool disposeSucceeded = false;
                 try
                 {
                     disposableNative.Dispose();
+                    disposeSucceeded = true;
                 }
                 catch (Exception ex)
                 {
@@ -202,7 +204,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     pendingDisposeDisposable = disposableNative;
                     _stage = CleanupStage.DisposePending;
                 }
-                else
+
+                if (disposeSucceeded)
                 {
                     _stage = CleanupStage.Completed;
                 }
