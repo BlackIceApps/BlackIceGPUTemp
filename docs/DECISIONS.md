@@ -27,6 +27,7 @@
   - ADL worked on RX 580, but checked ADL temperature methods (OD5, OD6, OverdriveN) failed to read temperature on RX 9070 GRE. ADL will not be the primary API, but may be considered as a future alternative if needed.
   - Tests were executed without administrator privileges in an x64 process.
   - CI after changing ADLX `IADLXGPUList::At_GPUList` to vtable index 11 completed successfully.
+- **V1.0 vendor support scope:** The initial release supports AMD GPUs only, using AMD ADLX as the primary temperature-reading API. NVIDIA and Intel GPUs are explicitly out of scope for V1.0. The provider architecture is designed to allow additional vendors to be supported in future releases.
 
 ## 3. GPU Device Selection Policy
 
