@@ -13,40 +13,33 @@ namespace BlackIceGPUTemp.Tests
         }
 
 
-
         [Fact]
         public void Create_SuccessfulReading_ReturnsFormattedTooltipAndRoundedIconText()
         {
             var reading = CreateReading(65.5);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: 65.5°C", result.TooltipText);
+            Assert.Equal("Test GPU: 66°C", result.TooltipText);
             Assert.Equal("66", result.IconText);
         }
 
         [Fact]
-        public void Create_TemperatureFormatting_UsesOneDecimalPlace()
+        public void Create_TemperatureFormatting_UsesWholeDegrees()
         {
             var reading = CreateReading(70.25);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: 70.3°C", result.TooltipText);
+            Assert.Equal("Test GPU: 70°C", result.TooltipText);
         }
 
         [Fact]
-        public void Create_TemperatureRounding_RoundsToNearestIntegerForIcon()
+        public void Create_SuccessfulReading_TooltipAndIconUseSameRounding()
         {
-            var reading1 = CreateReading(65.4);
-            var result1 = TemperatureDisplayState.Create("Test GPU", true, reading1);
-            Assert.Equal("65", result1.IconText);
+            var reading = CreateReading(65.5);
+            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            var reading2 = CreateReading(65.5);
-            var result2 = TemperatureDisplayState.Create("Test GPU", true, reading2);
-            Assert.Equal("66", result2.IconText);
-
-            var reading3 = CreateReading(65.6);
-            var result3 = TemperatureDisplayState.Create("Test GPU", true, reading3);
-            Assert.Equal("66", result3.IconText);
+            Assert.Equal("Test GPU: 66°C", result.TooltipText);
+            Assert.Equal("66", result.IconText);
         }
 
         [Fact]
@@ -110,10 +103,9 @@ namespace BlackIceGPUTemp.Tests
             var reading = CreateReading(65.5);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading, "Some error");
 
-            Assert.Equal("Test GPU: 65.5°C", result.TooltipText);
+            Assert.Equal("Test GPU: 66°C", result.TooltipText);
             Assert.Equal("66", result.IconText);
         }
-
 
 
         [Fact]
@@ -141,7 +133,7 @@ namespace BlackIceGPUTemp.Tests
             var reading = CreateReading(0.0);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: 0.0°C", result.TooltipText);
+            Assert.Equal("Test GPU: 0°C", result.TooltipText);
             Assert.Equal("0", result.IconText);
         }
 
@@ -151,7 +143,7 @@ namespace BlackIceGPUTemp.Tests
             var reading = CreateReading(-5.5);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: -5.5°C", result.TooltipText);
+            Assert.Equal("Test GPU: -6°C", result.TooltipText);
             Assert.Equal("-6", result.IconText);
         }
 
@@ -161,7 +153,7 @@ namespace BlackIceGPUTemp.Tests
             var reading = CreateReading(99.9);
             var result = TemperatureDisplayState.Create("Test GPU", true, reading);
 
-            Assert.Equal("Test GPU: 99.9°C", result.TooltipText);
+            Assert.Equal("Test GPU: 100°C", result.TooltipText);
             Assert.Equal("100", result.IconText);
         }
     }

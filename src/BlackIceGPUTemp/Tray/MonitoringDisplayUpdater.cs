@@ -9,6 +9,8 @@ namespace BlackIceGPUTemp.Tray
         private readonly Action<string> _updateTooltip;
         private readonly Action<string> _updateIcon;
         private readonly Action<Exception> _reportError;
+        private string? _lastTooltipText;
+        private string? _lastIconText;
 
         public MonitoringDisplayUpdater(
             Action<Action> dispatcher,
@@ -28,22 +30,30 @@ namespace BlackIceGPUTemp.Tray
             {
                 var displayState = TemperatureDisplayState.Create(deviceName, success, reading, error);
 
-                try
+                if (_lastTooltipText == null || !string.Equals(_lastTooltipText, displayState.TooltipText, StringComparison.Ordinal))
                 {
-                    _updateTooltip(displayState.TooltipText);
-                }
-                catch (Exception ex)
-                {
-                    SafeReportError(ex);
+                    try
+                    {
+                        _updateTooltip(displayState.TooltipText);
+                        _lastTooltipText = displayState.TooltipText;
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeReportError(ex);
+                    }
                 }
 
-                try
+                if (_lastIconText == null || !string.Equals(_lastIconText, displayState.IconText, StringComparison.Ordinal))
                 {
-                    _updateIcon(displayState.IconText);
-                }
-                catch (Exception ex)
-                {
-                    SafeReportError(ex);
+                    try
+                    {
+                        _updateIcon(displayState.IconText);
+                        _lastIconText = displayState.IconText;
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeReportError(ex);
+                    }
                 }
             });
         }
