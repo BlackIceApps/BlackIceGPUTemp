@@ -490,6 +490,34 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void Update_TemperaturesWithinSameRoundedDegree_DoesNotCallCallbacksAgain()
+        {
+            var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
+            var reading1 = new TemperatureReading(65.1, "GPU Core", DateTimeOffset.UtcNow); // rounds to 65
+            var reading2 = new TemperatureReading(65.4, "GPU Core", DateTimeOffset.UtcNow); // rounds to 65
+
+            // First update: 65.1 -> rounds to 65
+            updater.Update("Test GPU", true, reading1);
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: 65°C", _tooltipResult);
+            Assert.Equal("65", _iconResult);
+            Assert.Equal(1, _tooltipCallCount);
+            Assert.Equal(1, _iconCallCount);
+
+            // Second update: 65.4 -> also rounds to 65 (same rounded value, no callbacks)
+            _tooltipCallCount = 0;
+            _iconCallCount = 0;
+            updater.Update("Test GPU", true, reading2);
+            _capturedAction!();
+
+            Assert.Equal("Test GPU: 65°C", _tooltipResult);
+            Assert.Equal("65", _iconResult);
+            Assert.Equal(0, _tooltipCallCount);
+            Assert.Equal(0, _iconCallCount);
+        }
+
+        [Fact]
         public void Update_SameErrorTwice_DoesNotCallCallbacksAgain()
         {
             var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, _updateIcon, _reportError);
@@ -565,9 +593,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, _iconCallCount);
             Assert.Equal(0, _tooltipCallCount); // Tooltip callback threw, count not incremented
 
-            // Second update - should retry tooltip
+            // Second update - should retry tooltip (callCount continues from 1, so second call succeeds)
             _reportedError = null;
-            callCount = 0;
             _tooltipCallCount = 0;
             _iconCallCount = 0;
             updater.Update("Test GPU", true, reading);
@@ -575,6 +602,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Null(_reportedError);
             Assert.Equal("66", _iconResult);
+            Assert.Equal(2, callCount); // Custom callback called twice total
             Assert.Equal(1, _tooltipCallCount); // Tooltip callback succeeded this time
             Assert.Equal(1, _iconCallCount);
         }
@@ -603,9 +631,8 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, _tooltipCallCount);
             Assert.Equal(0, _iconCallCount); // Icon callback threw, count not incremented
 
-            // Second update - should retry icon
+            // Second update - should retry icon (callCount continues from 1, so second call succeeds)
             _reportedError = null;
-            callCount = 0;
             _tooltipCallCount = 0;
             _iconCallCount = 0;
             updater.Update("Test GPU", true, reading);
@@ -614,6 +641,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Null(_reportedError);
             Assert.Equal("Test GPU: 66°C", _tooltipResult);
             Assert.Equal("66", _iconResult);
+            Assert.Equal(2, callCount); // Custom callback called twice total
             Assert.Equal(1, _tooltipCallCount);
             Assert.Equal(1, _iconCallCount); // Icon callback succeeded this time
         }
