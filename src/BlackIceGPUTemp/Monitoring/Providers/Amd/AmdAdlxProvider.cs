@@ -134,7 +134,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        int tempResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        // Use uncached path for probe - does not cache metricsSupport
+                        int tempResult = session.IsTemperatureSupportedUncachedWithServices(gpu, out bool tempSupported, cancellationToken);
                         if (tempResult == 0 && tempSupported)
                         {
                             hasSupportedGpu = true;
@@ -274,7 +275,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        int tempSupportedResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        // Use uncached path for enumeration - does not cache metricsSupport
+                        int tempSupportedResult = session.IsTemperatureSupportedUncachedWithServices(gpu, out bool tempSupported, cancellationToken);
                         if (tempSupportedResult != 0)
                         {
                             error = $"Failed to check temperature support for GPU at index {i}. Result code: {tempSupportedResult}";
@@ -390,15 +392,14 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
                 else
                 {
-                    IntPtr services = IntPtr.Zero;
-                    IntPtr metricsSupport = IntPtr.Zero;
                     IntPtr metrics = IntPtr.Zero;
 
                     try
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         
-                        if (session.GetPerformanceMonitoringServices(out services) != 0 || services == IntPtr.Zero)
+                        // Get cached performance monitoring services (session-wide)
+                        if (session.GetPerformanceMonitoringServices(out IntPtr services) != 0 || services == IntPtr.Zero)
                         {
                             error = "Failed to get performance monitoring services.";
                             Logger.LogWarn($"ADLX TryReadTemperature: {error}");
@@ -408,9 +409,17 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                            if (session.GetSupportedGpuMetrics(services, targetGpu, out metricsSupport) != 0 || metricsSupport == IntPtr.Zero)
+                            // Check temperature support using cached metricsSupport (pass known uniqueId)
+                            int tempResult = session.IsTemperatureSupportedAndCache(targetGpu, targetUniqueId, out bool tempSupported, cancellationToken);
+                            if (tempResult != 0)
                             {
-                                error = "Failed to get supported GPU metrics.";
+                                error = $"Failed to check GPU temperature support. Result code: {tempResult}";
+                                Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                                result = false;
+                            }
+                            else if (!tempSupported)
+                            {
+                                error = "GPU temperature monitoring is not supported.";
                                 Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                 result = false;
                             }
@@ -418,9 +427,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
 
-                                if (session.IsSupportedGpuTemperature(metricsSupport, out bool tempSupported) != 0 || !tempSupported)
+                                // Get current metrics for this read (not cached)
+                                if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
                                 {
-                                    error = "GPU temperature monitoring is not supported.";
+                                    error = "Failed to get current GPU metrics.";
                                     Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                     result = false;
                                 }
@@ -428,33 +438,22 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                                 {
                                     cancellationToken.ThrowIfCancellationRequested();
 
-                                    if (session.GetCurrentGpuMetrics(services, targetGpu, out metrics) != 0 || metrics == IntPtr.Zero)
+                                    if (session.GetGpuTemperature(metrics, out double celsius) != 0)
                                     {
-                                        error = "Failed to get current GPU metrics.";
+                                        error = "Failed to get GPU temperature reading.";
+                                        Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                                        result = false;
+                                    }
+                                    else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
+                                    {
+                                        error = "GPU temperature is NaN or Infinity.";
                                         Logger.LogWarn($"ADLX TryReadTemperature: {error}");
                                         result = false;
                                     }
                                     else
                                     {
-                                        cancellationToken.ThrowIfCancellationRequested();
-
-                                        if (session.GetGpuTemperature(metrics, out double celsius) != 0)
-                                        {
-                                            error = "Failed to get GPU temperature reading.";
-                                            Logger.LogWarn($"ADLX TryReadTemperature: {error}");
-                                            result = false;
-                                        }
-                                        else if (double.IsNaN(celsius) || double.IsInfinity(celsius))
-                                        {
-                                            error = "GPU temperature is NaN or Infinity.";
-                                            Logger.LogWarn($"ADLX TryReadTemperature: {error}");
-                                            result = false;
-                                        }
-                                        else
-                                        {
-                                            reading = new TemperatureReading(celsius, SensorName, DateTimeOffset.UtcNow);
-                                            result = true;
-                                        }
+                                        reading = new TemperatureReading(celsius, SensorName, DateTimeOffset.UtcNow);
+                                        result = true;
                                     }
                                 }
                             }
@@ -462,10 +461,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     }
                     finally
                     {
+                        // Only release metrics (acquired per-read)
                         session.ReleaseInterface(ref metrics);
-                        session.ReleaseInterface(ref metricsSupport);
-                        session.ReleaseInterface(ref services);
-                        // Release targetGpu only if it's not owned by the session cache
+                        // Do NOT release services (cached in session)
+                        // Do NOT release targetGpu if it's cached
                         if (!gpuIsCached)
                         {
                             session.ReleaseInterface(ref targetGpu);
