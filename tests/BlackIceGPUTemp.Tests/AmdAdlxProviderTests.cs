@@ -2821,7 +2821,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue()
+        public void AdlxNative_Terminate_ReturnsOtherError_IsInitializedRemainsTrue_ThrowsOnDispose()
         {
             int freeCallCount = 0;
             var native = new AdlxNative(
@@ -2833,18 +2833,19 @@ namespace BlackIceGPUTemp.Tests
             int result = native.Terminate();
 
             Assert.Equal(-1, result);
-            native.Dispose();
+            Assert.Throws<InvalidOperationException>(() => native.Dispose());
             Assert.Equal(0, freeCallCount);
             Assert.False(native.IsDisposed);
+            Assert.Equal(new IntPtr(0x1234), native.LibHandle);
         }
 
         [Fact]
-        public void AdlxNative_Dispose_WhenInitialized_DoesNotCallFreeLibrary()
+        public void AdlxNative_Dispose_WhenInitialized_ThrowsInvalidOperationException_DoesNotCallFreeLibrary()
         {
             int freeCallCount = 0;
             var native = new AdlxNative(new IntPtr(0x1234), _ => { freeCallCount++; return true; }, true);
 
-            native.Dispose();
+            Assert.Throws<InvalidOperationException>(() => native.Dispose());
 
             Assert.Equal(0, freeCallCount);
             Assert.False(native.IsDisposed);
