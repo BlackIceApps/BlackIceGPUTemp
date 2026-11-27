@@ -21,8 +21,9 @@ namespace BlackIceGPUTemp.Tray
         {
             if (success && reading != null && IsFinite(reading.Celsius))
             {
-                var tooltipText = $"{deviceName}: {reading.Celsius:F1}°C";
-                var iconText = ((int)Math.Round(reading.Celsius)).ToString();
+                var rounded = (int)Math.Round(reading.Celsius);
+                var tooltipText = $"{deviceName}: {rounded}°C";
+                var iconText = rounded.ToString();
                 return new Result(tooltipText, iconText);
             }
             else
