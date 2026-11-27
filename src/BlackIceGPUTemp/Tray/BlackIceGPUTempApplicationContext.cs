@@ -96,11 +96,11 @@ namespace BlackIceGPUTemp.Tray
             }
             else if (result == TrayMenuResult.Retry)
             {
-                _ = RetryInitializationAsync();
+                RetryInitialization();
             }
         }
 
-        private async Task RetryInitializationAsync()
+        private void RetryInitialization()
         {
             if (!_shutdownState.TryGetCancellationToken(out var token))
             {
@@ -112,6 +112,11 @@ namespace BlackIceGPUTemp.Tray
                 return;
             }
 
+            Task.Run(() => RetryInitializationAsync(token));
+        }
+
+        private async Task RetryInitializationAsync(CancellationToken token)
+        {
             try
             {
                 InvokeOnUiThread(() => UpdateTooltip("BlackIceGPUTemp: Initializing..."));
