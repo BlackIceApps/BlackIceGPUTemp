@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Threading;
 
 namespace BlackIceGPUTemp.Logging
 {
@@ -15,9 +15,12 @@ namespace BlackIceGPUTemp.Logging
 
     internal static class Logger
     {
-        private static readonly string LogFilePath;
+        private const int MaxDedupKeys = 1024;
+
+        private static readonly string? LogFilePath;
         private static readonly object FileLock = new();
         private static readonly HashSet<string> WrittenWarningsAndErrors = new();
+        private static readonly Queue<string> DedupKeyQueue = new();
         private static readonly object DedupLock = new();
 
         static Logger()
@@ -31,7 +34,7 @@ namespace BlackIceGPUTemp.Logging
             }
             catch
             {
-                LogFilePath = null!;
+                LogFilePath = null;
             }
         }
 
@@ -86,9 +89,17 @@ namespace BlackIceGPUTemp.Logging
                         }
 
                         WrittenWarningsAndErrors.Add(dedupKey);
+                        DedupKeyQueue.Enqueue(dedupKey);
+
+                        if (WrittenWarningsAndErrors.Count > MaxDedupKeys)
+                        {
+                            string oldestKey = DedupKeyQueue.Dequeue();
+                            WrittenWarningsAndErrors.Remove(oldestKey);
+                        }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        SafeTraceError($"Logger write failed: {ex}");
                     }
                 }
             }
@@ -104,9 +115,21 @@ namespace BlackIceGPUTemp.Logging
                         File.AppendAllText(LogFilePath, entry, Encoding.UTF8);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    SafeTraceError($"Logger write failed: {ex}");
                 }
+            }
+        }
+
+        private static void SafeTraceError(string message)
+        {
+            try
+            {
+                Trace.TraceError(message);
+            }
+            catch
+            {
             }
         }
     }
