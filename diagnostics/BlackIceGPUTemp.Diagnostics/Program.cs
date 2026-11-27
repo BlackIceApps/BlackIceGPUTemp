@@ -298,6 +298,52 @@ namespace BlackIceGPUTemp.Diagnostics
             return LoadLibraryEx(system32Path, IntPtr.Zero, LOAD_LIBRARY_SEARCH_SYSTEM32);
         }
 
+        static bool TryGetVtableFunctionPointer(
+            IntPtr interfacePtr,
+            int slot,
+            out IntPtr functionPtr,
+            out string error)
+        {
+            functionPtr = IntPtr.Zero;
+            error = null;
+
+            if (interfacePtr == IntPtr.Zero)
+            {
+                error = "Interface pointer is null (IntPtr.Zero).";
+                return false;
+            }
+
+            if (slot < 0)
+            {
+                error = "Slot index is negative.";
+                return false;
+            }
+
+            try
+            {
+                IntPtr vtable = Marshal.ReadIntPtr(interfacePtr);
+                if (vtable == IntPtr.Zero)
+                {
+                    error = "Vtable pointer is null (IntPtr.Zero).";
+                    return false;
+                }
+
+                functionPtr = Marshal.ReadIntPtr(vtable, slot * IntPtr.Size);
+                if (functionPtr == IntPtr.Zero)
+                {
+                    error = $"Function pointer at slot {slot} is null (IntPtr.Zero).";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"Exception while reading vtable function pointer: {ex.Message}";
+                return false;
+            }
+        }
+
         static IntPtr AllocateMemory(int size)
         {
             if (size <= 0)
@@ -635,18 +681,36 @@ namespace BlackIceGPUTemp.Diagnostics
                         {
                             if (retInit == 0 && adlxSystem != IntPtr.Zero)
                             {
-                                 // 1. Pobierz IADLXPerformanceMonitoringServices z IADLXSystem
-                                 // IADLXSystem::GetPerformanceMonitoringServices is at vtable index 9 (ISystem.h)
-                                 IntPtr systemVtable = Marshal.ReadIntPtr(adlxSystem);
-                                 IntPtr getGPUsPtr = Marshal.ReadIntPtr(systemVtable, 1 * IntPtr.Size);
-                                 IntPtr getPerfServicesPtr = Marshal.ReadIntPtr(systemVtable, 9 * IntPtr.Size);
+                                     // 1. Pobierz IADLXPerformanceMonitoringServices z IADLXSystem
+                                     // IADLXSystem::GetPerformanceMonitoringServices is at vtable index 9 (ISystem.h)
+                                     IntPtr getGPUsPtr;
+                                     string error;
+                                     if (!TryGetVtableFunctionPointer(adlxSystem, 1, out getGPUsPtr, out error))
+                                     {
+                                         Log($"ADLX IADLXSystem::GetGPUs vtable read failed: {error}");
+                                         getGPUsPtr = IntPtr.Zero;
+                                     }
 
-                                 var getGPUs = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXSystem_GetGPUs>(getGPUsPtr);
-                                 retGetGPUs = getGPUs(adlxSystem, ref adlxGPUList);
-                                 Log(String.Format("ADLX IADLXSystem::GetGPUs Result: {0}, GPUListPtr: {1}", retGetGPUs, adlxGPUList));
+                                     IntPtr getPerfServicesPtr;
+                                     if (!TryGetVtableFunctionPointer(adlxSystem, 9, out getPerfServicesPtr, out error))
+                                     {
+                                         Log($"ADLX IADLXSystem::GetPerformanceMonitoringServices vtable read failed: {error}");
+                                         getPerfServicesPtr = IntPtr.Zero;
+                                     }
 
-                                 if (getPerfServicesPtr != IntPtr.Zero)
-                                 {
+                                     if (getGPUsPtr != IntPtr.Zero)
+                                     {
+                                         var getGPUs = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXSystem_GetGPUs>(getGPUsPtr);
+                                         retGetGPUs = getGPUs(adlxSystem, ref adlxGPUList);
+                                         Log(String.Format("ADLX IADLXSystem::GetGPUs Result: {0}, GPUListPtr: {1}", retGetGPUs, adlxGPUList));
+                                     }
+                                     else
+                                     {
+                                         Log("ADLX IADLXSystem::GetGPUs function pointer is IntPtr.Zero");
+                                     }
+
+                                     if (getPerfServicesPtr != IntPtr.Zero)
+                                     {
                                      var getPerfServices = Marshal.GetDelegateForFunctionPointer<ADLX_IADLXSystem_GetPerformanceMonitoringServices>(getPerfServicesPtr);
                                      retGetPerfServices = getPerfServices(adlxSystem, ref adlxPerfServices);
                                      Log(String.Format("ADLX IADLXSystem::GetPerformanceMonitoringServices Result: {0}, PerfServicesPtr: {1}", retGetPerfServices, adlxPerfServices));
