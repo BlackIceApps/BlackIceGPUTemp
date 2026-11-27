@@ -548,7 +548,10 @@ public sealed class AdlxNative : IAdlxNative, IDisposable
 
         if (_isInitialized)
         {
-            Trace.TraceWarning("AdlxNative disposed while ADLX system still initialized. Call Terminate first to avoid resource leaks.");
+            if (disposing)
+            {
+                throw new InvalidOperationException("ADLX is still initialized. Call Terminate() before Dispose() to properly shut down ADLX.");
+            }
             return;
         }
 
