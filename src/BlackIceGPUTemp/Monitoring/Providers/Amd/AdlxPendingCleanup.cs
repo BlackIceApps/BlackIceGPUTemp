@@ -210,6 +210,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             _pendingNative = pendingNative;
             _pendingDisposable = pendingDisposable;
+            _pendingDisposeNative = pendingDisposeNative;
+            _pendingDisposeDisposable = pendingDisposeDisposable;
 
             return new CleanupResult(pendingNative, pendingDisposable, pendingDisposeNative, pendingDisposeDisposable);
         }
