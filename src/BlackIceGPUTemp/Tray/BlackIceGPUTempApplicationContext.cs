@@ -142,6 +142,17 @@ namespace BlackIceGPUTemp.Tray
 
             if (token.IsCancellationRequested)
             {
+                if (initResult.ProviderLifecycle != null)
+                {
+                    try
+                    {
+                        initResult.ProviderLifecycle.Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError("Error disconnecting provider after cancellation", ex);
+                    }
+                }
                 ReleaseInitializationLock();
                 return;
             }
@@ -279,110 +290,132 @@ namespace BlackIceGPUTemp.Tray
 
         private void Initialize(CancellationToken cancellationToken)
         {
-            var initResult = _monitoringSessionFactory.Create(cancellationToken);
-
-            if (!initResult.IsSuccess)
+            try
             {
+                var initResult = _monitoringSessionFactory.Create(cancellationToken);
+
+                if (!initResult.IsSuccess)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    HandleInitFailure(initResult.Message ?? "Initialization failed", cancellationToken);
+                    return;
+                }
+
+                var monitorService = initResult.HardwareMonitorService;
+                var providerId = initResult.ProviderId;
+                var deviceId = initResult.DeviceId;
+                var deviceName = initResult.DeviceName;
+                var providerLifecycle = initResult.ProviderLifecycle;
+
+                if (monitorService == null ||
+                    providerId == null || string.IsNullOrWhiteSpace(providerId) ||
+                    deviceId == null || string.IsNullOrWhiteSpace(deviceId) ||
+                    deviceName == null || string.IsNullOrWhiteSpace(deviceName))
+                {
+                    if (providerLifecycle != null)
+                    {
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider after invalid initialization data", ex);
+                        }
+                    }
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    HandleInitFailure("Initialization error", cancellationToken);
+                    return;
+                }
+
                 if (cancellationToken.IsCancellationRequested)
                 {
+                    if (providerLifecycle != null)
+                    {
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider after cancellation", ex);
+                        }
+                    }
                     return;
                 }
 
-                HandleInitFailure(initResult.Message ?? "Initialization failed", cancellationToken);
-                return;
-            }
+                var session = new MonitoringSession(
+                    monitorService,
+                    providerId,
+                    deviceId,
+                    deviceName);
 
-            var monitorService = initResult.HardwareMonitorService;
-            var providerId = initResult.ProviderId;
-            var deviceId = initResult.DeviceId;
-            var deviceName = initResult.DeviceName;
-            var providerLifecycle = initResult.ProviderLifecycle;
-
-            if (monitorService == null ||
-                providerId == null || string.IsNullOrWhiteSpace(providerId) ||
-                deviceId == null || string.IsNullOrWhiteSpace(deviceId) ||
-                deviceName == null || string.IsNullOrWhiteSpace(deviceName))
-            {
-                if (providerLifecycle != null)
+                bool registered = _lifecycleOwner.TryRegister(providerLifecycle);
+                if (!registered)
                 {
-                    try
+                    if (providerLifecycle != null)
                     {
-                        providerLifecycle.Disconnect();
+                        try
+                        {
+                            providerLifecycle.Disconnect();
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError("Error disconnecting provider during disposal race", ex);
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Error disconnecting provider after invalid initialization data", ex);
-                    }
-                }
-
-                if (cancellationToken.IsCancellationRequested)
-                {
                     return;
                 }
 
-                HandleInitFailure("Initialization error", cancellationToken);
-                return;
-            }
+                var readCycle = new MonitoringReadCycle(
+                    monitorService,
+                    _displayUpdater,
+                    ex => Logger.LogError("Error reading temperature", ex),
+                    providerId,
+                    deviceId,
+                    deviceName);
 
-            if (cancellationToken.IsCancellationRequested)
-            {
-                if (providerLifecycle != null)
+                InvokeOnUiThreadSync(() =>
                 {
-                    try
+                    if (cancellationToken.IsCancellationRequested || _shutdownState.IsDisposing)
                     {
-                        providerLifecycle.Disconnect();
+                        return;
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Error disconnecting provider after cancellation", ex);
-                    }
-                }
-                return;
+                    _session = session;
+                    _readCycle = readCycle;
+                    _initializationFailed = false;
+                    _timer.Start();
+                    UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
+                });
             }
-
-            var session = new MonitoringSession(
-                monitorService,
-                providerId,
-                deviceId,
-                deviceName);
-
-            bool registered = _lifecycleOwner.TryRegister(providerLifecycle);
-            if (!registered)
+            catch (OperationCanceledException)
             {
-                if (providerLifecycle != null)
-                {
-                    try
-                    {
-                        providerLifecycle.Disconnect();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Error disconnecting provider during disposal race", ex);
-                    }
-                }
-                return;
             }
-
-            var readCycle = new MonitoringReadCycle(
-                monitorService,
-                _displayUpdater,
-                ex => Logger.LogError("Error reading temperature", ex),
-                providerId,
-                deviceId,
-                deviceName);
-
-            InvokeOnUiThreadSync(() =>
+            catch (Exception ex)
             {
-                if (cancellationToken.IsCancellationRequested || _shutdownState.IsDisposing)
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    return;
+                    Logger.LogError("Initialization error", ex);
+                    InvokeOnUiThreadSync(() =>
+                    {
+                        if (cancellationToken.IsCancellationRequested || _shutdownState.IsDisposing)
+                        {
+                            return;
+                        }
+                        _initializationFailed = true;
+                        UpdateTooltip("BlackIceGPUTemp: Initialization error");
+                    });
                 }
-                _session = session;
-                _readCycle = readCycle;
-                _initializationFailed = false;
-                _timer.Start();
-                UpdateTooltip("BlackIceGPUTemp: Reading temperature...");
-            });
+            }
         }
 
         private void InvokeOnUiThread(Action action)
