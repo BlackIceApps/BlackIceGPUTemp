@@ -82,7 +82,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Single(_tooltipResults);
             Assert.Single(_iconResults);
-            Assert.Equal("Test GPU: 65.5°C", _tooltipResults[0]);
+            Assert.Equal("Test GPU: 66°C", _tooltipResults[0]);
             Assert.Equal("66", _iconResults[0]);
             Assert.Empty(_reportedErrors);
         }

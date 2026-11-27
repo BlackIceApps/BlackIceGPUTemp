@@ -614,10 +614,12 @@ namespace BlackIceGPUTemp.Tests
         {
             var callCount = 0;
             var iconException = new InvalidOperationException("Icon failed");
-            var updateIcon = new Action<string>(_ =>
+            string? capturedIconText = null;
+            var updateIcon = new Action<string>(text =>
             {
                 callCount++;
                 if (callCount == 1) throw iconException;
+                capturedIconText = text;
             });
 
             var updater = new MonitoringDisplayUpdater(_dispatcher, _updateTooltip, updateIcon, _reportError);
@@ -632,6 +634,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(1, callCount);
             Assert.Equal(1, _tooltipCallCount); // Fixture tooltip callback succeeded
             Assert.Equal(0, _iconCallCount); // Custom icon callback threw
+            Assert.Null(capturedIconText); // No text captured on first call (threw)
 
             // Second update - retry icon (callCount continues from 1, so second call succeeds)
             // Tooltip is cached ("Test GPU: 66°C"), so fixture tooltip callback NOT called
@@ -644,7 +647,7 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.Null(_reportedError);
             Assert.Equal("Test GPU: 66°C", _tooltipResult);
-            Assert.Equal("66", _iconResult);
+            Assert.Equal("66", capturedIconText); // Custom callback captured the text
             Assert.Equal(2, callCount); // Custom callback called twice total
             Assert.Equal(0, _tooltipCallCount); // Tooltip cached, fixture callback not called
             Assert.Equal(0, _iconCallCount); // Custom callback used, not fixture

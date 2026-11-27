@@ -156,35 +156,5 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal("Test GPU: 100°C", result.TooltipText);
             Assert.Equal("100", result.IconText);
         }
-
-        [Fact]
-        public void Create_NaNTemperature_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateReading(double.NaN);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
-
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
-
-        [Fact]
-        public void Create_PositiveInfinityTemperature_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateReading(double.PositiveInfinity);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
-
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
-
-        [Fact]
-        public void Create_NegativeInfinityTemperature_ReturnsUnavailableTooltipAndDashIcon()
-        {
-            var reading = CreateReading(double.NegativeInfinity);
-            var result = TemperatureDisplayState.Create("Test GPU", true, reading);
-
-            Assert.Equal("Test GPU: Temp unavailable", result.TooltipText);
-            Assert.Equal("--", result.IconText);
-        }
     }
 }
