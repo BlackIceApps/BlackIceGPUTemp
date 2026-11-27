@@ -5640,6 +5640,78 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
+        public void RepeatedReads_ReuseCachedGpuAndPerformanceInterfaces_ButAcquireFreshMetrics()
+        {
+            var fake = new FakeAdlxNative
+            {
+                GpuNames = new List<string> { "AMD Radeon RX 7900 XTX" },
+                GpuUniqueIds = new List<int> { 12345 },
+                GpuTypes = new List<int> { 2 },
+                GpuTemperatureSupported = new List<bool> { true },
+                GpuTemperatures = new List<double> { 65.5 }
+            };
+            var provider = new AmdAdlxProvider(() => fake);
+
+            // First read
+            bool success1 = provider.TryReadTemperatureInternal(12345, out var reading1, out var error1);
+            Assert.True(success1);
+            Assert.Null(error1);
+            Assert.NotNull(reading1);
+            Assert.Equal(65.5, reading1.Celsius);
+
+            // Second read
+            bool success2 = provider.TryReadTemperatureInternal(12345, out var reading2, out var error2);
+            Assert.True(success2);
+            Assert.Null(error2);
+            Assert.NotNull(reading2);
+            Assert.Equal(65.5, reading2.Celsius);
+
+            // Verify native call counters after two reads
+            Assert.Equal(1, fake.GetGpuListSizeCallCount);
+            Assert.Equal(1, fake.GetGpuAtCallCount);
+            Assert.Equal(1, fake.GetGpuUniqueIdCallCount);
+            Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
+            Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
+            Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
+            Assert.Equal(2, fake.GetCurrentGpuMetricsCallCount);
+            Assert.Equal(2, fake.GetGpuTemperatureCallCount);
+
+            // Disconnect and verify resource lifecycle
+            provider.Disconnect();
+
+            // GPU handle released on session close
+            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
+            // metricsSupport released on session close
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x6000);
+            // performanceMonitoringServices released on session close
+            Assert.Contains(0x4000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
+            // metrics interface released after each read (2 total)
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x5000));
+            // gpuList released on session close
+            Assert.Contains(0x2000, fake.ReleasedPointers);
+            Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
+
+            // No double-release of any resource
+            var releaseCounts = new Dictionary<int, int>();
+            foreach (var ptr in fake.ReleasedPointers)
+            {
+                if (!releaseCounts.ContainsKey(ptr))
+                    releaseCounts[ptr] = 0;
+                releaseCounts[ptr]++;
+            }
+            foreach (var kvp in releaseCounts)
+            {
+                Assert.Equal(1, kvp.Value);
+            }
+
+            Assert.Equal(1, fake.TerminateCalls);
+            Assert.True(fake.IsDisposed);
+        }
+
+        [Fact]
         public void TryReadTemperatureInternal_MultipleGpus_ReadsCorrectGpuByUniqueId()
         {
             var fake = new FakeAdlxNative
