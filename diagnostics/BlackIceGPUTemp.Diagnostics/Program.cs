@@ -788,6 +788,8 @@ if (adlxGPU != IntPtr.Zero)
                                            {
                                                try
                                                {
+                                                   try
+                                                   {
                                                    if (retAt == 0)
                                                    {
                                                        string gpuName = "Unknown GPU";
