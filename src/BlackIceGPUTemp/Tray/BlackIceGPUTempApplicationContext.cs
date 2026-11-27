@@ -438,7 +438,6 @@ namespace BlackIceGPUTemp.Tray
                     disposeUiDispatcher: () => _uiDispatcher.Dispose());
 
                 cleanup.Execute();
-                _trayMenu?.Dispose();
             }
             base.Dispose(disposing);
         }

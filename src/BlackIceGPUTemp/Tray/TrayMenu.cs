@@ -5,7 +5,7 @@ using System.Windows.Forms;
 
 namespace BlackIceGPUTemp.Tray
 {
-    internal sealed class TrayMenu : IDisposable
+    internal sealed class TrayMenu
     {
         private const int MenuExitId = 1001;
         private const uint TPM_RIGHTALIGN = 0x0008;
@@ -68,10 +68,6 @@ namespace BlackIceGPUTemp.Tray
             {
                 DestroyMenu(hMenu);
             }
-        }
-
-        public void Dispose()
-        {
         }
     }
 }
