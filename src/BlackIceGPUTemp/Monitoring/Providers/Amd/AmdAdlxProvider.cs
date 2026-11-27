@@ -17,13 +17,10 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private const string SensorName = "GPU Edge";
 
         private readonly Func<IAdlxNative> _nativeFactory;
-        private IAdlxNative? _pendingNative;
-        private IDisposable? _pendingDisposable;
-        private IAdlxNative? _pendingDisposeNative;
-        private IDisposable? _pendingDisposeDisposable;
         private AdlxSession? _activeSession;
         private bool _disconnected;
         private readonly object _lock = new object();
+        private readonly AdlxPendingCleanup _pendingCleanup = new AdlxPendingCleanup();
 
         public string Id => ProviderId;
         public string DisplayName => "AMD ADLX";
@@ -46,7 +43,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 }
 
                 // Handle any pending cleanup from previous disconnect
-                if (!TryHandlePendingCleanup(out error))
+                if (!_pendingCleanup.TryHandlePendingCleanup(out error))
                 {
                     return false;
                 }
@@ -82,7 +79,11 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                     finally
                     {
                         // Capture any pending state for retry on next Connect
-                        CaptureSessionPendingState(session);
+                        _pendingCleanup.CaptureFromSession(
+                            session.PendingNative,
+                            session.PendingDisposable,
+                            session.PendingDisposeNative,
+                            session.PendingDisposeDisposable);
                     }
                 }
             }
@@ -486,69 +487,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             return result;
         }
 
-        private bool TryHandlePendingCleanup(out string? error)
-        {
-            error = null;
-
-            if (_pendingDisposeNative != null && _pendingDisposeDisposable != null)
-            {
-                try
-                {
-                    _pendingDisposeDisposable.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError("Pending AdlxNative Dispose retry threw exception", ex);
-                    error = "Pending AdlxNative Dispose retry threw exception";
-                    return false;
-                }
-                _pendingDisposeNative = null;
-                _pendingDisposeDisposable = null;
-            }
-
-            if (_pendingNative != null)
-            {
-                int retryResult = 0;
-                Exception? retryException = null;
-                try
-                {
-                    retryResult = _pendingNative.Terminate();
-                }
-                catch (Exception ex)
-                {
-                    retryException = ex;
-                }
-
-                if (retryException == null && (retryResult == 0 || retryResult == AdlxSession.ADLX_ORPHAN_OBJECTS))
-                {
-                    try
-                    {
-                        _pendingDisposable?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Pending AdlxNative Dispose threw exception on retry", ex);
-                        _pendingDisposeNative = _pendingNative;
-                        _pendingDisposeDisposable = _pendingDisposable;
-                        _pendingNative = null;
-                        _pendingDisposable = null;
-                        error = "Pending AdlxNative Dispose threw exception on retry";
-                        return false;
-                    }
-                    _pendingNative = null;
-                    _pendingDisposable = null;
-                }
-                else
-                {
-                    Logger.LogError($"Retry Terminate failed with HRESULT: 0x{retryResult:X}" + (retryException != null ? $", exception: {retryException.Message}" : ""));
-                    error = $"Retry Terminate failed with HRESULT: 0x{retryResult:X}";
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
         private AdlxSession? TryCreateSession(out string? error)
         {
             IAdlxNative? pendingNative = null;
@@ -560,10 +498,20 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 out pendingNative, out pendingDisposable,
                 out pendingDisposeNative, out pendingDisposeDisposable);
 
-            _pendingNative = pendingNative;
-            _pendingDisposable = pendingDisposable;
-            _pendingDisposeNative = pendingDisposeNative;
-            _pendingDisposeDisposable = pendingDisposeDisposable;
+            if (session != null)
+            {
+                // If session creation succeeded but there's pending cleanup from failed initialization,
+                // capture it in our pending cleanup handler
+                if (pendingDisposeNative != null || pendingNative != null)
+                {
+                    _pendingCleanup.CaptureFromSession(pendingNative, pendingDisposable, pendingDisposeNative, pendingDisposeDisposable);
+                }
+            }
+            else
+            {
+                // Session creation failed - capture any pending state
+                _pendingCleanup.CaptureFromSession(pendingNative, pendingDisposable, pendingDisposeNative, pendingDisposeDisposable);
+            }
 
             return session;
         }
@@ -585,7 +533,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
 
             // Handle any pending cleanup from previous disconnect/failed session
-            if (!TryHandlePendingCleanup(out error))
+            if (!_pendingCleanup.TryHandlePendingCleanup(out error))
             {
                 return null;
             }
@@ -598,14 +546,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             _activeSession = session;
             return session;
-        }
-
-        private void CaptureSessionPendingState(AdlxSession session)
-        {
-            _pendingNative = session.PendingNative;
-            _pendingDisposable = session.PendingDisposable;
-            _pendingDisposeNative = session.PendingDisposeNative;
-            _pendingDisposeDisposable = session.PendingDisposeDisposable;
         }
 
         private static IntPtr FindGpuByUniqueId(AdlxSession session, int targetUniqueId, CancellationToken cancellationToken, out bool gpuIsCached)
