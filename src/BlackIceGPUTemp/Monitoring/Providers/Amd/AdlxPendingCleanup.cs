@@ -167,6 +167,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         try
                         {
                             disposableNative.Dispose();
+                            _stage = CleanupStage.Completed;
                         }
                         catch (Exception ex)
                         {
