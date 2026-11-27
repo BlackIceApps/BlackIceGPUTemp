@@ -684,7 +684,7 @@ namespace BlackIceGPUTemp.Diagnostics
                                 // 1. Pobierz IADLXPerformanceMonitoringServices z IADLXSystem
                                 // IADLXSystem::GetPerformanceMonitoringServices is at vtable index 9 (ISystem.h)
                                 IntPtr getGPUsPtr;
-                                string error;
+                                string? error;
                                 if (!TryGetVtableFunctionPointer(adlxSystem, 1, out getGPUsPtr, out error))
                                 {
                                     Log($"ADLX IADLXSystem::GetGPUs vtable read failed: {error}");
