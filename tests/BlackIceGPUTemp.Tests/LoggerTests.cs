@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using BlackIceGPUTemp.Logging;
 using Xunit;
 
 namespace BlackIceGPUTemp.Tests
@@ -144,6 +145,14 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.NotNull(set);
             Assert.DoesNotContain("Warn:Warning 0", set);
+            Assert.Contains("Warn:Oldest warning", set);
+
+            Logger.LogWarn("Warning 0");
+
+            set = writtenSet?.GetValue(null) as System.Collections.Generic.HashSet<string>;
+
+            Assert.NotNull(set);
+            Assert.Contains("Warn:Warning 0", set);
             Assert.Contains("Warn:Oldest warning", set);
         }
     }
