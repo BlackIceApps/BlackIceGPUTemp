@@ -2035,8 +2035,12 @@ namespace BlackIceGPUTemp.Tests
             success = device.TryReadTemperature(out var reading, out error);
 
             Assert.True(success);
-            Assert.Contains(0x6000, fake.ReleasedPointers);
-            Assert.Contains(0x4000, fake.ReleasedPointers);
+            // metricsSupport (0x6000) acquired and released during enumeration, then cached and released on Disconnect
+            // But during TryReadTemperature, metricsSupport is cached (not released)
+            // Current metrics (0x5000) is released per read
+            Assert.Contains(0x5000, fake.ReleasedPointers); // current metrics released per read
+            // Services (0x4000) are cached and not released until Disconnect
+            Assert.DoesNotContain(0x4000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2168,7 +2172,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var fake = new FakeAdlxNative
             {
-                ReleaseFailAtPointer = 0x4000
+                ReleaseFailAtPointer = 0x6000 // metricsSupport is released during probe
             };
             var provider = new AmdAdlxProvider(() => fake);
 
@@ -2183,7 +2187,7 @@ namespace BlackIceGPUTemp.Tests
         {
             var fake = new FakeAdlxNative
             {
-                ReleaseFailAtPointer = 0x6000
+                ReleaseFailAtPointer = 0x5000 // metrics is released per read
             };
             var provider = new AmdAdlxProvider(() => fake);
 
@@ -2266,10 +2270,12 @@ namespace BlackIceGPUTemp.Tests
             var result = ((IGpuProviderProbe)provider).TryProbe(out var error);
 
             Assert.True(result);
-            // All temporary interfaces should still be released despite negative return
+            // metricsSupport (0x6000) acquired and released during probe
+            // GPU handle (0x3000) for non-target GPU released during probe
+            // Services (0x4000) are cached and NOT released during probe
             Assert.Contains(0x6000, fake.ReleasedPointers);
-            Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x4000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
 
@@ -2277,6 +2283,8 @@ namespace BlackIceGPUTemp.Tests
 
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
+            // Cached services (0x4000) released during Disconnect
+            Assert.Contains(0x4000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -2285,7 +2293,7 @@ namespace BlackIceGPUTemp.Tests
             var fake = new FakeAdlxNative
             {
                 ThrowOnRelease = true,
-                ThrowOnReleasePointer = 0x4000
+                ThrowOnReleasePointer = 0x6000 // metricsSupport is released during probe
             };
             var provider = new AmdAdlxProvider(() => fake);
 
@@ -2293,9 +2301,9 @@ namespace BlackIceGPUTemp.Tests
 
             Assert.True(result);
             // All temporary interfaces should still be released despite one throwing
-            Assert.Contains(0x6000, fake.ReleasedPointers);
-            Assert.Contains(0x4000, fake.ReleasedPointers);
-            Assert.Contains(0x3000, fake.ReleasedPointers);
+            Assert.Contains(0x6000, fake.ReleasedPointers); // metricsSupport released during probe
+            Assert.Contains(0x3000, fake.ReleasedPointers); // non-target GPU released during probe
+            Assert.DoesNotContain(0x4000, fake.ReleasedPointers); // services cached, NOT released during probe
             Assert.DoesNotContain(0x1000, fake.ReleasedPointers);
             Assert.DoesNotContain(0x2000, fake.ReleasedPointers); // gpuList is persistent
             Assert.Equal(1, fake.ThrowOnReleaseCount);
@@ -2304,6 +2312,8 @@ namespace BlackIceGPUTemp.Tests
 
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
+            // Cached services (0x4000) released during Disconnect
+            Assert.Contains(0x4000, fake.ReleasedPointers);
         }
 
         [Fact]
@@ -3820,8 +3830,8 @@ namespace BlackIceGPUTemp.Tests
             // Shared session should still be active after cancellation
             Assert.Equal(0, fake.TerminateCalls);
             Assert.False(fake.IsDisposed);
-            // Acquired interfaces released: services (acquired before cancel)
-            Assert.Contains(0x4000, fake.ReleasedPointers); // services
+            // Services (0x4000) acquired and cached before cancellation - NOT released
+            Assert.DoesNotContain(0x4000, fake.ReleasedPointers); // services cached, not released
             // Target GPU (0x3000) is cached and NOT released during cancellation
             Assert.DoesNotContain(0x3000, fake.ReleasedPointers);
             // GPU list should NOT be released (owned by persistent session)
@@ -5734,10 +5744,11 @@ namespace BlackIceGPUTemp.Tests
             // 0x3001 was never non-target, so not released during enumeration
             Assert.DoesNotContain(0x3001, fake.ReleasedPointers);
 
-            // metrics (0x5000) released per read (4 total)
-            Assert.Equal(4, fake.ReleasedPointers.Count(p => p == 0x5000));
-            // metricsSupport (0x6000) and services (0x4000) NOT released per read (cached)
+            // metrics released per read (4 total) - 0x5000 for GPU0, 0x5001 for GPU1 (2 reads each)
+            Assert.Equal(4, fake.ReleasedPointers.Count(p => p == 0x5000 || p == 0x5001));
+            // metricsSupport (0x6000, 0x6001) and services (0x4000) NOT released per read (cached)
             Assert.DoesNotContain(0x6000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x6001, fake.ReleasedPointers);
             Assert.DoesNotContain(0x4000, fake.ReleasedPointers);
 
             // Persistent session resources not released yet
@@ -5751,8 +5762,10 @@ namespace BlackIceGPUTemp.Tests
             // gpuList released on Disconnect
             Assert.Contains(0x2000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x2000);
-            // Cached metricsSupport released on Disconnect (2 entries)
-            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
+            // Cached metricsSupport released on Disconnect (2 entries: 0x6000 for GPU0, 0x6001 for GPU1)
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x6001, fake.ReleasedPointers);
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000 || p == 0x6001));
             // Cached services released on Disconnect
             Assert.Contains(0x4000, fake.ReleasedPointers);
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
@@ -6072,17 +6085,22 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(2, fake.GetCurrentGpuMetricsCallCount);
             Assert.Equal(2, fake.GetGpuTemperatureCallCount);
 
-            // metrics released per read (2 total)
-            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x5000));
+            // metrics released per read (2 total) - 0x5000 for GPU0, 0x5001 for GPU1
+            Assert.Contains(0x5000, fake.ReleasedPointers);
+            Assert.Contains(0x5001, fake.ReleasedPointers);
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x5000 || p == 0x5001));
             // metricsSupport NOT released per read (cached)
             Assert.DoesNotContain(0x6000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x6001, fake.ReleasedPointers);
             // services NOT released per read (cached)
             Assert.DoesNotContain(0x4000, fake.ReleasedPointers);
 
             provider.Disconnect();
 
-            // Both metricsSupport entries released on Disconnect
-            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
+            // Both metricsSupport entries released on Disconnect (0x6000 for GPU0, 0x6001 for GPU1)
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x6001, fake.ReleasedPointers);
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000 || p == 0x6001));
             // Services released once on Disconnect
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
             // Both GPU handles released on Disconnect
@@ -6115,13 +6133,31 @@ namespace BlackIceGPUTemp.Tests
             // MetricsSupport called once per GPU
             Assert.Equal(3, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(3, fake.IsSupportedGpuTemperatureCallCount);
+            // Current metrics and temperature called per read
+            Assert.Equal(3, fake.GetCurrentGpuMetricsCallCount);
+            Assert.Equal(3, fake.GetGpuTemperatureCallCount);
+
+            // metrics released per read (3 total) - 0x5000, 0x5001, 0x5002
+            Assert.Contains(0x5000, fake.ReleasedPointers);
+            Assert.Contains(0x5001, fake.ReleasedPointers);
+            Assert.Contains(0x5002, fake.ReleasedPointers);
+            Assert.Equal(3, fake.ReleasedPointers.Count(p => p >= 0x5000 && p <= 0x5002));
+            // metricsSupport NOT released per read (cached)
+            Assert.DoesNotContain(0x6000, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x6001, fake.ReleasedPointers);
+            Assert.DoesNotContain(0x6002, fake.ReleasedPointers);
+            // services NOT released per read (cached)
+            Assert.DoesNotContain(0x4000, fake.ReleasedPointers);
 
             provider.Disconnect();
 
             // Services released once
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
-            // Three metricsSupport entries released
-            Assert.Equal(3, fake.ReleasedPointers.Count(p => p == 0x6000));
+            // Three metricsSupport entries released (0x6000, 0x6001, 0x6002)
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x6001, fake.ReleasedPointers);
+            Assert.Contains(0x6002, fake.ReleasedPointers);
+            Assert.Equal(3, fake.ReleasedPointers.Count(p => p >= 0x6000 && p <= 0x6002));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
@@ -6387,12 +6423,13 @@ namespace BlackIceGPUTemp.Tests
                 GpuTemperatures = new List<double> { 65.5 },
                 GetSupportedMetricsHandler = (IntPtr svc, IntPtr gpu, out IntPtr ms) =>
                 {
+                    // Fake sets the pointer BEFORE the handler runs
+                    ms = new IntPtr(0x6000);
                     if (!cancelled)
                     {
                         cancelled = true;
                         throw new OperationCanceledException();
                     }
-                    ms = new IntPtr(0x6000);
                     return 0;
                 }
             };
@@ -6403,23 +6440,28 @@ namespace BlackIceGPUTemp.Tests
             Assert.Throws<OperationCanceledException>(() => provider.TryReadTemperatureInternal(12345, out _, out _, cts.Token));
 
             // Services (0x4000) are acquired and cached before GetSupportedGpuMetrics
-            // metricsSupport (0x6000) was not acquired (cancelled before)
+            // metricsSupport (0x6000) was acquired (pointer set before exception) and released in finally
             Assert.DoesNotContain(0x4000, fake.ReleasedPointers); // services cached, not released
-            Assert.DoesNotContain(0x6000, fake.ReleasedPointers); // metricsSupport not acquired
+            Assert.Contains(0x6000, fake.ReleasedPointers); // metricsSupport acquired and released
+            Assert.Single(fake.ReleasedPointers, p => p == 0x6000);
 
             // Second read without cancellation should succeed and populate cache
-            cancelled = false;
+            // (cancelled is now true, so handler returns success)
             bool success = provider.TryReadTemperatureInternal(12345, out var reading, out var error);
             Assert.True(success);
             Assert.NotNull(reading);
             Assert.Equal(65.5, reading!.Celsius);
 
-            // Cache populated successfully
+            // GetSupportedGpuMetrics called twice (once cancelled, once succeeded)
             Assert.Equal(1, fake.GetPerformanceMonitoringServicesCallCount);
-            Assert.Equal(1, fake.GetSupportedGpuMetricsCallCount);
+            Assert.Equal(2, fake.GetSupportedGpuMetricsCallCount);
             Assert.Equal(1, fake.IsSupportedGpuTemperatureCallCount);
 
             provider.Disconnect();
+
+            // MetricsSupport pointer (0x6000) released twice total:
+            // once after cancelled first acquisition, once during Disconnect for cached pointer
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
             Assert.Equal(1, fake.TerminateCalls);
             Assert.True(fake.IsDisposed);
         }
@@ -6636,7 +6678,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Single(fake.ReleasedPointers, p => p == 0x6000);
 
             // Second read without exception should succeed and populate cache
-            threw = false;
+            // (threw is now true, so handler returns success)
             success = provider.TryReadTemperatureInternal(12345, out reading, out error);
             Assert.True(success);
             Assert.NotNull(reading);
@@ -6693,7 +6735,7 @@ namespace BlackIceGPUTemp.Tests
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
 
             // Second read without exception should succeed and populate cache
-            threw = false;
+            // (threw is now true, so handler returns success)
             success = provider.TryReadTemperatureInternal(12345, out reading, out error);
             Assert.True(success);
             Assert.NotNull(reading);
@@ -6739,8 +6781,10 @@ namespace BlackIceGPUTemp.Tests
 
             // Services released exactly once
             Assert.Single(fake.ReleasedPointers, p => p == 0x4000);
-            // Both metricsSupport entries released exactly once
-            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000));
+            // Both metricsSupport entries released exactly once (0x6000 for GPU0, 0x6001 for GPU1)
+            Assert.Contains(0x6000, fake.ReleasedPointers);
+            Assert.Contains(0x6001, fake.ReleasedPointers);
+            Assert.Equal(2, fake.ReleasedPointers.Count(p => p == 0x6000 || p == 0x6001));
             // GPU handles released exactly once
             Assert.Single(fake.ReleasedPointers, p => p == 0x3000);
             Assert.Single(fake.ReleasedPointers, p => p == 0x3001);

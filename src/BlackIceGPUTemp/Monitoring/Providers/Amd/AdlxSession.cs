@@ -200,7 +200,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             if (uidResult != 0 || uniqueId <= 0)
             {
                 // If we can't get the unique ID, fall back to non-cached path
-                return IsTemperatureSupportedUncached(gpu, out supported, cancellationToken);
+                return IsTemperatureSupportedUncachedWithServices(gpu, out supported, cancellationToken);
             }
 
             // Check cache for existing metrics support
@@ -212,7 +212,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
             // Not in cache - for probe/enumeration, use uncached path (does not cache metricsSupport)
             // For temperature reading, the caller should use IsTemperatureSupportedAndCache directly
-            return IsTemperatureSupportedUncached(gpu, out supported, cancellationToken);
+            return IsTemperatureSupportedUncachedWithServices(gpu, out supported, cancellationToken);
         }
 
         /// <summary>
@@ -262,46 +262,6 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             {
                 AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
                 // Note: services is cached session-wide, do NOT release here
-            }
-        }
-
-        private int IsTemperatureSupportedUncached(IntPtr gpu, out bool supported, CancellationToken cancellationToken)
-        {
-            supported = false;
-            IntPtr services = IntPtr.Zero;
-            IntPtr metricsSupport = IntPtr.Zero;
-
-            try
-            {
-                int perfResult = _native.GetPerformanceMonitoringServices(_system, out services);
-                if (perfResult != 0 || services == IntPtr.Zero)
-                {
-                    return perfResult != 0 ? perfResult : -1;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
-                if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
-                {
-                    return metricsResult != 0 ? metricsResult : -1;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                int tempResult = _native.IsSupportedGpuTemperature(metricsSupport, out supported);
-                if (tempResult != 0)
-                {
-                    supported = false;
-                    return tempResult;
-                }
-
-                return 0;
-            }
-            finally
-            {
-                AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
-                AdlxInterop.ReleaseInterface(_native, ref services);
             }
         }
 
