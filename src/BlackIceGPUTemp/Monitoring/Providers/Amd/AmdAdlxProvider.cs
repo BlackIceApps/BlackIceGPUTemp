@@ -134,7 +134,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        int tempResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        // Use uncached path for probe - does not cache metricsSupport
+                        int tempResult = session.IsTemperatureSupportedUncachedWithServices(gpu, out bool tempSupported, cancellationToken);
                         if (tempResult == 0 && tempSupported)
                         {
                             hasSupportedGpu = true;
@@ -274,7 +275,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        int tempSupportedResult = session.IsTemperatureSupported(gpu, out bool tempSupported, cancellationToken);
+                        // Use uncached path for enumeration - does not cache metricsSupport
+                        int tempSupportedResult = session.IsTemperatureSupportedUncachedWithServices(gpu, out bool tempSupported, cancellationToken);
                         if (tempSupportedResult != 0)
                         {
                             error = $"Failed to check temperature support for GPU at index {i}. Result code: {tempSupportedResult}";
@@ -407,9 +409,15 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                         {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                            // Check temperature support using cached metricsSupport
-                            int tempResult = session.IsTemperatureSupported(targetGpu, out bool tempSupported, cancellationToken);
-                            if (tempResult != 0 || !tempSupported)
+                            // Check temperature support using cached metricsSupport (pass known uniqueId)
+                            int tempResult = session.IsTemperatureSupportedAndCache(targetGpu, targetUniqueId, out bool tempSupported, cancellationToken);
+                            if (tempResult != 0)
+                            {
+                                error = $"Failed to check GPU temperature support. Result code: {tempResult}";
+                                Logger.LogWarn($"ADLX TryReadTemperature: {error}");
+                                result = false;
+                            }
+                            else if (!tempSupported)
                             {
                                 error = "GPU temperature monitoring is not supported.";
                                 Logger.LogWarn($"ADLX TryReadTemperature: {error}");

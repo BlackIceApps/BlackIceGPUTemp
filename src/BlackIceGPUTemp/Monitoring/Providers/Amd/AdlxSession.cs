@@ -210,8 +210,59 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 return 0;
             }
 
-            // Not in cache - fetch and cache
-            return IsTemperatureSupportedAndCache(gpu, uniqueId, out supported, cancellationToken);
+            // Not in cache - for probe/enumeration, use uncached path (does not cache metricsSupport)
+            // For temperature reading, the caller should use IsTemperatureSupportedAndCache directly
+            return IsTemperatureSupportedUncached(gpu, out supported, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks temperature support using cached services but does NOT cache metricsSupport.
+        /// Used by TryProbe and TryEnumerateDevices.
+        /// </summary>
+        public int IsTemperatureSupportedUncachedWithServices(IntPtr gpu, out bool supported, CancellationToken cancellationToken = default)
+        {
+            supported = false;
+            if (_disposed)
+            {
+                return -1;
+            }
+
+            IntPtr services = IntPtr.Zero;
+            IntPtr metricsSupport = IntPtr.Zero;
+
+            try
+            {
+                // Get or create performance monitoring services (cached session-wide)
+                int perfResult = GetOrCreatePerfServices(out services);
+                if (perfResult != 0 || services == IntPtr.Zero)
+                {
+                    return perfResult != 0 ? perfResult : -1;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int metricsResult = _native.GetSupportedGpuMetrics(services, gpu, out metricsSupport);
+                if (metricsResult != 0 || metricsSupport == IntPtr.Zero)
+                {
+                    return metricsResult != 0 ? metricsResult : -1;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                int tempResult = _native.IsSupportedGpuTemperature(metricsSupport, out supported);
+                if (tempResult != 0)
+                {
+                    supported = false;
+                    return tempResult;
+                }
+
+                return 0;
+            }
+            finally
+            {
+                AdlxInterop.ReleaseInterface(_native, ref metricsSupport);
+                // Note: services is cached session-wide, do NOT release here
+            }
         }
 
         private int IsTemperatureSupportedUncached(IntPtr gpu, out bool supported, CancellationToken cancellationToken)
@@ -254,9 +305,25 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
         }
 
-        private int IsTemperatureSupportedAndCache(IntPtr gpu, int uniqueId, out bool supported, CancellationToken cancellationToken)
+        /// <summary>
+        /// Checks temperature support and caches metricsSupport for the given uniqueId.
+        /// Used by TryReadTemperatureInternalImpl.
+        /// </summary>
+        public int IsTemperatureSupportedAndCache(IntPtr gpu, int uniqueId, out bool supported, CancellationToken cancellationToken = default)
         {
             supported = false;
+            if (_disposed)
+            {
+                return -1;
+            }
+
+            // Check cache for existing metrics support
+            if (_metricsSupportCache.TryGetValue(uniqueId, out var cached))
+            {
+                supported = cached.TempSupported;
+                return 0;
+            }
+
             IntPtr services = IntPtr.Zero;
             IntPtr metricsSupport = IntPtr.Zero;
             bool metricsSupportOwned = false;
@@ -486,18 +553,7 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
 
         private void Cleanup()
         {
-            // Release cached GPU handles first
-            foreach (var kvp in _gpuCache)
-            {
-                IntPtr gpuHandle = kvp.Value;
-                if (gpuHandle != IntPtr.Zero)
-                {
-                    AdlxInterop.ReleaseInterface(_native, ref gpuHandle);
-                }
-            }
-            _gpuCache.Clear();
-
-            // Release cached metricsSupport (child before parent - before services)
+            // 1. Release cached metricsSupport (child before parent - before services)
             foreach (var kvp in _metricsSupportCache)
             {
                 IntPtr metricsSupport = kvp.Value.MetricsSupport;
@@ -508,15 +564,27 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
             }
             _metricsSupportCache.Clear();
 
-            // Release cached performance monitoring services
+            // 2. Release cached performance monitoring services
             if (_perfServices != IntPtr.Zero)
             {
                 AdlxInterop.ReleaseInterface(_native, ref _perfServices);
             }
 
-            // Release GPU list
+            // 3. Release cached GPU handles
+            foreach (var kvp in _gpuCache)
+            {
+                IntPtr gpuHandle = kvp.Value;
+                if (gpuHandle != IntPtr.Zero)
+                {
+                    AdlxInterop.ReleaseInterface(_native, ref gpuHandle);
+                }
+            }
+            _gpuCache.Clear();
+
+            // 4. Release GPU list
             AdlxInterop.ReleaseInterface(_native, ref _gpuList);
 
+            // 5. Terminate and cleanup native
             var result = PerformCleanup(_native, _disposableNative, _initialized);
             PendingNative = result.PendingNative;
             PendingDisposable = result.PendingDisposable;
