@@ -725,7 +725,7 @@ namespace BlackIceGPUTemp.Tests
             updater.Update("Test GPU", true, reading);
             _capturedAction!();
 
-            Assert.Equal(0, reportedErrors.Count);
+            Assert.Empty(reportedErrors);
             Assert.Equal(2, tooltipCallCount); // Custom tooltip callback called twice total (second succeeded)
             Assert.Equal(2, iconCallCount); // Custom icon callback called twice total (second succeeded)
         }
