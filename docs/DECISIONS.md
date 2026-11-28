@@ -30,6 +30,14 @@
   - CI after changing ADLX `IADLXGPUList::At_GPUList` to vtable index 11 completed successfully.
 - **V1.0 vendor support scope:** The initial release supports AMD GPUs only, using AMD ADLX as the primary temperature-reading API. NVIDIA and Intel GPUs are explicitly out of scope for V1.0. The provider architecture is designed to allow additional vendors to be supported in future releases.
 
+### ADLX Provider and Session Complexity
+
+The current separation between `AmdAdlxProvider`, `AdlxSession`, and `AdlxPendingCleanup` is considered sufficient for the current application scope.
+
+Further extraction of classes solely to reduce file size or method count is not required. Changes to ADLX caching, temperature reading, or native interface lifetime must preserve the existing hot-path cache regression tests, including interface reuse, fresh metrics acquisition, per-GPU cache isolation, and correct resource cleanup.
+
+Reconsider the structure only when a concrete maintainability or correctness issue justifies further separation.
+
 ## 3. GPU Device Selection Policy
 
 - **Intended scope:** BlackIceGPUTemp is designed primarily for systems with a single GPU. The application targets typical users who have one graphics card.
