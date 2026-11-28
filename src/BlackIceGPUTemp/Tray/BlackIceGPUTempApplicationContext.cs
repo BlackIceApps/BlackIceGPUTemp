@@ -79,7 +79,7 @@ namespace BlackIceGPUTemp.Tray
             _ = _initializationCoordinator.TryInitializeAsync(
                 initToken,
                 onAttemptStart: () => InvokeOnUiThreadSync(() => UpdateTooltip("BlackIceGPUTemp: Initializing...")),
-                onResult: HandleInitResultAsync);
+                onResult: HandleInitResult);
         }
 
         private void OnNotifyIconMouseClick(object? sender, MouseEventArgs e)
@@ -112,10 +112,10 @@ namespace BlackIceGPUTemp.Tray
             _ = _initializationCoordinator.TryInitializeAsync(
                 token,
                 onAttemptStart: () => InvokeOnUiThreadSync(() => UpdateTooltip("BlackIceGPUTemp: Initializing...")),
-                onResult: HandleInitResultAsync);
+                onResult: HandleInitResult);
         }
 
-        private Task HandleInitResultAsync(GpuMonitoringInitializationResult initResult, CancellationToken token)
+        private Task HandleInitResult(GpuMonitoringInitializationResult initResult, CancellationToken token)
         {
             if (token.IsCancellationRequested)
             {
