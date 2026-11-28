@@ -32,6 +32,33 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
+        private class BlockingSessionFactory : IGpuMonitoringSessionFactory
+        {
+            private readonly ManualResetEventSlim _startSignal;
+            private readonly ManualResetEventSlim _proceedSignal;
+            private readonly GpuMonitoringInitializationResult _result;
+            public int CallCount { get; private set; }
+            public bool FactoryStarted { get; private set; }
+            public bool FactoryCompleted { get; private set; }
+
+            public BlockingSessionFactory(ManualResetEventSlim startSignal, ManualResetEventSlim proceedSignal, GpuMonitoringInitializationResult result)
+            {
+                _startSignal = startSignal;
+                _proceedSignal = proceedSignal;
+                _result = result;
+            }
+
+            public GpuMonitoringInitializationResult Create(CancellationToken cancellationToken)
+            {
+                CallCount++;
+                FactoryStarted = true;
+                _startSignal.Set();
+                _proceedSignal.Wait(cancellationToken);
+                FactoryCompleted = true;
+                return _result;
+            }
+        }
+
         private static GpuMonitoringInitializationResult CreateFailureResult(string message = "Initialization failed")
         {
             return new GpuMonitoringInitializationResult(message);
@@ -140,6 +167,115 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(2, callbackResults.Count);
             Assert.False(callbackResults[0].IsSuccess);
             Assert.False(callbackResults[1].IsSuccess);
+        }
+
+        [Fact]
+        public async Task ParallelAttemptRejected_FactoryCalledOnce_SecondCallReturnsImmediately()
+        {
+            var startSignal = new ManualResetEventSlim(false);
+            var proceedSignal = new ManualResetEventSlim(false);
+            var factory = new BlockingSessionFactory(startSignal, proceedSignal, CreateSuccessResult());
+            var coordinator = new GpuInitializationCoordinator(factory);
+            var attemptStartCount = 0;
+            var callbackCount = 0;
+
+            var firstTask = coordinator.TryInitializeAsync(
+                CancellationToken.None,
+                onAttemptStart: () => attemptStartCount++,
+                onResult: (result, _) =>
+                {
+                    callbackCount++;
+                    return Task.CompletedTask;
+                });
+
+            try
+            {
+                Assert.True(startSignal.Wait(TimeSpan.FromSeconds(5)), "Factory did not start within timeout");
+
+                var secondTask = coordinator.TryInitializeAsync(
+                    CancellationToken.None,
+                    onAttemptStart: () => attemptStartCount++,
+                    onResult: (result, _) =>
+                    {
+                        callbackCount++;
+                        return Task.CompletedTask;
+                    });
+
+                Assert.True(secondTask.IsCompleted, "Second call should complete immediately when rejected");
+            }
+            finally
+            {
+                proceedSignal.Set();
+            }
+
+            var completedTask = await Task.WhenAny(firstTask, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.Same(firstTask, completedTask);
+            await firstTask;
+
+            Assert.Equal(1, factory.CallCount);
+            Assert.Equal(1, attemptStartCount);
+            Assert.Equal(1, callbackCount);
+            Assert.True(factory.FactoryStarted);
+            Assert.True(factory.FactoryCompleted);
+        }
+
+        [Fact]
+        public async Task FactoryRunsOffCallerThread_CallerThreadNotEqualFactoryThread()
+        {
+            int callerThreadId = 0;
+            int factoryThreadId = 0;
+            var factory = new TestFactoryWithThreadCapture(r => factoryThreadId = r);
+            var coordinator = new GpuInitializationCoordinator(factory);
+            var taskTcs = new TaskCompletionSource<Task>();
+
+            var thread = new Thread(() =>
+            {
+                callerThreadId = Thread.CurrentThread.ManagedThreadId;
+                try
+                {
+                    var task = coordinator.TryInitializeAsync(
+                        CancellationToken.None,
+                        onAttemptStart: () => { },
+                        onResult: (result, _) =>
+                        {
+                            return Task.CompletedTask;
+                        });
+                    taskTcs.TrySetResult(task);
+                }
+                catch (Exception ex)
+                {
+                    taskTcs.TrySetException(ex);
+                }
+            });
+
+            thread.Start();
+            var task = await Task.WhenAny(taskTcs.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.Same(taskTcs.Task, task);
+            task = await taskTcs.Task;
+
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.Same(task, completed);
+            await task;
+
+            Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Test thread did not finish within timeout");
+
+            Assert.NotEqual(callerThreadId, factoryThreadId);
+        }
+
+        private class TestFactoryWithThreadCapture : IGpuMonitoringSessionFactory
+        {
+            private readonly Action<int> _captureThreadId;
+
+            public TestFactoryWithThreadCapture(Action<int> captureThreadId)
+            {
+                _captureThreadId = captureThreadId;
+            }
+
+            public GpuMonitoringInitializationResult Create(CancellationToken cancellationToken)
+            {
+                _captureThreadId(Thread.CurrentThread.ManagedThreadId);
+                return CreateSuccessResult();
+            }
         }
     }
 }
