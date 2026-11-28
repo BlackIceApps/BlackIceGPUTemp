@@ -19,6 +19,8 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
         private CleanupStage _stage = CleanupStage.None;
         private IAdlxNative? _pendingNative;
         private IDisposable? _pendingDisposable;
+        private IAdlxNative? _pendingDisposeNative;
+        private IDisposable? _pendingDisposeDisposable;
         private bool _disposed;
 
         public bool HasPendingCleanup => _stage != CleanupStage.None && _stage != CleanupStage.Completed;
@@ -294,8 +296,5 @@ namespace BlackIceGPUTemp.Monitoring.Providers.Amd
                 PendingDisposeDisposable = pendingDisposeDisposable;
             }
         }
-
-        private IAdlxNative? _pendingDisposeNative;
-        private IDisposable? _pendingDisposeDisposable;
     }
 }
