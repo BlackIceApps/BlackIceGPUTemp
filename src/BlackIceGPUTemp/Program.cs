@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Windows.Forms;
 using BlackIceGPUTemp.Logging;
 using BlackIceGPUTemp.Monitoring;
@@ -15,16 +16,32 @@ namespace BlackIceGPUTemp
         [STAThread]
         static void Main()
         {
-            SetupExceptionHandlers();
+            bool createdNew;
+            using (var mutex = new Mutex(true, @"Local\BlackIceGPUTemp.SingleInstance", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    return;
+                }
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
+                try
+                {
+                    SetupExceptionHandlers();
 
-            var providerFactory = new AmdGpuProviderFactory();
-            var monitoringSessionFactory = new GpuMonitoringSessionFactory(providerFactory);
-            var context = new BlackIceGPUTempApplicationContext(monitoringSessionFactory);
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
 
-            Application.Run(context);
+                    var providerFactory = new AmdGpuProviderFactory();
+                    var monitoringSessionFactory = new GpuMonitoringSessionFactory(providerFactory);
+                    var context = new BlackIceGPUTempApplicationContext(monitoringSessionFactory);
+
+                    Application.Run(context);
+                }
+                finally
+                {
+                    mutex.ReleaseMutex();
+                }
+            }
         }
 
         private static void SetupExceptionHandlers()
