@@ -115,7 +115,7 @@ namespace BlackIceGPUTemp.Tray
                 onResult: HandleInitResultAsync);
         }
 
-        private async Task HandleInitResultAsync(GpuMonitoringInitializationResult initResult, CancellationToken token)
+        private Task HandleInitResultAsync(GpuMonitoringInitializationResult initResult, CancellationToken token)
         {
             if (token.IsCancellationRequested)
             {
@@ -130,7 +130,7 @@ namespace BlackIceGPUTemp.Tray
                         Logger.LogError("Error disconnecting provider after cancellation", ex);
                     }
                 }
-                return;
+                return Task.CompletedTask;
             }
 
             if (!initResult.IsSuccess)
@@ -141,6 +141,8 @@ namespace BlackIceGPUTemp.Tray
             {
                 HandleInitSuccess(initResult, token);
             }
+
+            return Task.CompletedTask;
         }
 
         private void HandleInitFailure(string message, CancellationToken token)
