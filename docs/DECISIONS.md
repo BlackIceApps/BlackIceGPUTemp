@@ -73,3 +73,13 @@ BlackIceGPUTemp enforces a single running instance per Windows user session usin
 If another instance is already running, the newly launched instance exits silently before initializing the GPU provider or creating the tray application context.
 
 No notification is displayed, and the existing instance is not activated or brought to the foreground. This is intentional behavior for the background tray application. Forwarding activation requests to an existing instance is outside the scope of the current version.
+
+### Log File Rotation Is Not Required
+
+The application uses append-only logging without automatic log rotation.
+
+This is an intentional decision based on the expected low logging volume during normal operation. Repeated warning and error messages are deduplicated to avoid unnecessarily growing the log file during a long-running session.
+
+Automatic log rotation, size limits, and log retention management are not required for the current application scope.
+
+Reconsider this decision only if real-world usage shows sustained log growth or log files becoming impractically large.
