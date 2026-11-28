@@ -74,6 +74,10 @@ If another instance is already running, the newly launched instance exits silent
 
 No notification is displayed, and the existing instance is not activated or brought to the foreground. This is intentional behavior for the background tray application. Forwarding activation requests to an existing instance is outside the scope of the current version.
 
+### Manual GPU Initialization Retry
+
+If the initial GPU monitoring initialization fails, the tray menu exposes a manual Retry option. Retry is available only while initialization has failed; no automatic retry or periodic reinitialization is performed. A retry uses the same initialization flow as application startup.
+
 ### Log File Rotation Is Not Required
 
 The application uses append-only logging without automatic log rotation.
