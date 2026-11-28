@@ -24,16 +24,23 @@ namespace BlackIceGPUTemp
                     return;
                 }
 
-                SetupExceptionHandlers();
+                try
+                {
+                    SetupExceptionHandlers();
 
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
+                    Application.EnableVisualStyles();
+                    Application.SetCompatibleTextRenderingDefault(false);
 
-                var providerFactory = new AmdGpuProviderFactory();
-                var monitoringSessionFactory = new GpuMonitoringSessionFactory(providerFactory);
-                var context = new BlackIceGPUTempApplicationContext(monitoringSessionFactory);
+                    var providerFactory = new AmdGpuProviderFactory();
+                    var monitoringSessionFactory = new GpuMonitoringSessionFactory(providerFactory);
+                    var context = new BlackIceGPUTempApplicationContext(monitoringSessionFactory);
 
-                Application.Run(context);
+                    Application.Run(context);
+                }
+                finally
+                {
+                    mutex.ReleaseMutex();
+                }
             }
         }
 
