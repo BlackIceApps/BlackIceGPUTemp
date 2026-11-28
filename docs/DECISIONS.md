@@ -65,3 +65,11 @@ The application checks `CancellationToken` between native ADLX calls. However, c
 - Do not introduce misleading task-level timeouts as a substitute for native cancellation.
 - Accept that an unresponsive ADLX call may block GPU monitoring until the call returns or the application exits.
 - Reconsider this decision if monitoring reliability requirements change.
+
+### Single-Instance Application Behavior
+
+BlackIceGPUTemp enforces a single running instance per Windows user session using a named local mutex.
+
+If another instance is already running, the newly launched instance exits silently before initializing the GPU provider or creating the tray application context.
+
+No notification is displayed, and the existing instance is not activated or brought to the foreground. This is intentional behavior for the background tray application. Forwarding activation requests to an existing instance is outside the scope of the current version.
