@@ -80,6 +80,18 @@ No notification is displayed, and the existing instance is not activated or brou
 
 If the initial GPU monitoring initialization fails, the tray menu exposes a manual Retry option. Retry is available only while initialization has failed; no automatic retry or periodic reinitialization is performed. A retry uses the same initialization flow as application startup.
 
+### GPU Initialization Cancellation and Lifecycle Cleanup
+
+GPU initialization cancellation is handled by the `GpuInitializationCoordinator` and the initialization result callback.
+
+If cancellation is detected by the coordinator after the factory returns, the coordinator disconnects the returned provider lifecycle and does not invoke the result callback.
+
+If cancellation occurs after the coordinator's cancellation check, the result callback is responsible for checking the token and preventing the initialization result from being published to the UI or monitoring lifecycle.
+
+These paths are mutually exclusive for a single initialization attempt. The provider lifecycle must be disconnected exactly once when initialization completes successfully but is cancelled before being adopted by the monitoring lifecycle.
+
+This behavior is intentional and is covered by `CancellationAfterFactorySuccess_DisconnectsLifecycle_AndSkipsCallback`. Do not remove the cancellation checks in the result callback based solely on the coordinator's earlier check; they protect against a cancellation race.
+
 ### Log File Rotation Is Not Required
 
 The application uses append-only logging without automatic log rotation.
