@@ -188,28 +188,27 @@ namespace BlackIceGPUTemp.Tests
                     return Task.CompletedTask;
                 });
 
-            Assert.True(startSignal.Wait(TimeSpan.FromSeconds(5)), "Factory did not start within timeout");
-
-            var secondTask = coordinator.TryInitializeAsync(
-                CancellationToken.None,
-                onAttemptStart: () => attemptStartCount++,
-                onResult: (result, _) =>
-                {
-                    callbackCount++;
-                    return Task.CompletedTask;
-                });
-
-            Assert.True(secondTask.IsCompleted, "Second call should complete immediately when rejected");
-
             try
             {
-                proceedSignal.Set();
-                Assert.True(firstTask.Wait(TimeSpan.FromSeconds(5)), "First task did not complete within timeout");
+                Assert.True(startSignal.Wait(TimeSpan.FromSeconds(5)), "Factory did not start within timeout");
+
+                var secondTask = coordinator.TryInitializeAsync(
+                    CancellationToken.None,
+                    onAttemptStart: () => attemptStartCount++,
+                    onResult: (result, _) =>
+                    {
+                        callbackCount++;
+                        return Task.CompletedTask;
+                    });
+
+                Assert.True(secondTask.IsCompleted, "Second call should complete immediately when rejected");
             }
             finally
             {
                 proceedSignal.Set();
             }
+
+            Assert.True(firstTask.Wait(TimeSpan.FromSeconds(5)), "First task did not complete within timeout");
 
             Assert.Equal(1, factory.CallCount);
             Assert.Equal(1, attemptStartCount);
