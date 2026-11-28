@@ -34,6 +34,8 @@
 
 - **Intended scope:** BlackIceGPUTemp is designed primarily for systems with a single GPU. The application targets typical users who have one graphics card.
 - **Selection mechanism:** The application selects the first device returned by the GPU provider (`devices[0]`). No preference is applied for discrete vs. integrated GPUs (`GpuKind.Discrete` is not preferred).
+- **Enumeration failure policy:** Production GPU enumeration is fail-fast. If retrieving or validating any enumerated GPU fails (including handle, device identity, name, or temperature support checks), the enumeration fails as a whole and does not return a partial device list. This is intentional for the current single-GPU-focused scope; partial enumeration and per-device error recovery are not supported.
+- **Probe behavior:** GPU probing may tolerate individual device errors while checking for a supported GPU. This does not change the stricter failure policy used by production enumeration.
 - **User interface:** No UI is provided for manual GPU selection. The user cannot override the automatic choice.
 - **Rationale:** Simplicity of operation and avoidance of unnecessary configuration. The product is a lightweight utility, not a multi-GPU management tool.
 - **Multi-GPU behavior:** When multiple GPUs are present, the selected device depends on the enumeration order returned by the underlying provider (ADLX). This order is not guaranteed to be stable across driver updates or hardware changes.
