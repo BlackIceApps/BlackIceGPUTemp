@@ -32,6 +32,31 @@ namespace BlackIceGPUTemp.Tests
             }
         }
 
+        private class ThrowingSessionFactory : IGpuMonitoringSessionFactory
+        {
+            private readonly Exception _exceptionToThrow;
+            private readonly GpuMonitoringInitializationResult _resultAfterThrow;
+            private bool _hasThrown = false;
+            public int CallCount { get; private set; }
+
+            public ThrowingSessionFactory(Exception exceptionToThrow, GpuMonitoringInitializationResult resultAfterThrow)
+            {
+                _exceptionToThrow = exceptionToThrow;
+                _resultAfterThrow = resultAfterThrow;
+            }
+
+            public GpuMonitoringInitializationResult Create(CancellationToken cancellationToken)
+            {
+                CallCount++;
+                if (!_hasThrown)
+                {
+                    _hasThrown = true;
+                    throw _exceptionToThrow;
+                }
+                return _resultAfterThrow;
+            }
+        }
+
         private class BlockingSessionFactory : IGpuMonitoringSessionFactory
         {
             private readonly ManualResetEventSlim _startSignal;
@@ -56,6 +81,31 @@ namespace BlackIceGPUTemp.Tests
                 _proceedSignal.Wait(cancellationToken);
                 FactoryCompleted = true;
                 return _result;
+            }
+        }
+
+        private class CancellingThenSuccessFactory : IGpuMonitoringSessionFactory
+        {
+            private readonly CancellationTokenSource _cts;
+            private readonly GpuMonitoringInitializationResult _successResult;
+            private bool _firstCall = true;
+            public int CallCount { get; private set; }
+
+            public CancellingThenSuccessFactory(CancellationTokenSource cts, GpuMonitoringInitializationResult successResult)
+            {
+                _cts = cts;
+                _successResult = successResult;
+            }
+
+            public GpuMonitoringInitializationResult Create(CancellationToken cancellationToken)
+            {
+                CallCount++;
+                if (_firstCall)
+                {
+                    _firstCall = false;
+                    _cts.Cancel();
+                }
+                return _successResult;
             }
         }
 
@@ -90,6 +140,22 @@ namespace BlackIceGPUTemp.Tests
                 reading = new TemperatureReading(50.0, "GPU", DateTimeOffset.UtcNow);
                 error = null;
                 return true;
+            }
+        }
+
+        private class FakeLifecycle : IGpuProviderLifecycle
+        {
+            public int DisconnectCallCount { get; private set; }
+
+            public bool Connect(out string? error)
+            {
+                error = null;
+                return true;
+            }
+
+            public void Disconnect()
+            {
+                DisconnectCallCount++;
             }
         }
 
@@ -167,6 +233,118 @@ namespace BlackIceGPUTemp.Tests
             Assert.Equal(2, callbackResults.Count);
             Assert.False(callbackResults[0].IsSuccess);
             Assert.False(callbackResults[1].IsSuccess);
+        }
+
+        [Fact]
+        public async Task FactoryException_IsReportedAsFailure_AndNextAttemptIsAllowed()
+        {
+            var exception = new InvalidOperationException("Factory error");
+            var factory = new ThrowingSessionFactory(exception, CreateSuccessResult());
+            var coordinator = new GpuInitializationCoordinator(factory);
+            var callbackResults = new List<GpuMonitoringInitializationResult>();
+            var attemptStartCount = 0;
+
+            await coordinator.TryInitializeAsync(
+                CancellationToken.None,
+                onAttemptStart: () => attemptStartCount++,
+                onResult: (result, _) =>
+                {
+                    callbackResults.Add(result);
+                    return Task.CompletedTask;
+                });
+
+            await coordinator.TryInitializeAsync(
+                CancellationToken.None,
+                onAttemptStart: () => attemptStartCount++,
+                onResult: (result, _) =>
+                {
+                    callbackResults.Add(result);
+                    return Task.CompletedTask;
+                });
+
+            Assert.Equal(2, factory.CallCount);
+            Assert.Equal(2, attemptStartCount);
+            Assert.Equal(2, callbackResults.Count);
+            Assert.False(callbackResults[0].IsSuccess);
+            Assert.Equal("Initialization error", callbackResults[0].Message);
+            Assert.True(callbackResults[1].IsSuccess);
+        }
+
+        [Fact]
+        public async Task CallbackException_Propagates_AndReleasesInitializationGate()
+        {
+            var factory = new FakeSessionFactory(new[] { CreateSuccessResult() });
+            var coordinator = new GpuInitializationCoordinator(factory);
+            var callbackCount = 0;
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                await coordinator.TryInitializeAsync(
+                    CancellationToken.None,
+                    onAttemptStart: () => { },
+                    onResult: (result, _) =>
+                    {
+                        callbackCount++;
+                        throw new InvalidOperationException("Callback error");
+                    });
+            });
+
+            Assert.Equal("Callback error", ex.Message);
+            Assert.Equal(1, callbackCount);
+
+            var secondCallbackResults = new List<GpuMonitoringInitializationResult>();
+            await coordinator.TryInitializeAsync(
+                CancellationToken.None,
+                onAttemptStart: () => { },
+                onResult: (result, _) =>
+                {
+                    secondCallbackResults.Add(result);
+                    return Task.CompletedTask;
+                });
+
+            Assert.Equal(2, factory.CallCount);
+            Assert.Single(secondCallbackResults);
+            Assert.True(secondCallbackResults[0].IsSuccess);
+        }
+
+        [Fact]
+        public async Task CancellationAfterFactorySuccess_DisconnectsLifecycle_AndSkipsCallback()
+        {
+            var cts = new CancellationTokenSource();
+            var lifecycle = new FakeLifecycle();
+            var fakeDevice = new FakeDevice("device-1", "Test GPU");
+            var monitorService = new HardwareMonitorService(fakeDevice);
+            var successResult = new GpuMonitoringInitializationResult(monitorService, "provider-1", "device-1", "Test GPU", lifecycle);
+            var factory = new CancellingThenSuccessFactory(cts, successResult);
+            var coordinator = new GpuInitializationCoordinator(factory);
+            var callbackCount = 0;
+
+            await coordinator.TryInitializeAsync(
+                cts.Token,
+                onAttemptStart: () => { },
+                onResult: (result, _) =>
+                {
+                    callbackCount++;
+                    return Task.CompletedTask;
+                });
+
+            Assert.Equal(1, factory.CallCount);
+            Assert.Equal(1, lifecycle.DisconnectCallCount);
+            Assert.Equal(0, callbackCount);
+
+            var secondCallbackResults = new List<GpuMonitoringInitializationResult>();
+            await coordinator.TryInitializeAsync(
+                CancellationToken.None,
+                onAttemptStart: () => { },
+                onResult: (result, _) =>
+                {
+                    secondCallbackResults.Add(result);
+                    return Task.CompletedTask;
+                });
+
+            Assert.Equal(2, factory.CallCount);
+            Assert.Single(secondCallbackResults);
+            Assert.True(secondCallbackResults[0].IsSuccess);
         }
 
         [Fact]
