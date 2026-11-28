@@ -199,10 +199,17 @@ namespace BlackIceGPUTemp.Tests
                     return Task.CompletedTask;
                 });
 
-            Assert.False(secondTask.IsCompleted, "Second call should not complete while first is in progress");
+            Assert.True(secondTask.IsCompleted, "Second call should complete immediately when rejected");
 
-            proceedSignal.Set();
-            Assert.True(firstTask.Wait(TimeSpan.FromSeconds(5)), "First task did not complete within timeout");
+            try
+            {
+                proceedSignal.Set();
+                Assert.True(firstTask.Wait(TimeSpan.FromSeconds(5)), "First task did not complete within timeout");
+            }
+            finally
+            {
+                proceedSignal.Set();
+            }
 
             Assert.Equal(1, factory.CallCount);
             Assert.Equal(1, attemptStartCount);
