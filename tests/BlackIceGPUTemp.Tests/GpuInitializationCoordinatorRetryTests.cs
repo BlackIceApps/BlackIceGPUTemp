@@ -273,7 +273,11 @@ namespace BlackIceGPUTemp.Tests
         [Fact]
         public async Task CallbackException_Propagates_AndReleasesInitializationGate()
         {
-            var factory = new FakeSessionFactory(new[] { CreateSuccessResult() });
+            var factory = new FakeSessionFactory(new[]
+            {
+                CreateSuccessResult(),
+                CreateSuccessResult()
+            });
             var coordinator = new GpuInitializationCoordinator(factory);
             var callbackCount = 0;
 
