@@ -170,7 +170,7 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void ParallelAttemptRejected_FactoryCalledOnce_SecondCallReturnsImmediately()
+        public async Task ParallelAttemptRejected_FactoryCalledOnce_SecondCallReturnsImmediately()
         {
             var startSignal = new ManualResetEventSlim(false);
             var proceedSignal = new ManualResetEventSlim(false);
@@ -208,7 +208,9 @@ namespace BlackIceGPUTemp.Tests
                 proceedSignal.Set();
             }
 
-            Assert.True(firstTask.Wait(TimeSpan.FromSeconds(5)), "First task did not complete within timeout");
+            var completedTask = await Task.WhenAny(firstTask, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.Same(firstTask, completedTask);
+            await firstTask;
 
             Assert.Equal(1, factory.CallCount);
             Assert.Equal(1, attemptStartCount);
@@ -218,36 +220,43 @@ namespace BlackIceGPUTemp.Tests
         }
 
         [Fact]
-        public void FactoryRunsOffCallerThread_CallerThreadNotEqualFactoryThread()
+        public async Task FactoryRunsOffCallerThread_CallerThreadNotEqualFactoryThread()
         {
             int callerThreadId = 0;
             int factoryThreadId = 0;
             var factory = new TestFactoryWithThreadCapture(r => factoryThreadId = r);
             var coordinator = new GpuInitializationCoordinator(factory);
-            var tcs = new TaskCompletionSource<bool>();
+            var taskTcs = new TaskCompletionSource<Task>();
 
             var thread = new Thread(() =>
             {
                 callerThreadId = Thread.CurrentThread.ManagedThreadId;
                 try
                 {
-                    coordinator.TryInitializeAsync(
+                    var task = coordinator.TryInitializeAsync(
                         CancellationToken.None,
                         onAttemptStart: () => { },
                         onResult: (result, _) =>
                         {
-                            tcs.TrySetResult(true);
                             return Task.CompletedTask;
-                        }).Wait(TimeSpan.FromSeconds(10));
+                        });
+                    taskTcs.TrySetResult(task);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    tcs.TrySetResult(false);
+                    taskTcs.TrySetException(ex);
                 }
             });
 
             thread.Start();
-            Assert.True(tcs.Task.Wait(TimeSpan.FromSeconds(10)), "TryInitializeAsync did not complete within timeout");
+            var task = await Task.WhenAny(taskTcs.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.Same(taskTcs.Task, task);
+            task = await taskTcs.Task;
+
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.Same(task, completed);
+            await task;
+
             Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Test thread did not finish within timeout");
 
             Assert.NotEqual(callerThreadId, factoryThreadId);
